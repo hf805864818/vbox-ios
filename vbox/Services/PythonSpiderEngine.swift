@@ -144,17 +144,17 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     // MARK: - Spider Methods (同步, 协议要求)
 
-    func callHomeContent(overrideInjectDict: [String: Any]? = nil) throws -> HomeContentResult {
-        guard let json = call("homeContent", args: "{}", overrideInjectDict: overrideInjectDict),
+    func callHomeContent() throws -> HomeContentResult {
+        guard let json = call("homeContent", args: "{}"),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("homeContent")
         }
         return try decodeOrFallbackHome(from: data)
     }
 
-    func callCategoryContent(tid: String, pg: Int, extend: String, overrideInjectDict: [String: Any]? = nil) throws -> CategoryContentResult {
+    func callCategoryContent(tid: String, pg: Int, extend: String) throws -> CategoryContentResult {
         let args = #"{"tid":"\#(tid)","pg":"\#(pg)","extend":"\#(extend)"}"#
-        guard let json = call("categoryContent", args: args, overrideInjectDict: overrideInjectDict),
+        guard let json = call("categoryContent", args: args),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("categoryContent")
         }
@@ -175,9 +175,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callDetailContent(ids: String, overrideInjectDict: [String: Any]? = nil) throws -> DetailContentResult {
+    func callDetailContent(ids: String) throws -> DetailContentResult {
         let idsJSON = #"["\#(ids)"]"#
-        guard let json = call("detailContent", args: idsJSON, overrideInjectDict: overrideInjectDict),
+        guard let json = call("detailContent", args: idsJSON),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("detailContent")
         }
@@ -189,9 +189,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callSearchContent(keyword: String, pg: Int, overrideInjectDict: [String: Any]? = nil) throws -> SearchContentResult {
+    func callSearchContent(keyword: String, pg: Int) throws -> SearchContentResult {
         let args = #"{"key":"\#(keyword)","quick":false,"pg":"\#(pg)"}"#
-        guard let json = call("searchContent", args: args, overrideInjectDict: overrideInjectDict),
+        guard let json = call("searchContent", args: args),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("searchContent")
         }
@@ -203,8 +203,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callHomeVideoContent(overrideInjectDict: [String: Any]? = nil) throws -> HomeContentResult {
-        guard let json = call("homeVideoContent", args: "", overrideInjectDict: overrideInjectDict),
+    /// 调用首页视频内容（福利专区可选方法，非 SpiderEngineProtocol 要求）
+    func callHomeVideoContent() throws -> HomeContentResult {
+        guard let json = call("homeVideoContent", args: ""),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("homeVideoContent")
         }
@@ -216,9 +217,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callPlayerContent(vodId: String, flag: String, url: String, overrideInjectDict: [String: Any]? = nil) throws -> PlayerContentResult {
+    func callPlayerContent(vodId: String, flag: String, url: String) throws -> PlayerContentResult {
         let args = #"{"flag":"\#(flag)","id":"\#(url)"}"#
-        guard let json = call("playerContent", args: args, overrideInjectDict: overrideInjectDict),
+        guard let json = call("playerContent", args: args),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("playerContent")
         }
@@ -291,13 +292,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     }
 
     /// 异步调用首页
-    func callHomeContentAsync() async throws -> HomeContentResult {
-        let capturedInject = injectDict
+    /// 在串行队列内部设置 injectDict，确保并发调用时注入值不错位
+    func callHomeContentAsync(injectDict: [String: Any]? = nil) async throws -> HomeContentResult {
         try await withPythonTimeout("homeContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
                 do {
-                    let result = try self.callHomeContent(overrideInjectDict: capturedInject)
+                    let result = try self.callHomeContent()
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -307,13 +309,13 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     }
 
     /// 异步调用分类
-    func callCategoryContentAsync(tid: String, pg: Int, extend: String) async throws -> CategoryContentResult {
-        let capturedInject = injectDict
+    func callCategoryContentAsync(tid: String, pg: Int, extend: String, injectDict: [String: Any]? = nil) async throws -> CategoryContentResult {
         try await withPythonTimeout("categoryContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
                 do {
-                    let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend, overrideInjectDict: capturedInject)
+                    let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -323,13 +325,13 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     }
 
     /// 异步调用详情
-    func callDetailContentAsync(ids: String) async throws -> DetailContentResult {
-        let capturedInject = injectDict
+    func callDetailContentAsync(ids: String, injectDict: [String: Any]? = nil) async throws -> DetailContentResult {
         try await withPythonTimeout("detailContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
                 do {
-                    let result = try self.callDetailContent(ids: ids, overrideInjectDict: capturedInject)
+                    let result = try self.callDetailContent(ids: ids)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -340,13 +342,13 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用搜索
     /// ★ 超时 8 秒 (搜索场景要求快速响应，慢脚本直接跳过)
-    func callSearchContentAsync(keyword: String, pg: Int) async throws -> SearchContentResult {
-        let capturedInject = injectDict
+    func callSearchContentAsync(keyword: String, pg: Int, injectDict: [String: Any]? = nil) async throws -> SearchContentResult {
         try await withPythonTimeout("searchContent", timeout: 8) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
                 do {
-                    let result = try self.callSearchContent(keyword: keyword, pg: pg, overrideInjectDict: capturedInject)
+                    let result = try self.callSearchContent(keyword: keyword, pg: pg)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -356,13 +358,13 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     }
 
     /// 异步调用播放解析
-    func callPlayerContentAsync(vodId: String, flag: String, url: String) async throws -> PlayerContentResult {
-        let capturedInject = injectDict
+    func callPlayerContentAsync(vodId: String, flag: String, url: String, injectDict: [String: Any]? = nil) async throws -> PlayerContentResult {
         try await withPythonTimeout("playerContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
                 do {
-                    let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url, overrideInjectDict: capturedInject)
+                    let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -371,14 +373,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    /// 异步调用首页视频（可选方法）
-    func callHomeVideoContentAsync() async throws -> HomeContentResult {
-        let capturedInject = injectDict
+    /// 异步调用首页视频（可选方法，福利专区专用）
+    func callHomeVideoContentAsync(injectDict: [String: Any]? = nil) async throws -> HomeContentResult {
         try await withPythonTimeout("homeVideoContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
+                if let injectDict = injectDict { self.injectDict = injectDict }
                 do {
-                    let result = try self.callHomeVideoContent(overrideInjectDict: capturedInject)
+                    let result = try self.callHomeVideoContent()
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -390,13 +392,10 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     // MARK: - Private（内部调用）
 
     /// 内部调用 Python 函数
-    /// - Parameter overrideInjectDict: 本次调用专用的注入字典，优先级高于 self.injectDict。
-    ///   用于并发场景下避免 injectDict 属性被其他调用覆盖。
-    func call(_ function: String, args: String, overrideInjectDict: [String: Any]? = nil) -> String? {
-        let effectiveDict = overrideInjectDict ?? injectDict
+    func call(_ function: String, args: String) -> String? {
         let start = Date()
         let result = PythonSpiderBridge.callSpider(scriptPath,
-                                                    injectDict: effectiveDict,
+                                                    injectDict: injectDict,
                                                     function: function,
                                                     args: args)
         let elapsed = Int(Date().timeIntervalSince(start) * 1000)
