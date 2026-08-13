@@ -120,6 +120,13 @@ static NSString *_pyHome = nil;
 + (NSString *)callSpider:(NSString *)scriptPath
                 function:(NSString *)functionName
                     args:(NSString *)argsJSON {
+    return [self callSpider:scriptPath injectDict:nil function:functionName args:argsJSON];
+}
+
++ (NSString *)callSpider:(NSString *)scriptPath
+              injectDict:(NSDictionary *)injectDict
+                function:(NSString *)functionName
+                    args:(NSString *)argsJSON {
     
     if (!scriptPath || !functionName) return nil;
 
@@ -150,6 +157,22 @@ static NSString *_pyHome = nil;
         PyObject *builtins = PyEval_GetBuiltins();
         if (builtins) {
             PyDict_SetItemString(globals, "__builtins__", builtins);
+        }
+
+        // === Phase 1.5: 注入外部上下文（福利域名/代理等）===
+        // injectDict 中的键值对被写入 globals，脚本的 base.spider.Spider
+        // 在 __init__ 时可读取这些值实现自适应。
+        // 支持的类型：NSString → PyUnicode, NSNumber → PyLong/PyFloat/PyBool,
+        //            NSArray → PyList (元素递归转换), NSNull → Py_None
+        if (injectDict != nil && injectDict.count > 0) {
+            for (NSString *key in injectDict) {
+                id value = injectDict[key];
+                PyObject *pyValue = [self pyObjectFromObjC:value];
+                if (pyValue) {
+                    PyDict_SetItemString(globals, [key UTF8String], pyValue);
+                    Py_DECREF(pyValue);
+                }
+            }
         }
         
         // === Phase 2: 加载脚本文件 ===
@@ -532,6 +555,71 @@ cleanup:
         return PyTuple_Pack(1, PyUnicode_FromString([jsonArgs UTF8String]));
     }
     return PyTuple_Pack(0);
+}
+
+#pragma mark - ObjC → Python 类型转换
+
+/// 将基础 ObjC 类型转换为对应的 Python 对象。
+/// 支持：NSString → PyUnicode, NSNumber(bool) → PyBool,
+///       NSNumber(int) → PyLong, NSNumber(double) → PyFloat,
+///       NSArray → PyList (递归), NSDictionary → PyDict (递归),
+///       NSNull → Py_None。
+/// 不支持的类型返回 nil。
++ (PyObject *)pyObjectFromObjC:(id)value {
+    if (value == nil || value == [NSNull null]) {
+        Py_RETURN_NONE;
+    }
+    if ([value isKindOfClass:[NSString class]]) {
+        return PyUnicode_FromString([(NSString *)value UTF8String]);
+    }
+    if ([value isKindOfClass:[NSNumber class]]) {
+        NSNumber *num = (NSNumber *)value;
+        const char *type = [num objCType];
+        if (strcmp(type, @encode(BOOL)) == 0) {
+            return PyBool_FromLong([num boolValue] ? 1 : 0);
+        }
+        if (strcmp(type, @encode(int)) == 0 ||
+            strcmp(type, @encode(long)) == 0 ||
+            strcmp(type, @encode(long long)) == 0 ||
+            strcmp(type, @encode(short)) == 0 ||
+            strcmp(type, @encode(char)) == 0 ||
+            strcmp(type, @encode(unsigned int)) == 0 ||
+            strcmp(type, @encode(unsigned long)) == 0 ||
+            strcmp(type, @encode(unsigned long long)) == 0) {
+            return PyLong_FromLongLong([num longLongValue]);
+        }
+        // float / double / CGFloat
+        return PyFloat_FromDouble([num doubleValue]);
+    }
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSArray *arr = (NSArray *)value;
+        PyObject *list = PyList_New((Py_ssize_t)arr.count);
+        for (NSUInteger i = 0; i < arr.count; i++) {
+            PyObject *item = [self pyObjectFromObjC:arr[i]];
+            if (item) {
+                PyList_SetItem(list, i, item);  // steals reference
+            } else {
+                Py_INCREF(Py_None);
+                PyList_SetItem(list, i, Py_None);
+            }
+        }
+        return list;
+    }
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)value;
+        PyObject *pyDict = PyDict_New();
+        for (id key in dict) {
+            if (![key isKindOfClass:[NSString class]]) continue;
+            PyObject *pyValue = [self pyObjectFromObjC:dict[key]];
+            if (pyValue) {
+                PyDict_SetItemString(pyDict, [(NSString *)key UTF8String], pyValue);
+                Py_DECREF(pyValue);
+            }
+        }
+        return pyDict;
+    }
+    // 不支持的类型：返回 nil，调用方应跳过
+    return nil;
 }
 
 @end

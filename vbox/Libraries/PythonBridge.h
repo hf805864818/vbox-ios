@@ -30,6 +30,17 @@ NS_ASSUME_NONNULL_BEGIN
 /// 检查 Python 是否已初始化
 + (BOOL)isPythonInitialized;
 
+/// 执行 Python Spider 脚本的指定方法（带全局变量注入）
+/// @param scriptPath 本地 .py 文件绝对路径
+/// @param injectDict 要注入到脚本 globals 字典的键值对（字符串/数字/布尔/数组等基础类型）
+/// @param functionName 方法名
+/// @param argsJSON JSON 格式参数字符串 (可为 nil)
+/// @return Python 方法返回的 JSON 字符串，失败返回 nil
++ (nullable NSString *)callSpider:(NSString *)scriptPath
+                     injectDict:(nullable NSDictionary *)injectDict
+                       function:(NSString *)functionName
+                           args:(nullable NSString *)argsJSON;
+
 @end
 
 NS_ASSUME_NONNULL_END

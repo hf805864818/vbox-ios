@@ -50,6 +50,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     private let scriptKey: String
     private var _isSpiderReady = false
 
+    /// 注入到脚本 globals 字典的上下文（域名、代理等）。
+    /// 默认为 nil，此时行为与原有完全一致。
+    /// 设置后，每次 Python 调用都会把这些键值注入脚本的 globals，
+    /// base.spider.Spider 在 __init__ 时读取并应用。
+    var injectDict: [String: Any]? = nil
+
     /// Python 调用专用串行队列
     /// CPython 有 GIL, 多线程并发执行 Python 代码没有意义
     /// 使用串行队列保证 Python 调用顺序执行, 避免 GIL 竞争
@@ -90,7 +96,10 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     private func registerSpiderInternal() {
         let start = Date()
-        let json = PythonSpiderBridge.callSpider(scriptPath, function: "init", args: "{}")
+        let json = PythonSpiderBridge.callSpider(scriptPath,
+                                                 injectDict: injectDict,
+                                                 function: "init",
+                                                 args: "{}")
         let elapsed = Int(Date().timeIntervalSince(start) * 1000)
 
         if json != nil {
@@ -191,6 +200,19 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         } catch {
             onLog?("⚠️ [\(scriptKey)] searchContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
             return try decodeOrFallbackSearch(from: data)
+        }
+    }
+
+    func callHomeVideoContent() throws -> HomeContentResult {
+        guard let json = call("homeVideoContent", args: ""),
+              let data = json.data(using: .utf8) else {
+            throw PythonSpiderError.execFailed("homeVideoContent")
+        }
+        do {
+            return try JSONDecoder().decode(HomeContentResult.self, from: data)
+        } catch {
+            onLog?("⚠️ [\(scriptKey)] homeVideoContent 标准解码失败, 尝试容错解析: \(error.localizedDescription)")
+            return try decodeOrFallbackHome(from: data)
         }
     }
 
@@ -344,11 +366,29 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    // MARK: - Private
+    /// 异步调用首页视频（可选方法）
+    func callHomeVideoContentAsync() async throws -> HomeContentResult {
+        try await withPythonTimeout("homeVideoContent", timeout: 20) { done in
+            self.pythonQueue.async { [weak self] in
+                guard let self = self else { return }
+                do {
+                    let result = try self.callHomeVideoContent()
+                    done(.success(result))
+                } catch {
+                    done(.failure(error))
+                }
+            }
+        }
+    }
 
-    private func call(_ function: String, args: String) -> String? {
+    // MARK: - Private（内部调用）
+
+    func call(_ function: String, args: String) -> String? {
         let start = Date()
-        let result = PythonSpiderBridge.callSpider(scriptPath, function: function, args: args)
+        let result = PythonSpiderBridge.callSpider(scriptPath,
+                                                    injectDict: injectDict,
+                                                    function: function,
+                                                    args: args)
         let elapsed = Int(Date().timeIntervalSince(start) * 1000)
         if let result = result {
             // ★ 记录返回的原始 JSON (截断前 200 字符, 方便调试)

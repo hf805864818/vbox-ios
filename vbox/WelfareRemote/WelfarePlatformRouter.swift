@@ -140,6 +140,10 @@ struct WelfarePlatformRouter {
         case .welfareSpider:
             return makeWelfareSpiderDestination(for: platform)
 
+        // MARK: 福利专区 Python 蜘蛛
+        case .pythonSpider:
+            return makePythonSpiderDestination(for: platform)
+
         // MARK: 未实现路由
         case .unknown:
             // serviceType 不在枚举中：显示明确错误，不兜底到其他平台
@@ -217,6 +221,27 @@ struct WelfarePlatformRouter {
         // 其他福利 Spider：使用通用加载页（显示脚本加载状态）
         return AnyView(
             WelfareSpiderHomeView(platform: platform)
+        )
+    }
+
+    /// 福利专区 Python 蜘蛛路由
+    ///
+    /// 所有 serviceType == "python_spider" 的平台都走这里，
+    /// 通用 Python 引擎执行脚本，复用 FuliPlatformMainView。
+    ///
+    /// 新增 Python 福利平台：只需在远程源 JSON 中配置：
+    ///   - serviceType: "python_spider"
+    ///   - scriptType: "python"
+    ///   - api: "./sources/welfare-js/xxx.py"
+    ///   - defaultHosts: [...]
+    /// 无需修改客户端代码。
+    private func makePythonSpiderDestination(for platform: WelfarePlatform) -> AnyView {
+        let p = makeYBoxPlatform2(from: platform)
+        return AnyView(
+            FuliPlatformMainView(
+                platform: p,
+                service: WelfarePythonSpiderService.service(for: platform)
+            )
         )
     }
 
