@@ -16,10 +16,16 @@
 - 2026-08-13 (v3): 福利专区自适应 — _vbox_effective_hosts 域名注入、
   _vbox_proxy_enabled / _vbox_proxy_url 代理注入
   福利 Python 平台自动享用自定义域名和代理设置，脚本无需修改
+- 2026-08-13 (v4): requests 模块自动拦截 — 通过 __init_subclass__ + threading.local
+  自动包装子类接口方法，patch requests.get/post/Session.get/Session.post
+  脚本用 requests 发请求也能自动走域名替换和代理注入
+  普通资源（非福利）不受影响：无注入属性 → _apply() 直接返回原始 URL
 """
 import json
 import re
 import ssl
+import functools
+import threading
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -39,6 +45,122 @@ _DEFAULT_HEADERS = {
 
 # 受控代理本地端口 (与 vbox 原生 proxy 一致)
 _PROXY_PORT = 9978
+
+# ──────────────────────────────────────────────
+# requests 模块自动拦截基础设施
+# ──────────────────────────────────────────────
+# 线程本地存储：当前正在执行的 Spider 实例
+# 每个线程独立，100+ 平台并发不会串
+_active_spider = threading.local()
+
+
+def _get_active_spider():
+    """获取当前线程的活跃 Spider 实例（接口方法执行期间非 None）"""
+    return getattr(_active_spider, 'spider', None)
+
+
+def _spider_method_wrap(func):
+    """装饰器：在 Spider 接口方法执行前设置活跃 Spider，执行后清除
+
+    确保接口方法（homeContent / categoryContent 等）执行期间，
+    _get_active_spider() 返回当前 Spider 实例，
+    使得 requests patch 能读取注入的域名和代理配置。
+
+    同时在方法执行前刷新注入域名（仅福利平台有注入属性时），
+    确保脚本 init() 覆盖 self.host 后，下一个接口方法能恢复注入域名。
+    """
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        _active_spider.spider = self
+        # 福利平台：每次接口方法调用前刷新注入域名
+        # （脚本的 init() 可能覆盖了 self.host，需要恢复）
+        if hasattr(self, '_vbox_effective_hosts'):
+            self._apply_injected_hosts()
+        try:
+            return func(self, *args, **kwargs)
+        finally:
+            _active_spider.spider = None
+    return wrapper
+
+
+def _patch_requests():
+    """一次性 patch requests 模块，自动应用域名替换和代理
+
+    当脚本直接使用 requests.get/post 而非 self.fetch/post 时，
+    通过 _active_spider 获取当前 Spider 实例的注入配置，
+    自动替换 URL 中的原始域名并应用代理。
+
+    安全性：
+    - 普通资源（非福利）不注入 _vbox_effective_hosts，
+      _apply() 返回原始 URL 和 None proxies，行为不变
+    - threading.local 确保并发安全
+    - 仅 patch get/post/Session.get/Session.post，不改变其他行为
+    """
+    try:
+        import requests as _req
+    except ImportError:
+        return
+
+    if getattr(_req, '_vbox_patched', False):
+        return
+    _req._vbox_patched = True
+
+    _orig_get = _req.get
+    _orig_post = _req.post
+    _orig_s_get = _req.Session.get
+    _orig_s_post = _req.Session.post
+
+    def _apply(url):
+        """返回 (修正后的url, proxies字典)"""
+        spider = _get_active_spider()
+        if not spider:
+            return url, None
+
+        proxies = None
+        # 代理注入
+        if getattr(spider, '_vbox_proxy_enabled', False):
+            proxy_url = getattr(spider, '_vbox_proxy_url', '')
+            if proxy_url:
+                proxies = {'http': proxy_url, 'https': proxy_url}
+
+        # 域名替换：将脚本原始域名替换为注入的有效域名
+        injected = getattr(spider, '_vbox_effective_hosts', None)
+        if injected and isinstance(injected, list) and len(injected) > 0:
+            target_host = str(injected[0]).rstrip('/')
+            original_host = getattr(spider, '_vbox_original_host', '')
+            if original_host and original_host in url:
+                url = url.replace(original_host, target_host)
+
+        return url, proxies
+
+    def _patched_get(url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_get(url, **kw)
+
+    def _patched_post(url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_post(url, **kw)
+
+    def _patched_s_get(self_s, url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_s_get(self_s, url, **kw)
+
+    def _patched_s_post(self_s, url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_s_post(self_s, url, **kw)
+
+    _req.get = _patched_get
+    _req.post = _patched_post
+    _req.Session.get = _patched_s_get
+    _req.Session.post = _patched_s_post
 
 
 class Response:
@@ -87,7 +209,40 @@ class Spider:
     - Cookie 处理: getCookie
     - 受控代理: getProxyUrl / localProxy
     - 默认属性: config / retry / header / name
+
+    自动拦截 (v4):
+    - __init_subclass__ 自动包装子类的 TVBox 接口方法
+    - 包装后，接口方法执行期间 _get_active_spider() 返回当前实例
+    - requests patch 据此自动应用域名替换和代理注入
+    - 普通资源无注入属性，包装无副作用
     """
+
+    # TVBox 接口方法名 — 子类覆写时自动包装
+    _SPIDER_INTERFACE_METHODS = frozenset({
+        'init', 'homeContent', 'homeVideoContent',
+        'categoryContent', 'detailContent',
+        'searchContent', 'searchContentPage', 'playerContent'
+    })
+
+    def __init_subclass__(cls, **kwargs):
+        """子类定义时自动包装其接口方法
+
+        当脚本 `class MySpider(Spider):` 定义时触发，
+        自动将子类覆写的接口方法用 _spider_method_wrap 包装，
+        确保执行期间 _active_spider 指向当前实例。
+
+        同时确保 requests 已被 patch（脚本可能在 import base.spider
+        之后再 import requests，此处二次调用 _patch_requests 做兜底）。
+        """
+        super().__init_subclass__(**kwargs)
+        _patch_requests()  # 兜底：确保 requests 已 patch（幂等操作）
+        for name in Spider._SPIDER_INTERFACE_METHODS:
+            if name in cls.__dict__:
+                original = cls.__dict__[name]
+                if callable(original) and not hasattr(original, '_vbox_spider_wrapped'):
+                    wrapped = _spider_method_wrap(original)
+                    wrapped._vbox_spider_wrapped = True
+                    setattr(cls, name, wrapped)
 
     def __init__(self):
         self.name = "BaseSpider"
@@ -105,11 +260,21 @@ class Spider:
         优先级：实例属性（PythonBridge 注入，实例级隔离）> 模块 globals > 脚本自身
         实例属性注入确保 100+ 平台并发时不会串域名。
         普通资源（非福利）不注入，保持原有行为。
+
+        _vbox_original_host：延迟捕获脚本原始域名（init() 设置的 host），
+        供 requests patch 做域名替换。只在 host 非空且与目标不同时捕获，
+        避免 Phase 3.5（init 之前）误存空值。
         """
         injected = getattr(self, '_vbox_effective_hosts', None) \
                 or globals().get('_vbox_effective_hosts')
         if injected and isinstance(injected, list) and len(injected) > 0:
-            self.host = str(injected[0]).rstrip('/')
+            target_host = str(injected[0]).rstrip('/')
+            # 延迟捕获原始域名：只在未捕获/为空、且当前 host 非空且≠目标时捕获
+            current_host = getattr(self, 'host', '')
+            if not getattr(self, '_vbox_original_host', '') \
+                    and current_host and current_host != target_host:
+                self._vbox_original_host = current_host
+            self.host = target_host
             self._backup_hosts = [str(h).rstrip('/') for h in injected[1:]]
 
     def _proxy_enabled(self):
@@ -564,3 +729,11 @@ class Spider:
     def playerContent(self, flag, pid, vipFlags):
         """播放内容 — 子类必须实现"""
         return {'url': '', 'parse': 0, 'header': {}}
+
+
+# ──────────────────────────────────────────────
+# 模块加载时执行：patch requests 模块
+# ──────────────────────────────────────────────
+# 确保脚本用 requests.get/post 也能自动走域名替换和代理注入
+# 普通资源无注入属性，patch 无副作用
+_patch_requests()
