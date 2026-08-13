@@ -54,6 +54,33 @@ final class WelfarePythonSpiderService: FuliBaseService {
         return svc
     }
 
+    // MARK: - 本地代理入口（供 DoubanImageProxyServer 调用）
+
+    /// 根据 platformKey 查找已注册的服务，调用其 localProxy
+    /// 返回 (statusCode, contentType, data)，失败返回 nil
+    static func callLocalProxy(platformKey: String, params: [String: String]) -> (status: Int, contentType: String, data: Data)? {
+        // 从缓存中查找已初始化的服务
+        let svc = cache.object(forKey: platformKey as NSString)
+        guard let svc = svc, let engine = svc.engine else {
+            return nil
+        }
+
+        // 构造 JSON 参数
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: params),
+              let jsonStr = String(data: jsonData, encoding: .utf8) else {
+            return nil
+        }
+
+        return engine.callLocalProxy(args: jsonStr)
+    }
+
+    /// 获取已注册的平台 key 列表（调试用）
+    static var registeredKeys: [String] {
+        // NSCache 没有直接遍历方法，返回空数组占位
+        // 实际使用时通过 platformKey 直接查找
+        return []
+    }
+
     // MARK: - 属性
 
     private let platform: WelfarePlatform

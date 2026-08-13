@@ -337,6 +337,209 @@ cleanup:
     return result;
 }
 
+#pragma mark - Local Proxy (binary return)
+
+/// 调用 Spider 的 localProxy 方法
+/// localProxy 返回 [statusCode, contentType, body] 其中 body 是 bytes
+/// 不能用 json.dumps 序列化，需手动提取
++ (NSDictionary *)callLocalProxy:(NSString *)scriptPath
+                     injectDict:(NSDictionary *)injectDict
+                           args:(NSString *)argsJSON {
+
+    if (!scriptPath) return nil;
+
+    [self initializePythonIfNeeded];
+    if (!_pyInitialized) return nil;
+
+    PyGILState_STATE gilState = PyGILState_Ensure();
+
+    NSDictionary *result = nil;
+    PyObject *globals = NULL;
+    PyObject *spider = NULL;
+    FILE *fp = NULL;
+
+    @try {
+        // Phase 1: 创建独立 globals
+        globals = PyDict_New();
+        if (!globals) goto proxyCleanup;
+        PyObject *builtins = PyEval_GetBuiltins();
+        if (builtins) {
+            PyDict_SetItemString(globals, "__builtins__", builtins);
+        }
+
+        // Phase 1.5: 注入上下文
+        if (injectDict != nil && injectDict.count > 0) {
+            for (NSString *key in injectDict) {
+                id value = injectDict[key];
+                PyObject *pyValue = [self pyObjectFromObjC:value];
+                if (pyValue) {
+                    PyDict_SetItemString(globals, [key UTF8String], pyValue);
+                    Py_DECREF(pyValue);
+                }
+            }
+        }
+
+        // Phase 2: 加载脚本
+        fp = fopen([scriptPath UTF8String], "r");
+        if (!fp) {
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ localProxy: 无法打开脚本: %@", scriptPath]);
+            goto proxyCleanup;
+        }
+
+        NSString *injectPath = [NSString stringWithFormat:
+            @"import sys; sys.path.insert(0, '%@')",
+            [[scriptPath stringByDeletingLastPathComponent] stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
+        PyRun_SimpleString([injectPath UTF8String]);
+
+        PyObject *runRet = PyRun_File(fp, [[scriptPath lastPathComponent] UTF8String],
+                                       Py_file_input, globals, globals);
+        if (!runRet) {
+            PyErr_Print();
+            goto proxyCleanup;
+        }
+        Py_DECREF(runRet);
+        fclose(fp); fp = NULL;
+
+        // Phase 3: 实例化 Spider
+        PyObject *spiderClass = PyDict_GetItemString(globals, "Spider");
+        if (!spiderClass || !PyCallable_Check(spiderClass)) goto proxyCleanup;
+
+        spider = PyObject_CallObject(spiderClass, NULL);
+        if (!spider) { PyErr_Clear(); goto proxyCleanup; }
+
+        // 调 init(extend="")
+        PyObject *initMethod = PyObject_GetAttrString(spider, "init");
+        if (initMethod && PyCallable_Check(initMethod)) {
+            PyObject *initStandardArgs = PyTuple_Pack(1, PyUnicode_FromString(""));
+            PyObject *initArgs = [self adaptArgs:initStandardArgs
+                                     forCallable:initMethod
+                                    functionName:@"init"
+                                      scriptName:[scriptPath lastPathComponent]];
+            Py_XDECREF(initStandardArgs);
+            PyObject *initRet = initArgs ? PyObject_Call(initMethod, initArgs, NULL) : NULL;
+            Py_XDECREF(initRet);
+            Py_XDECREF(initArgs);
+        }
+        Py_XDECREF(initMethod);
+
+        // Phase 3.5: 实例属性注入
+        if (injectDict != nil && injectDict.count > 0) {
+            for (NSString *key in injectDict) {
+                id value = injectDict[key];
+                PyObject *pyValue = [self pyObjectFromObjC:value];
+                if (pyValue) {
+                    PyObject_SetAttrString(spider, [key UTF8String], pyValue);
+                    Py_DECREF(pyValue);
+                }
+            }
+            PyObject *applyMethod = PyObject_GetAttrString(spider, "_apply_injected_hosts");
+            if (applyMethod) {
+                PyObject *applyRet = PyObject_CallObject(applyMethod, NULL);
+                Py_XDECREF(applyRet);
+                Py_DECREF(applyMethod);
+            } else {
+                PyErr_Clear();
+            }
+        }
+
+        // Phase 4: 调用 localProxy(params_dict)
+        PyObject *method = PyObject_GetAttrString(spider, "localProxy");
+        if (!method || !PyCallable_Check(method)) {
+            Py_XDECREF(method);
+            PyErr_Clear();
+            goto proxyCleanup;
+        }
+
+        // 构造 params dict
+        PyObject *paramsDict = PyDict_New();
+        if (argsJSON) {
+            NSData *jsonData = [argsJSON dataUsingEncoding:NSUTF8StringEncoding];
+            NSError *err;
+            NSDictionary *d = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:&err];
+            if (!err && d) {
+                for (NSString *k in d) {
+                    id v = d[k];
+                    PyDict_SetItemString(paramsDict, [k UTF8String],
+                        PyUnicode_FromString([[v description] UTF8String]));
+                }
+            }
+        }
+
+        PyObject *pyArgs = PyTuple_Pack(1, paramsDict);
+        Py_DECREF(paramsDict);
+        PyObject *callRet = PyObject_Call(method, pyArgs, NULL);
+        Py_DECREF(pyArgs);
+        Py_DECREF(method);
+
+        if (!callRet) {
+            PyErr_Print();
+            goto proxyCleanup;
+        }
+
+        // Phase 5: 提取 [statusCode, contentType, body]
+        // callRet 应该是一个 list/tuple: [int, str, bytes]
+        if (PyList_Check(callRet) || PyTuple_Check(callRet)) {
+            Py_ssize_t len = PySequence_Size(callRet);
+            if (len >= 3) {
+                PyObject *pyStatus = PySequence_GetItem(callRet, 0);
+                PyObject *pyContentType = PySequence_GetItem(callRet, 1);
+                PyObject *pyBody = PySequence_GetItem(callRet, 2);
+
+                int status = 200;
+                if (pyStatus) {
+                    status = (int)PyLong_AsLong(pyStatus);
+                    if (status == 0) status = 200;
+                    Py_DECREF(pyStatus);
+                }
+
+                NSString *contentType = @"application/octet-stream";
+                if (pyContentType) {
+                    const char *cs = PyUnicode_AsUTF8(pyContentType);
+                    if (cs) contentType = [NSString stringWithUTF8String:cs];
+                    Py_DECREF(pyContentType);
+                }
+
+                NSData *bodyData = [NSData data];
+                if (pyBody) {
+                    if (PyBytes_Check(pyBody)) {
+                        char *buf;
+                        Py_ssize_t bufLen;
+                        PyBytes_AsStringAndSize(pyBody, &buf, &bufLen);
+                        if (bufLen > 0) {
+                            bodyData = [NSData dataWithBytes:buf length:bufLen];
+                        }
+                    } else if (PyByteArray_Check(pyBody)) {
+                        char *buf = PyByteArray_AsString(pyBody);
+                        Py_ssize_t bufLen = PyByteArray_Size(pyBody);
+                        if (bufLen > 0) {
+                            bodyData = [NSData dataWithBytes:buf length:bufLen];
+                        }
+                    }
+                    Py_DECREF(pyBody);
+                }
+
+                result = @{
+                    @"status": @(status),
+                    @"contentType": contentType,
+                    @"data": bodyData
+                };
+            }
+        }
+        Py_DECREF(callRet);
+
+    } @catch (NSException *exception) {
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ localProxy 异常: %@", exception.reason]);
+    }
+
+proxyCleanup:
+    if (fp) fclose(fp);
+    Py_XDECREF(spider);
+    Py_XDECREF(globals);
+    PyGILState_Release(gilState);
+
+    return result;
+}
+
 #pragma mark - Argument Building
 
 /// 根据 Python bound method 的真实签名裁剪标准参数。

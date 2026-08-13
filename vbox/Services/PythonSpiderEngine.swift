@@ -389,6 +389,30 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
+    // MARK: - Local Proxy（二进制返回）
+
+    /// 调用 Spider 的 localProxy 方法，返回 (statusCode, contentType, data)
+    /// 用于封面图解密、m3u8 解压等需要返回二进制数据的场景
+    func callLocalProxy(args: String) -> (status: Int, contentType: String, data: Data)? {
+        let start = Date()
+        let result = PythonSpiderBridge.callLocalProxy(scriptPath,
+                                                        injectDict: injectDict,
+                                                        args: args)
+        let elapsed = Int(Date().timeIntervalSince(start) * 1000)
+
+        guard let result = result else {
+            onLog?("❌ [\(scriptKey)] localProxy 执行失败 (\(elapsed)ms)")
+            return nil
+        }
+
+        let status = result["status"] as? Int ?? 200
+        let contentType = result["contentType"] as? String ?? "application/octet-stream"
+        let data = result["data"] as? Data ?? Data()
+
+        onLog?("📞 [\(scriptKey)] localProxy → \(elapsed)ms, status=\(status), \(data.count)字节, \(contentType)")
+        return (status, contentType, data)
+    }
+
     // MARK: - Private（内部调用）
 
     /// 内部调用 Python 函数
