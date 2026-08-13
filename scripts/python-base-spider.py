@@ -13,6 +13,24 @@
   verify / stream / cleanText / removeHtmlTags / regStr / getCookie /
   getProxyUrl / localProxy 受控代理桥接
   不含 lxml 和 subprocess (iOS 安全限制)
+- 2026-08-13 (v3): 福利专区自适应 — _vbox_effective_hosts 域名注入、
+  _vbox_proxy_enabled / _vbox_proxy_url 代理注入
+  福利 Python 平台自动享用自定义域名和代理设置，脚本无需修改
+- 2026-08-13 (v4): requests 模块自动拦截 — 通过 __init_subclass__ + threading.local
+  自动包装子类接口方法，patch requests.get/post/Session.get/Session.post
+  脚本用 requests 发请求也能自动走域名替换和代理注入
+  普通资源（非福利）不受影响：无注入属性 → _apply() 直接返回原始 URL
+- 2026-08-13 (v5): threading/functools 降级兼容 — iOS CPython 可能缺少这两个模块
+  导致 import base.spider 失败 → 脚本回退到 fallback 类 → 域名注入失效
+  改为 try/except 导入，缺失时用简易替代实现
+- 2026-08-13 (v6): 修复 CI 构建脚本部署旧版 spider.py 的问题
+  scripts/python-base-spider.py 是 CI 实际部署的源文件，
+  之前一直停留在 v2 旧版（463行），缺少 v3-v5 所有福利专区功能。
+  CI 将其复制到 lib/python3.14/base/spider.py（有 __init__.py，regular package），
+  优先级高于顶层 base/spider.py（无 __init__.py，namespace package），
+  导致新版代码从未被加载。
+  修复：同步 scripts/python-base-spider.py 为最新版本，
+  并在 CI 中同时部署到顶层 base/ 目录（加 __init__.py）作为双保险。
 """
 import json
 import re
@@ -21,6 +39,22 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import http.cookiejar
+
+# ──────────────────────────────────────────────
+# 降级兼容：iOS CPython 可能缺少 threading / functools
+# 缺失时用简易替代，确保 base.spider 能正常导入
+# ──────────────────────────────────────────────
+try:
+    import threading as _threading_mod
+    _active_spider = _threading_mod.local()
+except ImportError:
+    _threading_mod = None
+    _active_spider = None
+
+try:
+    from functools import wraps as _functools_wraps
+except ImportError:
+    _functools_wraps = None
 
 # iOS CPython 没有 CA 证书包 → HTTPS 验证失败
 # 创建不验证证书的 SSL 上下文，所有请求共用
@@ -36,6 +70,147 @@ _DEFAULT_HEADERS = {
 
 # 受控代理本地端口 (与 vbox 原生 proxy 一致)
 _PROXY_PORT = 9978
+
+# ──────────────────────────────────────────────
+# requests 模块自动拦截基础设施
+# ──────────────────────────────────────────────
+# 线程本地存储：当前正在执行的 Spider 实例
+# 每个线程独立，100+ 平台并发不会串
+# iOS CPython 无 threading 时降级为全局变量（单线程安全）
+
+
+def _get_active_spider():
+    """获取当前线程的活跃 Spider 实例（接口方法执行期间非 None）"""
+    if _active_spider is not None:
+        return getattr(_active_spider, 'spider', None)
+    return getattr(_active_spider_fallback, 'spider', None)
+
+
+def _set_active_spider(spider):
+    """设置当前活跃 Spider 实例"""
+    if _active_spider is not None:
+        _active_spider.spider = spider
+    else:
+        _active_spider_fallback.spider = spider
+
+
+class _FallbackLocal:
+    """threading.local 降级替代（单线程安全）"""
+    def __init__(self):
+        self.spider = None
+
+
+_active_spider_fallback = _FallbackLocal()
+
+
+def _spider_method_wrap(func):
+    """装饰器：在 Spider 接口方法执行前设置活跃 Spider，执行后清除
+
+    确保接口方法（homeContent / categoryContent 等）执行期间，
+    _get_active_spider() 返回当前 Spider 实例，
+    使得 requests patch 能读取注入的域名和代理配置。
+
+    同时在方法执行前刷新注入域名（仅福利平台有注入属性时），
+    确保脚本 init() 覆盖 self.host 后，下一个接口方法能恢复注入域名。
+    """
+    if _functools_wraps is not None:
+        wrapper = _functools_wraps(func)
+    else:
+        wrapper = lambda f: f  # 无 functools 时直接返回原函数
+
+    @wrapper
+    def wrapped(self, *args, **kwargs):
+        _set_active_spider(self)
+        # 福利平台：每次接口方法调用前刷新注入域名
+        # （脚本的 init() 可能覆盖了 self.host，需要恢复）
+        if hasattr(self, '_vbox_effective_hosts'):
+            self._apply_injected_hosts()
+        try:
+            return func(self, *args, **kwargs)
+        finally:
+            _set_active_spider(None)
+    return wrapped
+
+
+def _patch_requests():
+    """一次性 patch requests 模块，自动应用域名替换和代理
+
+    当脚本直接使用 requests.get/post 而非 self.fetch/post 时，
+    通过 _active_spider 获取当前 Spider 实例的注入配置，
+    自动替换 URL 中的原始域名并应用代理。
+
+    安全性：
+    - 普通资源（非福利）不注入 _vbox_effective_hosts，
+      _apply() 返回原始 URL 和 None proxies，行为不变
+    - 有 threading 时用 threading.local（并发安全）
+    - 无 threading 时用全局变量（单线程安全，iOS CPython 默认单线程）
+    - 仅 patch get/post/Session.get/Session.post，不改变其他行为
+    """
+    try:
+        import requests as _req
+    except ImportError:
+        return
+
+    if getattr(_req, '_vbox_patched', False):
+        return
+    _req._vbox_patched = True
+
+    _orig_get = _req.get
+    _orig_post = _req.post
+    _orig_s_get = _req.Session.get
+    _orig_s_post = _req.Session.post
+
+    def _apply(url):
+        """返回 (修正后的url, proxies字典)"""
+        spider = _get_active_spider()
+        if not spider:
+            return url, None
+
+        proxies = None
+        # 代理注入
+        if getattr(spider, '_vbox_proxy_enabled', False):
+            proxy_url = getattr(spider, '_vbox_proxy_url', '')
+            if proxy_url:
+                proxies = {'http': proxy_url, 'https': proxy_url}
+
+        # 域名替换：将脚本原始域名替换为注入的有效域名
+        injected = getattr(spider, '_vbox_effective_hosts', None)
+        if injected and isinstance(injected, list) and len(injected) > 0:
+            target_host = str(injected[0]).rstrip('/')
+            original_host = getattr(spider, '_vbox_original_host', '')
+            if original_host and original_host in url:
+                url = url.replace(original_host, target_host)
+
+        return url, proxies
+
+    def _patched_get(url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_get(url, **kw)
+
+    def _patched_post(url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_post(url, **kw)
+
+    def _patched_s_get(self_s, url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_s_get(self_s, url, **kw)
+
+    def _patched_s_post(self_s, url, **kw):
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        return _orig_s_post(self_s, url, **kw)
+
+    _req.get = _patched_get
+    _req.post = _patched_post
+    _req.Session.get = _patched_s_get
+    _req.Session.post = _patched_s_post
 
 
 class Response:
@@ -84,13 +259,101 @@ class Spider:
     - Cookie 处理: getCookie
     - 受控代理: getProxyUrl / localProxy
     - 默认属性: config / retry / header / name
+
+    自动拦截 (v4):
+    - __init_subclass__ 自动包装子类的 TVBox 接口方法
+    - 包装后，接口方法执行期间 _get_active_spider() 返回当前实例
+    - requests patch 据此自动应用域名替换和代理注入
+    - 普通资源无注入属性，包装无副作用
     """
+
+    # TVBox 接口方法名 — 子类覆写时自动包装
+    _SPIDER_INTERFACE_METHODS = frozenset({
+        'init', 'homeContent', 'homeVideoContent',
+        'categoryContent', 'detailContent',
+        'searchContent', 'searchContentPage', 'playerContent'
+    })
+
+    def __init_subclass__(cls, **kwargs):
+        """子类定义时自动包装其接口方法
+
+        当脚本 `class MySpider(Spider):` 定义时触发，
+        自动将子类覆写的接口方法用 _spider_method_wrap 包装，
+        确保执行期间 _active_spider 指向当前实例。
+
+        同时确保 requests 已被 patch（脚本可能在 import base.spider
+        之后再 import requests，此处二次调用 _patch_requests 做兜底）。
+        """
+        super().__init_subclass__(**kwargs)
+        _patch_requests()  # 兜底：确保 requests 已 patch（幂等操作）
+        for name in Spider._SPIDER_INTERFACE_METHODS:
+            if name in cls.__dict__:
+                original = cls.__dict__[name]
+                if callable(original) and not hasattr(original, '_vbox_spider_wrapped'):
+                    wrapped = _spider_method_wrap(original)
+                    wrapped._vbox_spider_wrapped = True
+                    setattr(cls, name, wrapped)
 
     def __init__(self):
         self.name = "BaseSpider"
         self.config = {}          # 默认配置（壳会注入 filter 等键）
         self.retry = 0            # 重试计数器
         self.header = dict(_DEFAULT_HEADERS)
+        # iOS 注入的有效域名列表（用户自定义 + defaultHosts），
+        # 由 vbox Swift 层通过 globals 注入 _vbox_effective_hosts。
+        # 普通资源（非福利）不注入，self.host 由脚本自身 init() 设置。
+        self._apply_injected_hosts()
+
+    def _apply_injected_hosts(self):
+        """读取 Swift 注入的 _vbox_effective_hosts 并应用为 self.host
+
+        优先级：实例属性（PythonBridge 注入，实例级隔离）> 模块 globals > 脚本自身
+        实例属性注入确保 100+ 平台并发时不会串域名。
+        普通资源（非福利）不注入，保持原有行为。
+
+        _vbox_original_host：延迟捕获脚本原始域名（init() 设置的 host），
+        供 requests patch 做域名替换。只在 host 非空且与目标不同时捕获，
+        避免 Phase 3.5（init 之前）误存空值。
+        """
+        injected = getattr(self, '_vbox_effective_hosts', None) \
+                or globals().get('_vbox_effective_hosts')
+        if injected and isinstance(injected, list) and len(injected) > 0:
+            target_host = str(injected[0]).rstrip('/')
+            # 延迟捕获原始域名：只在未捕获/为空、且当前 host 非空且≠目标时捕获
+            current_host = getattr(self, 'host', '')
+            if not getattr(self, '_vbox_original_host', '') \
+                    and current_host and current_host != target_host:
+                self._vbox_original_host = current_host
+            self.host = target_host
+            self._backup_hosts = [str(h).rstrip('/') for h in injected[1:]]
+
+    def _proxy_enabled(self):
+        """是否启用代理（优先从实例属性读取，实例级隔离）"""
+        return bool(getattr(self, '_vbox_proxy_enabled', None) \
+                or globals().get('_vbox_proxy_enabled', False))
+
+    def _proxy_url_template(self):
+        """代理 URL 模板（优先从实例属性读取，实例级隔离）
+
+        支持两种格式：
+        - https://proxy.com/?url={url}  （含 {url} 占位符，推荐）
+        - https://proxy.com/?url=        （无占位符，自动追加）
+        """
+        return str(getattr(self, '_vbox_proxy_url', None) \
+                or globals().get('_vbox_proxy_url', '') or '')
+
+    def _apply_proxy(self, url):
+        """对 URL 应用代理转发（如果启用了代理）"""
+        if not self._proxy_enabled():
+            return url
+        tpl = self._proxy_url_template()
+        if not tpl:
+            return url
+        if '{url}' in tpl:
+            return tpl.replace('{url}', urllib.parse.quote(url, safe=''))
+        # 兜底：按 ?url= 或 &url= 追加
+        sep = '&' if '?' in tpl else '?'
+        return f"{tpl}{sep}url={urllib.parse.quote(url, safe='')}"
 
     # ──────────────────────────────────────────────
     # HTTP 请求
@@ -98,6 +361,12 @@ class Spider:
 
     def _request(self, url, headers=None, data=None, method=None, **kw):
         """内部统一请求方法
+
+        每次请求前都会检查注入的 _vbox_effective_hosts 并更新 self.host，
+        确保用户在设置里修改域名后能立即生效。
+
+        备用域名回退：当主域名请求失败（连接错误/超时）且存在 _backup_hosts 时，
+        自动切换到备用域名重试，直到成功或全部失败。
 
         兼容参数:
             headers: 请求头 dict
@@ -110,6 +379,49 @@ class Spider:
             stream: 流式响应 (忽略，返回完整 Response)
             allow_redirects: 跟随重定向 (默认 True)
         """
+        # 每次请求前刷新注入的域名（用户可能在设置里改了）
+        self._apply_injected_hosts()
+
+        # 收集所有待尝试的域名：主域名 + 备用域名
+        hosts_to_try = []
+        try:
+            parsed = urllib.parse.urlparse(url)
+            original_host = f"{parsed.scheme}://{parsed.netloc}"
+            hosts_to_try.append(original_host)
+            backup_hosts = getattr(self, '_backup_hosts', None) or []
+            for bh in backup_hosts:
+                if bh and bh != original_host:
+                    hosts_to_try.append(bh)
+        except Exception:
+            hosts_to_try = [url]
+
+        last_resp = None
+        for i, host in enumerate(hosts_to_try):
+            # 替换 URL 中的 host 部分
+            try:
+                parsed = urllib.parse.urlparse(url)
+                target_url = urllib.parse.urlunparse((
+                    parsed.scheme,
+                    urllib.parse.urlparse(host).netloc if '://' in host else host,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
+            except Exception:
+                target_url = url
+
+            resp = self._do_request(target_url, headers, data, method, **kw)
+            # HTTP 错误（4xx/5xx）不重试 —— 服务器可达只是业务错误
+            # 只有连接失败（status_code == 599）才切换备用域名
+            if resp.status_code != 599:
+                return resp
+            last_resp = resp
+
+        return last_resp or Response(b'', status_code=599, encoding='utf-8', headers=None)
+
+    def _do_request(self, url, headers=None, data=None, method=None, **kw):
+        """单次请求实现（不含备用域名回退）"""
         headers = dict(headers or self.header)
 
         # 处理 URL 查询参数
@@ -203,16 +515,22 @@ class Spider:
             fetch(url, headers=..., cookies=..., params=..., timeout=..., verify=..., stream=...)
 
         返回 Response 对象，即使 HTTP 4xx/5xx 也返回 Response（不抛异常）
+
+        代理：如果 _vbox_proxy_enabled 为 True，自动走代理 URL 转发。
         """
-        return self._request(url, headers=headers, method='GET', **kw)
+        final_url = self._apply_proxy(url)
+        return self._request(final_url, headers=headers, method='GET', **kw)
 
     def post(self, url, headers=None, data=None, **kw):
         """发起 HTTP POST 请求
 
         兼容 requests 风格参数:
             post(url, data=..., json=..., headers=..., cookies=..., timeout=..., verify=...)
+
+        代理：如果 _vbox_proxy_enabled 为 True，自动走代理 URL 转发。
         """
-        return self._request(url, headers=headers, data=data, method='POST', **kw)
+        final_url = self._apply_proxy(url)
+        return self._request(final_url, headers=headers, data=data, method='POST', **kw)
 
     # ──────────────────────────────────────────────
     # 缓存管理
@@ -461,3 +779,11 @@ class Spider:
     def playerContent(self, flag, pid, vipFlags):
         """播放内容 — 子类必须实现"""
         return {'url': '', 'parse': 0, 'header': {}}
+
+
+# ──────────────────────────────────────────────
+# 模块加载时执行：patch requests 模块
+# ──────────────────────────────────────────────
+# 确保脚本用 requests.get/post 也能自动走域名替换和代理注入
+# 普通资源无注入属性，patch 无副作用
+_patch_requests()

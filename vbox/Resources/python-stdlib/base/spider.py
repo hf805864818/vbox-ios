@@ -23,6 +23,14 @@
 - 2026-08-13 (v5): threading/functools 降级兼容 — iOS CPython 可能缺少这两个模块
   导致 import base.spider 失败 → 脚本回退到 fallback 类 → 域名注入失效
   改为 try/except 导入，缺失时用简易替代实现
+- 2026-08-13 (v6): 修复 CI 构建脚本部署旧版 spider.py 的问题
+  scripts/python-base-spider.py 是 CI 实际部署的源文件，
+  之前一直停留在 v2 旧版（463行），缺少 v3-v5 所有福利专区功能。
+  CI 将其复制到 lib/python3.14/base/spider.py（有 __init__.py，regular package），
+  优先级高于顶层 base/spider.py（无 __init__.py，namespace package），
+  导致新版代码从未被加载。
+  修复：同步 scripts/python-base-spider.py 为最新版本，
+  并在 CI 中同时部署到顶层 base/ 目录（加 __init__.py）作为双保险。
 """
 import json
 import re
