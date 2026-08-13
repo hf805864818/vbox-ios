@@ -580,6 +580,16 @@ struct RemoteWelfareSettingsView: View {
             KanliaoService.shared.reprobe()
         case .aidanVideo:
             AidanVideoService.shared.reprobe()
+        case .fuliBase:
+            switch platform.platformKey {
+            case "panda_video": PandaVideoService.shared.reprobe()
+            case "four_h_video": FourHVideoService.shared.reprobe()
+            case "full_hd": FullHDService.shared.reprobe()
+            case "banana_video": BananaVideoService.shared.reprobe()
+            default: break
+            }
+        case .remoteCmsV10:
+            AidanVideoService.shared.reprobe()
         case .welfareSpider:
             // 通用 JS Spider：脚本内 Service 实例，域名变更后下次进入会重新解析
             break
