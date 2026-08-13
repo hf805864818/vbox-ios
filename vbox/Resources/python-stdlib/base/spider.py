@@ -13,6 +13,9 @@
   verify / stream / cleanText / removeHtmlTags / regStr / getCookie /
   getProxyUrl / localProxy 受控代理桥接
   不含 lxml 和 subprocess (iOS 安全限制)
+- 2026-08-13 (v3): 福利专区自适应 — _vbox_effective_hosts 域名注入、
+  _vbox_proxy_enabled / _vbox_proxy_url 代理注入
+  福利 Python 平台自动享用自定义域名和代理设置，脚本无需修改
 """
 import json
 import re
@@ -91,6 +94,47 @@ class Spider:
         self.config = {}          # 默认配置（壳会注入 filter 等键）
         self.retry = 0            # 重试计数器
         self.header = dict(_DEFAULT_HEADERS)
+        # iOS 注入的有效域名列表（用户自定义 + defaultHosts），
+        # 由 vbox Swift 层通过 globals 注入 _vbox_effective_hosts。
+        # 普通资源（非福利）不注入，self.host 由脚本自身 init() 设置。
+        self._apply_injected_hosts()
+
+    def _apply_injected_hosts(self):
+        """读取 Swift 注入的 _vbox_effective_hosts 并应用为 self.host
+
+        优先级：注入的域名 > 脚本自身设置的域名
+        普通资源（非福利）不注入，保持原有行为。
+        """
+        injected = globals().get('_vbox_effective_hosts')
+        if injected and isinstance(injected, list) and len(injected) > 0:
+            self.host = str(injected[0]).rstrip('/')
+            self._backup_hosts = [str(h).rstrip('/') for h in injected[1:]]
+
+    def _proxy_enabled(self):
+        """是否启用代理（从 Swift 注入的 _vbox_proxy_enabled 读取）"""
+        return bool(globals().get('_vbox_proxy_enabled', False))
+
+    def _proxy_url_template(self):
+        """代理 URL 模板（从 Swift 注入的 _vbox_proxy_url 读取）
+
+        支持两种格式：
+        - https://proxy.com/?url={url}  （含 {url} 占位符，推荐）
+        - https://proxy.com/?url=        （无占位符，自动追加）
+        """
+        return str(globals().get('_vbox_proxy_url', '') or '')
+
+    def _apply_proxy(self, url):
+        """对 URL 应用代理转发（如果启用了代理）"""
+        if not self._proxy_enabled():
+            return url
+        tpl = self._proxy_url_template()
+        if not tpl:
+            return url
+        if '{url}' in tpl:
+            return tpl.replace('{url}', urllib.parse.quote(url, safe=''))
+        # 兜底：按 ?url= 或 &url= 追加
+        sep = '&' if '?' in tpl else '?'
+        return f"{tpl}{sep}url={urllib.parse.quote(url, safe='')}"
 
     # ──────────────────────────────────────────────
     # HTTP 请求
@@ -98,6 +142,12 @@ class Spider:
 
     def _request(self, url, headers=None, data=None, method=None, **kw):
         """内部统一请求方法
+
+        每次请求前都会检查注入的 _vbox_effective_hosts 并更新 self.host，
+        确保用户在设置里修改域名后能立即生效。
+        """
+        # 每次请求前刷新注入的域名（用户可能在设置里改了）
+        self._apply_injected_hosts()
 
         兼容参数:
             headers: 请求头 dict
@@ -203,16 +253,22 @@ class Spider:
             fetch(url, headers=..., cookies=..., params=..., timeout=..., verify=..., stream=...)
 
         返回 Response 对象，即使 HTTP 4xx/5xx 也返回 Response（不抛异常）
+
+        代理：如果 _vbox_proxy_enabled 为 True，自动走代理 URL 转发。
         """
-        return self._request(url, headers=headers, method='GET', **kw)
+        final_url = self._apply_proxy(url)
+        return self._request(final_url, headers=headers, method='GET', **kw)
 
     def post(self, url, headers=None, data=None, **kw):
         """发起 HTTP POST 请求
 
         兼容 requests 风格参数:
             post(url, data=..., json=..., headers=..., cookies=..., timeout=..., verify=...)
+
+        代理：如果 _vbox_proxy_enabled 为 True，自动走代理 URL 转发。
         """
-        return self._request(url, headers=headers, data=data, method='POST', **kw)
+        final_url = self._apply_proxy(url)
+        return self._request(final_url, headers=headers, data=data, method='POST', **kw)
 
     # ──────────────────────────────────────────────
     # 缓存管理

@@ -212,8 +212,11 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     /// 获取当前第一个可用域名
     var primaryHost: String { defaultHosts.first ?? "" }
 
-    /// 是否为福利专区专用 Spider 平台。
-    var isWelfareSpider: Bool { serviceType == WelfareServiceType.welfareSpider.rawValue }
+    /// 是否为福利专区专用 Spider 平台（含 JS 和 Python）。
+    var isWelfareSpider: Bool {
+        serviceType == WelfareServiceType.welfareSpider.rawValue
+            || serviceType == WelfareServiceType.pythonSpider.rawValue
+    }
 
     /// 福利 Spider 是否允许进入普通 Spider 源池，默认 false。
     var allowsNormalSpiderRegistration: Bool {
@@ -284,6 +287,7 @@ enum WelfareServiceType: String, CaseIterable {
     case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类
     case sbAggregation = "sb_aggregation"      // 色播聚合
     case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本
+    case pythonSpider = "python_spider"        // 福利专区 Python 蜘蛛脚本
     case aidanVideo = "aidan_video"            // 艾旦福利视频（CMS V10）
     case aidanComic = "aidan_comic"            // 艾旦福利套图（CMS V10 图片类）
     case remoteCmsV10 = "remote_cms_v10"        // 远程可配置 CMS V10 福利源
