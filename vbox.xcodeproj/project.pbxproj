@@ -75,6 +75,8 @@
 		5D994F6D0D7A4F6A8CE6FB66 /* DuckVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D62F6461A137466FAE5F133B /* DuckVideoService.swift */; };
 		62663452B1AB391EC8909810 /* Libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		63F6E82864CC31F4573BA29E /* WelfarePlatformConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4A2F51F4D48142714B5109 /* WelfarePlatformConfig.swift */; };
+		AABBCC001122334455667725 /* WelfarePythonSpiderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667715 /* WelfarePythonSpiderService.swift */; };
+		AABBCC001122334455667726 /* WelfareResultMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667716 /* WelfareResultMapper.swift */; };
 		652466BD988F1A23E25CFF70 /* Libbluray.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B0F74E8951368DECD8322237 /* Libbluray.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */ = {isa = PBXBuildFile; fileRef = D810A485ED03241B4D419B1B /* PythonLogStore.m */; };
 		6789ABCDEF01234567890123 /* KanliaoHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789ABCDEF0123456789012345 /* KanliaoHomeView.swift */; };
@@ -405,6 +407,8 @@
 		AABBCC001122334455667712 /* WelfareSpiderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSpiderService.swift; sourceTree = "<group>"; };
 		AABBCC001122334455667713 /* WelfareSpiderHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSpiderHomeView.swift; sourceTree = "<group>"; };
 		AABBCC001122334455667714 /* WelfareJSSpiderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareJSSpiderService.swift; sourceTree = "<group>"; };
+		AABBCC001122334455667715 /* WelfarePythonSpiderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePythonSpiderService.swift; sourceTree = "<group>"; };
+		AABBCC001122334455667716 /* WelfareResultMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareResultMapper.swift; sourceTree = "<group>"; };
 		AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDisplayItem.swift; sourceTree = "<group>"; };
 		AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareDomainStore.swift; sourceTree = "<group>"; };
@@ -693,6 +697,8 @@
 				AABBCC001122334455667712 /* WelfareSpiderService.swift */,
 				AABBCC001122334455667713 /* WelfareSpiderHomeView.swift */,
 				AABBCC001122334455667714 /* WelfareJSSpiderService.swift */,
+				AABBCC001122334455667715 /* WelfarePythonSpiderService.swift */,
+				AABBCC001122334455667716 /* WelfareResultMapper.swift */,
 				F3E4D5C6B7A8901234A5B6C7 /* UnsupportedPlatformView.swift */,
 				F5A80AEF200D3D6044272475 /* RemoteWelfareHomeView.swift */,
 				32380B218240B082EA2F91F5 /* RemoteWelfareSettingsView.swift */,
@@ -1073,6 +1079,8 @@
 				AABBCC001122334455667722 /* WelfareSpiderService.swift in Sources */,
 				AABBCC001122334455667723 /* WelfareSpiderHomeView.swift in Sources */,
 				AABBCC001122334455667724 /* WelfareJSSpiderService.swift in Sources */,
+				AABBCC001122334455667725 /* WelfarePythonSpiderService.swift in Sources */,
+				AABBCC001122334455667726 /* WelfareResultMapper.swift in Sources */,
 				A1B2C3D4E5F6A7B8C9D0E1F2 /* UnsupportedPlatformView.swift in Sources */,
 				01399D0637B52CDB9ADC35E1 /* RemoteWelfareHomeView.swift in Sources */,
 				F2E5B0D9135DE789B67C62AC /* RemoteWelfareSettingsView.swift in Sources */,
