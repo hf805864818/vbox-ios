@@ -65,8 +65,13 @@ final class WelfarePythonSpiderService: FuliBaseService {
 
     // MARK: - FuliPlatformService 附加属性
 
-    /// 内容类型：默认视频，远程配置可扩展
-    override var contentCategory: FuliContentCategory { .video }
+    /// 内容类型：从平台配置读取，默认视频
+    override var contentCategory: FuliContentCategory {
+        switch platform.contentType {
+        case "comic": return .comic
+        default: return .video
+        }
+    }
 
     /// 图片 SSL 绕过：从平台配置读取
     override var imageSSLBypass: Bool { platform.sslBypass ?? false }
@@ -237,14 +242,10 @@ final class WelfarePythonSpiderService: FuliBaseService {
     override func fetchPlayerURL(episode: FuliEpisode) async -> FuliPlayerResult {
         await ensureEngine()
 
-        var url = episode.url
-        var playerHeaders: [String: String] = [:]
-        var parseFlag = 0
-
-        // 如果 Python 蜘蛛实现了 playerContent，调用它获取最终播放地址
+        // 如果 Python 蜘蛛就绪，优先调用 playerContent 获取最终播放地址
         if let engine = engine, engine.isSpiderReady {
             do {
-                engine.injectDict = buildInjectDict()
+                let inject = buildInjectDict()
                 let result = try await engine.callPlayerContentAsync(
                     vodId: "",
                     flag: playFromFromEpisode(episode),
@@ -252,21 +253,20 @@ final class WelfarePythonSpiderService: FuliBaseService {
                 )
                 let mapped = mapper.mapPlayer(result)
                 if !mapped.url.isEmpty {
-                    url = mapped.url
+                    // 合并默认 headers
+                    var playerHeaders = mapped.headers
+                    if playerHeaders["User-Agent"] == nil {
+                        playerHeaders["User-Agent"] = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36"
+                    }
+                    return FuliPlayerResult(url: mapped.url, headers: playerHeaders, parse: mapped.parse)
                 }
-                playerHeaders = mapped.headers
-                parseFlag = mapped.parse
             } catch {
                 print("[WelfarePy:\(platform.platformKey)] ❌ fetchPlayerURL: \(error.localizedDescription)")
             }
         }
 
-        // 合并默认 headers
-        if playerHeaders["User-Agent"] == nil {
-            playerHeaders["User-Agent"] = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36"
-        }
-
-        return FuliPlayerResult(url: url, headers: playerHeaders, parse: parseFlag)
+        // 兜底：使用基类默认实现（按 URL 后缀判断 parse，用默认 headers）
+        return await super.fetchPlayerURL(episode: episode)
     }
 
     // MARK: - Private Helpers

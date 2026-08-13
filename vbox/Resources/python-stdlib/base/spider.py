@@ -145,9 +145,6 @@ class Spider:
 
         每次请求前都会检查注入的 _vbox_effective_hosts 并更新 self.host，
         确保用户在设置里修改域名后能立即生效。
-        """
-        # 每次请求前刷新注入的域名（用户可能在设置里改了）
-        self._apply_injected_hosts()
 
         兼容参数:
             headers: 请求头 dict
@@ -160,6 +157,9 @@ class Spider:
             stream: 流式响应 (忽略，返回完整 Response)
             allow_redirects: 跟随重定向 (默认 True)
         """
+        # 每次请求前刷新注入的域名（用户可能在设置里改了）
+        self._apply_injected_hosts()
+
         headers = dict(headers or self.header)
 
         # 处理 URL 查询参数

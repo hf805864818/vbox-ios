@@ -383,10 +383,14 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     // MARK: - Private（内部调用）
 
-    func call(_ function: String, args: String) -> String? {
+    /// 内部调用 Python 函数
+    /// - Parameter overrideInjectDict: 本次调用专用的注入字典，优先级高于 self.injectDict。
+    ///   用于并发场景下避免 injectDict 属性被其他调用覆盖。
+    func call(_ function: String, args: String, overrideInjectDict: [String: Any]? = nil) -> String? {
+        let effectiveDict = overrideInjectDict ?? injectDict
         let start = Date()
         let result = PythonSpiderBridge.callSpider(scriptPath,
-                                                    injectDict: injectDict,
+                                                    injectDict: effectiveDict,
                                                     function: function,
                                                     args: args)
         let elapsed = Int(Date().timeIntervalSince(start) * 1000)
