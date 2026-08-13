@@ -349,6 +349,12 @@ final class DoubanImageProxyServer {
             return
         }
 
+        // Python 蜘蛛本地代理：封面图解密、m3u8 解压等
+        if pathAndQuery.hasPrefix("/proxy?do=py") || pathAndQuery.hasPrefix("/proxy/?do=py") {
+            routePythonProxy(pathAndQuery, method: method, on: connection)
+            return
+        }
+
         guard pathAndQuery.hasPrefix("/douban-cover"),
               let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)"),
               let rawURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
@@ -1091,6 +1097,51 @@ final class DoubanImageProxyServer {
             id: id,
             connection: connection
         ).start(request: request)
+    }
+
+    // MARK: - Python Spider 本地代理
+
+    /// 处理 /proxy?do=py 请求
+    /// 解析 key/type/url 参数，调用对应 Python 蜘蛛的 localProxy() 方法
+    private func routePythonProxy(_ pathAndQuery: String, method: String, on connection: NWConnection) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(pathAndQuery)") else {
+            send(statusCode: 400, body: Data("Bad Request".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        let queryItems = components.queryItems ?? []
+        let key = queryItems.first(where: { $0.name == "key" })?.value ?? ""
+        let ptype = queryItems.first(where: { $0.name == "type" })?.value ?? ""
+
+        // 收集所有参数传给 Python localProxy
+        var params: [String: String] = [:]
+        for item in queryItems {
+            if let v = item.value {
+                params[item.name] = v
+            }
+        }
+
+        if key.isEmpty {
+            print("❌ Python代理请求缺少 key 参数: \(pathAndQuery)")
+            send(statusCode: 400, body: Data("Missing key".utf8), contentType: "text/plain", on: connection)
+            return
+        }
+
+        print("🐍 Python代理收到请求: key=\(key), type=\(ptype), params=\(params)")
+
+        // 在后台线程调用 Python（避免阻塞网络队列）
+        queue.async {
+            let result = WelfarePythonSpiderService.callLocalProxy(platformKey: key, params: params)
+
+            guard let result = result else {
+                print("❌ Python代理调用失败: key=\(key), type=\(ptype)")
+                self.send(statusCode: 502, body: Data("Python Proxy Error".utf8), contentType: "text/plain", on: connection)
+                return
+            }
+
+            print("✅ Python代理成功: key=\(key), type=\(ptype), status=\(result.status), \(result.data.count)字节, \(result.contentType)")
+            self.sendNoStore(statusCode: result.status, body: result.data, contentType: result.contentType, on: connection)
+        }
     }
 
     private func routeStream(_ pathAndQuery: String, requestText: String, method: String, on connection: NWConnection) {

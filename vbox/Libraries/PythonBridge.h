@@ -41,6 +41,15 @@ NS_ASSUME_NONNULL_BEGIN
                        function:(NSString *)functionName
                            args:(nullable NSString *)argsJSON;
 
+/// 调用 Spider 的 localProxy 方法（返回二进制数据，不走 JSON 序列化）
+/// @param scriptPath 本地 .py 文件绝对路径
+/// @param injectDict 注入上下文（域名/代理等）
+/// @param argsJSON JSON 格式参数（包含 type/url 等字段）
+/// @return NSDictionary: { "status": Int, "contentType": String, "data": NSData }，失败返回 nil
++ (nullable NSDictionary *)callLocalProxy:(NSString *)scriptPath
+                              injectDict:(nullable NSDictionary *)injectDict
+                                    args:(nullable NSString *)argsJSON;
+
 @end
 
 NS_ASSUME_NONNULL_END

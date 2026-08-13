@@ -31,6 +31,9 @@
   导致新版代码从未被加载。
   修复：同步 scripts/python-base-spider.py 为最新版本，
   并在 CI 中同时部署到顶层 base/ 目录（加 __init__.py）作为双保险。
+- 2026-08-13 (v7): 修复封面图加载 — 端口修正 + spider key 注入
+  _PROXY_PORT 从 9978 修正为 18080（与 DoubanImageProxyServer 实际端口一致）
+  getProxyUrl() 加入 key 参数（_vbox_platform_key），供代理服务器查找对应服务
 """
 import json
 import re
@@ -69,7 +72,7 @@ _DEFAULT_HEADERS = {
 }
 
 # 受控代理本地端口 (与 vbox 原生 proxy 一致)
-_PROXY_PORT = 9978
+_PROXY_PORT = 18080
 
 # ──────────────────────────────────────────────
 # requests 模块自动拦截基础设施
@@ -662,11 +665,17 @@ class Spider:
         """获取本地受控代理 URL
 
         脚本通过此 URL 将请求路由到 vbox 原生代理，
-        vbox 会拦截 127.0.0.1:9978/proxy?do=py 请求并调用 localProxy()
+        vbox 会拦截 127.0.0.1:18080/proxy?do=py 请求并调用 localProxy()。
+        URL 中携带 key 参数（平台标识），供 DoubanImageProxyServer 查找对应的
+        WelfarePythonSpiderService 实例。
 
         Returns:
-            str: 代理基础 URL
+            str: 代理基础 URL（含 key 参数）
         """
+        key = getattr(self, '_vbox_platform_key', None) \
+              or globals().get('_vbox_platform_key', '')
+        if key:
+            return f'http://127.0.0.1:{_PROXY_PORT}/proxy?do=py&key={key}'
         return f'http://127.0.0.1:{_PROXY_PORT}/proxy?do=py'
 
     def localProxy(self, params):
