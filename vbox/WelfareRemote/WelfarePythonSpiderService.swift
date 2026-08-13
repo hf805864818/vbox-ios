@@ -52,6 +52,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
     private var initError: String?
     private let initLock = NSLock()
     private let mapper = WelfareResultMapper()
+    /// 最近一次详情页返回的 vod_play_from，用于 playerContent 的 flag 参数
+    private var lastPlayFrom: String = ""
 
     // MARK: - Init
 
@@ -78,6 +80,35 @@ final class WelfarePythonSpiderService: FuliBaseService {
 
     /// 图片 Referer：从平台配置读取（如果有）
     override var imageReferer: String? { platform.imageReferer }
+
+    // MARK: - 域名管理（重写基类，适配 Python 蜘蛛）
+
+    /// 重新探测域名。
+    /// Python 蜘蛛通过发起一次 homeContent 调用来验证域名是否可用，
+    /// 而不是基类的 URLSession 探测（两者网络栈不同）。
+    override func reprobe() {
+        Task {
+            isHostReady = false
+            await ensureEngine()
+            guard engine != nil else {
+                isHostReady = false
+                return
+            }
+            // 调用一次首页接口验证域名是否可达
+            let result = await fetchHomeContent()
+            let ok = !result.videos.isEmpty || !result.categories.isEmpty
+            await MainActor.run {
+                self.isHostReady = ok
+            }
+        }
+    }
+
+    /// 重置域名：清除用户自定义域名，回退到 defaultHosts。
+    override func resetDomain() {
+        WelfareDomainStore.shared.clearDomains(for: platformName)
+        // 下次请求时 injectDict 会重新构建，自动使用 defaultHosts
+        reprobe()
+    }
 
     // MARK: - 引擎初始化
 
@@ -213,7 +244,10 @@ final class WelfarePythonSpiderService: FuliBaseService {
         do {
             engine.injectDict = buildInjectDict()
             let result = try await engine.callDetailContentAsync(ids: vodId)
-            return mapper.mapDetail(result)
+            let detail = mapper.mapDetail(result)
+            // 记录 playFrom，供 playerContent 的 flag 参数使用
+            lastPlayFrom = detail.playFrom
+            return detail
         } catch {
             print("[WelfarePy:\(platform.platformKey)] ❌ fetchDetail: \(error.localizedDescription)")
             return FuliDetail(
@@ -245,7 +279,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
         // 如果 Python 蜘蛛就绪，优先调用 playerContent 获取最终播放地址
         if let engine = engine, engine.isSpiderReady {
             do {
-                let inject = buildInjectDict()
+                engine.injectDict = buildInjectDict()
                 let result = try await engine.callPlayerContentAsync(
                     vodId: "",
                     flag: playFromFromEpisode(episode),
@@ -282,11 +316,19 @@ final class WelfarePythonSpiderService: FuliBaseService {
     }
 
     private func playFromFromEpisode(_ episode: FuliEpisode) -> String {
-        // 从剧集名称中提取线路名（如果有 [线路名] 前缀）
+        // 从剧集名称中提取线路名（如果有 [线路名] 前缀，多线路场景）
         let name = episode.name
         if name.hasPrefix("["), let endIndex = name.firstIndex(of: "]") {
             let lineName = name[name.index(after: name.startIndex)..<endIndex]
             return String(lineName)
+        }
+        // 单线路场景：从 lastPlayFrom 取（详情页返回的 vod_play_from 第一个值）
+        // lastPlayFrom 可能是 "$$$" 分隔的多线路名，取第一个
+        if !lastPlayFrom.isEmpty {
+            let firstLine = lastPlayFrom.components(separatedBy: "$$$").first ?? ""
+            if !firstLine.isEmpty {
+                return firstLine
+            }
         }
         return platformName
     }

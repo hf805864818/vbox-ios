@@ -144,17 +144,17 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     // MARK: - Spider Methods (同步, 协议要求)
 
-    func callHomeContent() throws -> HomeContentResult {
-        guard let json = call("homeContent", args: "{}"),
+    func callHomeContent(overrideInjectDict: [String: Any]? = nil) throws -> HomeContentResult {
+        guard let json = call("homeContent", args: "{}", overrideInjectDict: overrideInjectDict),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("homeContent")
         }
         return try decodeOrFallbackHome(from: data)
     }
 
-    func callCategoryContent(tid: String, pg: Int, extend: String) throws -> CategoryContentResult {
+    func callCategoryContent(tid: String, pg: Int, extend: String, overrideInjectDict: [String: Any]? = nil) throws -> CategoryContentResult {
         let args = #"{"tid":"\#(tid)","pg":"\#(pg)","extend":"\#(extend)"}"#
-        guard let json = call("categoryContent", args: args),
+        guard let json = call("categoryContent", args: args, overrideInjectDict: overrideInjectDict),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("categoryContent")
         }
@@ -175,9 +175,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callDetailContent(ids: String) throws -> DetailContentResult {
+    func callDetailContent(ids: String, overrideInjectDict: [String: Any]? = nil) throws -> DetailContentResult {
         let idsJSON = #"["\#(ids)"]"#
-        guard let json = call("detailContent", args: idsJSON),
+        guard let json = call("detailContent", args: idsJSON, overrideInjectDict: overrideInjectDict),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("detailContent")
         }
@@ -189,9 +189,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callSearchContent(keyword: String, pg: Int) throws -> SearchContentResult {
+    func callSearchContent(keyword: String, pg: Int, overrideInjectDict: [String: Any]? = nil) throws -> SearchContentResult {
         let args = #"{"key":"\#(keyword)","quick":false,"pg":"\#(pg)"}"#
-        guard let json = call("searchContent", args: args),
+        guard let json = call("searchContent", args: args, overrideInjectDict: overrideInjectDict),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("searchContent")
         }
@@ -203,8 +203,8 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callHomeVideoContent() throws -> HomeContentResult {
-        guard let json = call("homeVideoContent", args: ""),
+    func callHomeVideoContent(overrideInjectDict: [String: Any]? = nil) throws -> HomeContentResult {
+        guard let json = call("homeVideoContent", args: "", overrideInjectDict: overrideInjectDict),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("homeVideoContent")
         }
@@ -216,9 +216,9 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
         }
     }
 
-    func callPlayerContent(vodId: String, flag: String, url: String) throws -> PlayerContentResult {
+    func callPlayerContent(vodId: String, flag: String, url: String, overrideInjectDict: [String: Any]? = nil) throws -> PlayerContentResult {
         let args = #"{"flag":"\#(flag)","id":"\#(url)"}"#
-        guard let json = call("playerContent", args: args),
+        guard let json = call("playerContent", args: args, overrideInjectDict: overrideInjectDict),
               let data = json.data(using: .utf8) else {
             throw PythonSpiderError.execFailed("playerContent")
         }
@@ -292,11 +292,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用首页
     func callHomeContentAsync() async throws -> HomeContentResult {
+        let capturedInject = injectDict
         try await withPythonTimeout("homeContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
-                    let result = try self.callHomeContent()
+                    let result = try self.callHomeContent(overrideInjectDict: capturedInject)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -307,11 +308,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用分类
     func callCategoryContentAsync(tid: String, pg: Int, extend: String) async throws -> CategoryContentResult {
+        let capturedInject = injectDict
         try await withPythonTimeout("categoryContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
-                    let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend)
+                    let result = try self.callCategoryContent(tid: tid, pg: pg, extend: extend, overrideInjectDict: capturedInject)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -322,11 +324,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用详情
     func callDetailContentAsync(ids: String) async throws -> DetailContentResult {
+        let capturedInject = injectDict
         try await withPythonTimeout("detailContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
-                    let result = try self.callDetailContent(ids: ids)
+                    let result = try self.callDetailContent(ids: ids, overrideInjectDict: capturedInject)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -338,11 +341,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
     /// 异步调用搜索
     /// ★ 超时 8 秒 (搜索场景要求快速响应，慢脚本直接跳过)
     func callSearchContentAsync(keyword: String, pg: Int) async throws -> SearchContentResult {
+        let capturedInject = injectDict
         try await withPythonTimeout("searchContent", timeout: 8) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
-                    let result = try self.callSearchContent(keyword: keyword, pg: pg)
+                    let result = try self.callSearchContent(keyword: keyword, pg: pg, overrideInjectDict: capturedInject)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -353,11 +357,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用播放解析
     func callPlayerContentAsync(vodId: String, flag: String, url: String) async throws -> PlayerContentResult {
+        let capturedInject = injectDict
         try await withPythonTimeout("playerContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
-                    let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url)
+                    let result = try self.callPlayerContent(vodId: vodId, flag: flag, url: url, overrideInjectDict: capturedInject)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
@@ -368,11 +373,12 @@ final class PythonSpiderEngine: SpiderEngineProtocol {
 
     /// 异步调用首页视频（可选方法）
     func callHomeVideoContentAsync() async throws -> HomeContentResult {
+        let capturedInject = injectDict
         try await withPythonTimeout("homeVideoContent", timeout: 20) { done in
             self.pythonQueue.async { [weak self] in
                 guard let self = self else { return }
                 do {
-                    let result = try self.callHomeVideoContent()
+                    let result = try self.callHomeVideoContent(overrideInjectDict: capturedInject)
                     done(.success(result))
                 } catch {
                     done(.failure(error))
