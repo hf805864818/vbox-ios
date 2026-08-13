@@ -31,6 +31,15 @@ import Combine
 
 final class WelfarePythonSpiderService: FuliBaseService {
 
+    // MARK: - 日志辅助
+
+    /// 统一日志：同时输出到 print() 和 PythonLogStore（悬浮球可见）
+    private func pyLog(_ msg: String) {
+        let entry = "[WelfarePy:\(platform.platformKey)] \(msg)"
+        print(entry)
+        PythonLogStore.appendLog(entry)
+    }
+
     // MARK: - 实例缓存
 
     private static let cache = NSCache<NSString, WelfarePythonSpiderService>()
@@ -127,7 +136,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
             // 创建引擎
             let eng = PythonSpiderEngine(scriptPath: script.localURL.path, key: platform.platformKey)
             eng.onLog = { [weak self] msg in
-                print("[WelfarePy:\(self?.platform.platformKey ?? "")] \(msg)")
+                self?.pyLog(msg)
             }
 
             // 注入福利上下文（自定义域名 + 代理设置）
@@ -140,12 +149,12 @@ final class WelfarePythonSpiderService: FuliBaseService {
             self.engine = eng
             self.initError = nil
             initLock.unlock()
-            print("[WelfarePy:\(platform.platformKey)] ✅ 引擎初始化成功")
+            pyLog("✅ 引擎初始化成功")
         } catch {
             initLock.lock()
             self.initError = error.localizedDescription
             initLock.unlock()
-            print("[WelfarePy:\(platform.platformKey)] ❌ 引擎初始化失败: \(error.localizedDescription)")
+            pyLog("❌ 引擎初始化失败: \(error.localizedDescription)")
         }
     }
 
@@ -202,7 +211,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
 
             return mapped
         } catch {
-            print("[WelfarePy:\(platform.platformKey)] ❌ fetchHomeContent: \(error.localizedDescription)")
+            pyLog("❌ fetchHomeContent: \(error.localizedDescription)")
             return .empty
         }
     }
@@ -225,7 +234,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
             let result = try await engine.callCategoryContentAsync(tid: tid, pg: page, extend: extend, injectDict: inject)
             return mapper.mapCategory(result)
         } catch {
-            print("[WelfarePy:\(platform.platformKey)] ❌ fetchCategoryContent: \(error.localizedDescription)")
+            pyLog("❌ fetchCategoryContent: \(error.localizedDescription)")
             return FuliCategoryResult(videos: [], page: page, hasMore: false)
         }
     }
@@ -247,7 +256,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
             lastPlayFrom = detail.playFrom
             return detail
         } catch {
-            print("[WelfarePy:\(platform.platformKey)] ❌ fetchDetail: \(error.localizedDescription)")
+            pyLog("❌ fetchDetail: \(error.localizedDescription)")
             return FuliDetail(
                 vodId: vodId, vodName: "", vodPic: "",
                 vodContent: nil, playFrom: platformName, episodes: []
@@ -266,7 +275,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
             let result = try await engine.callSearchContentAsync(keyword: keyword, pg: page, injectDict: inject)
             return mapper.mapSearch(result)
         } catch {
-            print("[WelfarePy:\(platform.platformKey)] ❌ fetchSearch: \(error.localizedDescription)")
+            pyLog("❌ fetchSearch: \(error.localizedDescription)")
             return FuliSearchResult(videos: [], page: page, hasMore: false)
         }
     }
@@ -294,7 +303,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
                     return FuliPlayerResult(url: mapped.url, headers: playerHeaders, parse: mapped.parse)
                 }
             } catch {
-                print("[WelfarePy:\(platform.platformKey)] ❌ fetchPlayerURL: \(error.localizedDescription)")
+                pyLog("❌ fetchPlayerURL: \(error.localizedDescription)")
             }
         }
 
