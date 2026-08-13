@@ -8,7 +8,7 @@ enum CMSV10ContentType {
 
 // MARK: - CMS V10 通用解析助手
 /// 对应远端 sources/welfare-js/aidan.py 的通用 CMS V10 API 逻辑。
-/// 同时被 AidanVideoService 与 AidanComicService 复用，避免重复代码。
+/// 阶段4 清理后仅被 AidanVideoService 复用，避免重复代码。
 final class CMSV10Helper {
     static let shared = CMSV10Helper()
     private init() {}

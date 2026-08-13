@@ -5,8 +5,12 @@ import UIKit
 struct WelfareHomeView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var ybox = YBoxService2.shared
+    @StateObject private var remoteConfigStore = WelfarePlatformConfigStore.shared
     @State private var selectedTab: WelfareTab = .video
     @State private var isEditMode = false
+    /// 排序后的平台列表（按 category 分别缓存）
+    /// - 远程源模式：元素为 YBoxPlatform2（由 remoteConfigStore 转换而来）
+    /// - 兼容模式：元素为 YBoxPlatform2（由 ybox.categories 转换而来）
     @State private var orderedPlatforms: [WelfareTab: [YBoxPlatform2]] = [:]
     @State private var navigatePlatformID: String?
 
@@ -173,60 +177,62 @@ struct WelfareHomeView: View {
         }
     }
 
-    private func destinationView(for platform: YBoxPlatform2) -> some View {
-        if platform.name == "MissAV" {
+    private func destinationView(for platform: YBoxPlatform2) -> AnyView {
+        // 阶段3 改造：完全走 WelfarePlatformRouter 统一路由
+        // 1. 优先查远程源（YBoxPlatform2.crawlerPlatformId 即 platformKey）
+        if let crawlerId = platform.crawlerPlatformId,
+           let remotePlatform = remoteConfigStore.platform(forKey: crawlerId) {
+            return AnyView(
+                WelfarePlatformRouter.shared
+                    .makeDestinationView(for: remotePlatform, settings: settings)
+                    .environmentObject(settings)
+            )
+        }
+
+        // 2. 兼容模式（非福利入口 / 远程源未加载）：按名字分发
+        switch platform.name {
+        case "MissAV":
             return AnyView(MissAVHomeView().environmentObject(settings))
-        } else if platform.name == "每日大乱斗" || platform.name == "每日大赛" {
-            return AnyView(DailyBattleMainView(platform: platform))
-        } else if platform.name == "神秘电影" {
-            return AnyView(MysteryMovieMainView(platform: platform))
-        } else if platform.name == "色播聚合" {
-            return AnyView(SBAggregationView(platform: platform))
-        } else if platform.name == "四虎视频" {
-            return AnyView(SihuVideoHomeView(platform: platform))
-        } else if platform.name == "香肠派对" {
-            return AnyView(XCPHomeView(platform: platform))
-        } else if platform.name == "One平台" {
+        case "One平台":
             return AnyView(OnePlatformHomeView(platform: platform))
-        } else if platform.name == "麻豆平台" {
+        case "麻豆平台":
             return AnyView(MDTVHomeView(platform: platform))
-        } else if platform.name == "萝莉AV" {
-            return AnyView(LuoliAVHomeView())
-        } else if platform.name == "麻豆免费" {
-            return AnyView(MadouFreeHomeView())
-        } else if platform.name == "久久網" {
-            return AnyView(JiujiuHomeView())
-        } else if platform.name == "韩国色情电影" {
-            return AnyView(KoreanPornHomeView())
-        } else if platform.name == "今日看料" {
-            return AnyView(KanliaoHomeView())
-        } else if platform.name == "黑料不打烊" {
-            return AnyView(HeiliaoHomeView())
-        } else if platform.name == "通用吸瓜" {
-            return AnyView(XiguaMainView(platform: platform))
-        } else if platform.name == "熊猫视频" {
-            return AnyView(FuliPlatformMainView(platform: platform, service: PandaVideoService.shared))
-        } else if platform.name == "4H视频" {
-            return AnyView(FuliPlatformMainView(platform: platform, service: FourHVideoService.shared))
-        } else if platform.name == "FullHD" {
-            return AnyView(FuliPlatformMainView(platform: platform, service: FullHDService.shared))
-        } else if platform.name == "香蕉视频" {
-            return AnyView(FuliPlatformMainView(platform: platform, service: BananaVideoService.shared))
-        } else {
+        default:
+            // 兜底：XJSP 通用分类
             return AnyView(YBoxXjspMainView(platform: platform))
         }
     }
 
     // MARK: - 平台数据过滤
     private func filteredPlatforms(for tab: WelfareTab) -> [YBoxPlatform2] {
-        let all: [YBoxPlatform2] = {
-            for c in ybox.categories {
-                if c.name == tab.rawValue { return c.platforms }
+        let categoryKey: String = {
+            switch tab {
+            case .video: return "video"
+            case .live:  return "live"
+            case .comic: return "comic"
             }
-            return []
         }()
-        // 仅保留 MissAV、香蕉秀、每日大乱斗、每日大赛 和 神秘电影
-        return all.filter { $0.name == "MissAV" || $0.name == "香蕉秀" || $0.name == "每日大乱斗" || $0.name == "每日大赛" || $0.name == "神秘电影" || $0.name == "四虎视频" || $0.name == "香肠派对" || $0.name == "色播聚合" || $0.name == "One平台" || $0.name == "麻豆平台" || $0.name == "萝莉AV" || $0.name == "麻豆免费" || $0.name == "久久網" || $0.name == "韩国色情电影" || $0.name == "今日看料" || $0.name == "黑料不打烊" || $0.name == "通用吸瓜" || $0.name == "熊猫视频" || $0.name == "4H视频" || $0.name == "FullHD" || $0.name == "香蕉视频" }
+
+        // 阶段3 改造：远程源模式从 WelfarePlatformConfigStore 读，兼容模式从 ybox.categories 读
+        if remoteConfigStore.switchEnabled {
+            let items = remoteConfigStore.platforms(in: RemoteWelfareCategory(rawValue: categoryKey) ?? .video)
+            return items.map { p in
+                YBoxPlatform2(
+                    name: p.name,
+                    icon: p.icon,
+                    type: tab == .live ? .live : (tab == .comic ? .comic : .video),
+                    baseURL: p.primaryHost,
+                    desc: p.desc,
+                    crawlerPlatformId: p.platformKey
+                )
+            }
+        }
+
+        // 兼容模式：仅返回 ybox.categories 里的平台（不写死白名单）
+        for c in ybox.categories {
+            if c.name == tab.rawValue { return c.platforms }
+        }
+        return []
     }
 
     // MARK: - 颜色工具

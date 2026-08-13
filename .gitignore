@@ -7,3 +7,7 @@ Build/
 vbox/Libraries/MPV/MPVKitDependencies/*.xcframework/
 vbox/Libraries/MPV/Freedom/*.xcframework/
 __pycache__/
+
+# 阶段3+阶段4 临时备份目录（不推送）
+dead-code-review-step4/
+dead-code-review-step6/

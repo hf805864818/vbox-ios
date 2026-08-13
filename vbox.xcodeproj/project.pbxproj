@@ -11,15 +11,10 @@
 		01F6F39CDE0989900175B1A7 /* Libavdevice.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		02831CE14AB9016BC0331BE0 /* Libcrypto.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		03441A3A19D4200B9B0C9F73 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 97FF67C178D2D217311C1C6C /* Security.framework */; };
-		04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A80014896281C5C1B943BE /* SihuVideoService.swift */; };
-		04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */; };
-		04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */; };
-		04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */; };
 		0A6139A598995C942D64C787 /* WelfareRemoteAutoLoader.m in Sources */ = {isa = PBXBuildFile; fileRef = 4E3071D27583832059A8C211 /* WelfareRemoteAutoLoader.m */; };
 		0B8A0BC12EB59E31457F7A26 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */; };
 		0C3CE0504210081ED3E2C384 /* Libplacebo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		0D1E865FB508DE73B04C17AC /* PlatformAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */; };
-		0D4E5F6789ABCDEF012345678 /* KoreanPornHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */; };
 		111921984B8291A062F394E4 /* Libharfbuzz.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 03F4D127BE463286B5D12AA8 /* Libharfbuzz.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		11FFC77DC15A70173DBE12E5 /* Libfreetype.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		12A1AC8CFD69FC77D785A754 /* Libass.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -37,7 +32,6 @@
 		24894AD67FD7DADF6676A1A5 /* Libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F804EDDCDA642682760842DD /* Libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		24ECB21A0411E4DBEDA9F15B /* hogweed.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45410F150AD33568D996B571 /* hogweed.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		2789C67E88E95C3033EBD462 /* Libdovi.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */; };
 		290F6A90927942109B5BEABC /* BananaVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9635B11828EC465785E74A90 /* BananaVideoService.swift */; };
 		295555039AFA483DAA53B700 /* FullHDService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5810649382674CEDBAA6A2CF /* FullHDService.swift */; };
 		298BCE972FC626E85E68058C /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8D78FFEBE46A3144F3070F08 /* VideoToolbox.framework */; };
@@ -55,11 +49,9 @@
 		3A0F654B18027EB301542742 /* WelfareSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */; };
 		3CF55E2963D81606D26798FB /* alivcffmpeg.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		44512C970784869EA592C124 /* Libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
-		4727A084B2BA4846BD0154C8 /* MysteryMovieMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */; };
 		491675A8F7D7EE7F9112C3BF /* XJSPWelfareMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBA63285C8717260EC36C0B /* XJSPWelfareMainView.swift */; };
 		4A837931F7954B0C3F4174B8 /* alivcffmpeg.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */; settings = {ATTRIBUTES = (Required, ); }; };
 		4C54E1F2F36AA08687F86228 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4959B121CB3DFFFB86D6BEFC /* UIKit.framework */; };
-		4CDF9B1C88D4490285B1CB49 /* MysteryMovieService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */; };
 		4F5E6D7C8B9A090807060504 /* LusushequService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F708192A3B4C5 /* LusushequService.swift */; };
 		4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */; };
 		50AE505C5AB8511E02F0E454 /* Libshaderc_combined.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
@@ -69,7 +61,6 @@
 		51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 352766A618B5FDE7451235BB /* Libmpv.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		53873C0B408C557A4B2E8906 /* Libavdevice.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		53A4EEAAFB85002511F0912D /* Libuchardet.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */; };
 		5C7128A19FE75B033241A8CC /* IOSurface.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CFF33E1BB4E9046F17208D3E /* IOSurface.framework */; };
 		5CCD32EF8BCC5461BECAB1DA /* MDTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AEA5E3D59D5893B8304746 /* MDTVService.swift */; };
 		5D994F6D0D7A4F6A8CE6FB66 /* DuckVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D62F6461A137466FAE5F133B /* DuckVideoService.swift */; };
@@ -81,7 +72,6 @@
 		6AA3BCF3B628B51511EB3353 /* Libsmbclient.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		6CF0422718C9122B706A6918 /* AliyunPlayer.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		7838114C8D510E624CD5843F /* MoltenVK.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		7A1B2C3D4E5F6789ABCDEF01 /* JiujiuService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6789ABCDEF0123 /* JiujiuService.swift */; };
 		7A3548AF4C396A18A40AE5D2 /* Libfribidi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 51D064347CEF883DED6CEE39 /* Libfribidi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		7CEC9C3C6E9BA7585A1D6451 /* MoltenVK.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		80FFE25DBBA32D0D5930BA81 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2108BAE857F9C778CD8A3A9 /* AudioToolbox.framework */; };
@@ -93,14 +83,12 @@
 		84CD00DB6B4B418E857E5481 /* FuliPlatformService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E84749E9834DDCBAF5CBB3 /* FuliPlatformService.swift */; };
 		8594FA70445202F5F08A123A /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFE207598530999CD737A4C6 /* Metal.framework */; };
 		86D4FD58B3D2BB6A0068080C /* RemoteWelfarePasswordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58B12E309090FC8BE8664F2 /* RemoteWelfarePasswordSheet.swift */; };
-		8B2C3D4E5F6789ABCDEF0123 /* JiujiuHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6789ABCDEF01234 /* JiujiuHomeView.swift */; };
 		8CFE777E79B66B49E936B16F /* OnePlatformViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */; };
 		91109A3AE5E69A5CD116E13D /* MPVKit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		940544D33D66544964FE1993 /* WelfareRemoteBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2D1710D40735DF3862A874 /* WelfareRemoteBootstrap.swift */; };
 		94BE19989DB327D205FC7C99 /* gnutls.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F77356B6F268B826247C658 /* gnutls.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		9661D6A59EEEE3DE799C21FF /* Libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		98BE9423DB29B651E47276CE /* Libdav1d.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		9C3D4E5F6789ABCDEF012345 /* KoreanPornService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6789ABCDEF01234567 /* KoreanPornService.swift */; };
 		9C9F2E85386B45EAB0C010B8 /* WaibiService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B44716C2FC412BACA38D26 /* WaibiService.swift */; };
 		9DA4F65EF8EF91BC17D4B90C /* Libunibreak.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		9E500FE500FDAD63873B5803 /* gmp.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C9E623AC03FF5B83F03C95FD /* gmp.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -167,9 +155,7 @@
 		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
 		A10157 /* CMSV10Helper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10157 /* CMSV10Helper.swift */; };
 		A10158 /* AidanVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10158 /* AidanVideoService.swift */; };
-		A10159 /* AidanComicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10159 /* AidanComicService.swift */; };
 		A10160 /* ComicDetailBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10160 /* ComicDetailBridgeView.swift */; };
-		A10161 /* RemoteCMSV10Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10161 /* RemoteCMSV10Service.swift */; };
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
@@ -214,17 +200,14 @@
 		A4FFD70F90C99F216CDF42E6 /* nettle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		A7C9E002A7C9E002A7C9E002 /* AVKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A7C9E001A7C9E001A7C9E001 /* AVKit.framework */; };
 		A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */; };
-		AAAA000000000000000000001 /* HeiliaoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBB000000000000000000001 /* HeiliaoService.swift */; };
 		AABBCC001122334455667721 /* WelfareSpiderLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667711 /* WelfareSpiderLoader.swift */; };
 		AABBCC001122334455667722 /* WelfareSpiderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667712 /* WelfareSpiderService.swift */; };
 		AABBCC001122334455667723 /* WelfareSpiderHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667713 /* WelfareSpiderHomeView.swift */; };
 		AABBCC001122334455667724 /* WelfareJSSpiderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667714 /* WelfareJSSpiderService.swift */; };
 		AABBCC001122334455667725 /* WelfarePythonSpiderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667715 /* WelfarePythonSpiderService.swift */; };
 		AABBCC001122334455667726 /* WelfareResultMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667716 /* WelfareResultMapper.swift */; };
-		AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70363C93B7E4A60A895A08B /* MadouFreeService.swift */; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */; };
-		B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */; };
 		B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C15E736105CF390FD2313 /* MDTVViews.swift */; };
 		B9DBEFC8B24F0934EAF4557D /* Libdovi.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		BB267C723AB496EEF6A45393 /* WelfarePlatformConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37DD5E807D330AA4BF0028D /* WelfarePlatformConfigStore.swift */; };
@@ -240,13 +223,11 @@
 		CAFE00000000000000000006 /* FeedbackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000005 /* FeedbackService.swift */; };
 		CB01126FCF83B2983BB94723 /* Libuavs3d.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CC4DF3963FB20A05ADA75B3B /* lcms2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
-		CCCC000000000000000000001 /* HeiliaoHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDD000000000000000000001 /* HeiliaoHomeView.swift */; };
 		CD1D7922290B99B2EFEA4E9F /* gmp.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C9E623AC03FF5B83F03C95FD /* gmp.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CE7C66BE7B372BEDAF0561F0 /* Libshaderc_combined.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CEC8562890360AF3A3A6CDB3 /* Libuchardet.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		CED0C11DF47D8EA5E33E4A9D /* hogweed.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 45410F150AD33568D996B571 /* hogweed.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CF8DB5B6D7C06688B86FAC21 /* Libmpv.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 352766A618B5FDE7451235BB /* Libmpv.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
-		D062D7DAF9844F198AF617FC /* MadouFreeHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */; };
 		D26C924E2AA40B2A60CD47FA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D335C9314BCA41E37F2D5605 /* AVFoundation.framework */; };
 		D2AC0641D1BA4218849EFA47 /* DailyBattleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86829CD08A7449B682FF058E /* DailyBattleService.swift */; };
 		D4B1A0F40BF3BE3263B560C3 /* Libavfilter.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -271,7 +252,6 @@
 		F28AA148030E09D03B61DB77 /* Libfreetype.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		F2E5B0D9135DE789B67C62AC /* RemoteWelfareSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32380B218240B082EA2F91F5 /* RemoteWelfareSettingsView.swift */; };
 		F39C53FE3F6B5C2BD96EF8B6 /* gnutls.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5F77356B6F268B826247C658 /* gnutls.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */; };
 		F7481825FDA4FFE67F4F8820 /* Libcrypto.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FA3D664D6F46807478A3527A /* Libssl.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3E1A10C4BB41A9830B2449A3 /* Libssl.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -279,9 +259,6 @@
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
 		TG0100000000000000000A001 /* TGSearchConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B001 /* TGSearchConfigStore.swift */; };
 		TG0100000000000000000A002 /* TGChannelListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B002 /* TGChannelListView.swift */; };
-		XIGUA0000000000000000001 /* XiguaModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000001 /* XiguaModels.swift */; };
-		XIGUA0000000000000000002 /* XiguaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000002 /* XiguaService.swift */; };
-		XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = XIGUA1000000000000000003 /* XiguaHomeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -333,16 +310,11 @@
 
 /* Begin PBXFileReference section */
 		03F4D127BE463286B5D12AA8 /* Libharfbuzz.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libharfbuzz.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libharfbuzz.xcframework; sourceTree = SOURCE_ROOT; };
-		04A80014896281C5C1B943BE /* SihuVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoService.swift; sourceTree = "<group>"; };
-		04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SihuVideoView.swift; sourceTree = "<group>"; };
-		04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCPService.swift; sourceTree = "<group>"; };
-		04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCPView.swift; sourceTree = "<group>"; };
 		06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuchardet.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuchardet.xcframework; sourceTree = SOURCE_ROOT; };
 		074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libshaderc_combined.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libshaderc_combined.xcframework; sourceTree = SOURCE_ROOT; };
 		09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libsmbclient.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libsmbclient.xcframework; sourceTree = SOURCE_ROOT; };
 		0ACF3553ACF7957549D7D96C /* Libdovi.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdovi.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdovi.xcframework; sourceTree = SOURCE_ROOT; };
 		0E27763D993B6E8409086841 /* libbz2.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
-		1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SBAggregationService.swift; sourceTree = "<group>"; };
 		118639D4704EF09B475A80B0 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
 		17072B53D798B9CAC7FE2853 /* PushPlayView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayView.swift; path = PushPlayView.swift; sourceTree = "<group>"; };
 		1726CEF6CEA427CEAA192D3C /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
@@ -352,7 +324,6 @@
 		2826B5442BD21B630AEC91E6 /* IJKMediaFrameworkWithSSL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IJKMediaFrameworkWithSSL.framework; path = vbox/Libraries/IJKPlayer/IJKMediaFrameworkWithSSL.framework; sourceTree = SOURCE_ROOT; };
 		2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxAPIService.swift; sourceTree = "<group>"; };
 		2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = lcms2.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/lcms2.xcframework; sourceTree = SOURCE_ROOT; };
-		2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeHomeView.swift; sourceTree = "<group>"; };
 		30877432D1026706D7E805DA /* PythonWebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonWebViewBridge.swift; sourceTree = "<group>"; };
 		32380B218240B082EA2F91F5 /* RemoteWelfareSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWelfareSettingsView.swift; sourceTree = "<group>"; };
 		352766A618B5FDE7451235BB /* Libmpv.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libmpv.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libmpv.xcframework; sourceTree = SOURCE_ROOT; };
@@ -363,7 +334,6 @@
 		415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libplacebo.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libplacebo.xcframework; sourceTree = SOURCE_ROOT; };
 		424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformAsyncImage.swift; sourceTree = "<group>"; };
 		45410F150AD33568D996B571 /* hogweed.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = hogweed.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/hogweed.xcframework; sourceTree = SOURCE_ROOT; };
-		455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVHomeView.swift; sourceTree = "<group>"; };
 		4959B121CB3DFFFB86D6BEFC /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		4C2D1710D40735DF3862A874 /* WelfareRemoteBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareRemoteBootstrap.swift; sourceTree = "<group>"; };
 		4CBD4AE667D94F1CDEDFD62A /* AliPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AliPlayerRepresentable.swift; sourceTree = "<group>"; };
@@ -375,11 +345,9 @@
 		567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdav1d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdav1d.xcframework; sourceTree = SOURCE_ROOT; };
 		5810649382674CEDBAA6A2CF /* FullHDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullHDService.swift; sourceTree = "<group>"; };
 		5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonLogFloatingWindow.swift; sourceTree = "<group>"; };
-		5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SBAggregationView.swift; sourceTree = "<group>"; };
 		5F77356B6F268B826247C658 /* gnutls.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gnutls.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gnutls.xcframework; sourceTree = SOURCE_ROOT; };
 		619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = MoltenVK.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework; sourceTree = SOURCE_ROOT; };
 		62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswscale.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswscale.xcframework; sourceTree = SOURCE_ROOT; };
-		62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MysteryMovieMainView.swift; sourceTree = "<group>"; };
 		67242B53662EFB908D1D24B3 /* IJKPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IJKPlayerRepresentable.swift; sourceTree = "<group>"; };
 		73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonSpiderEngine.swift; sourceTree = "<group>"; };
 		789ABCDEF0123456789012345 /* KanliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanliaoHomeView.swift; sourceTree = "<group>"; };
@@ -399,7 +367,6 @@
 		9A2FCEBA5ED58CC95BBAAEF0 /* Libunibreak.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libunibreak.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libunibreak.xcframework; sourceTree = SOURCE_ROOT; };
 		9C7C813277704DC9A355F569 /* PandaVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PandaVideoService.swift; sourceTree = "<group>"; };
 		9D32E575559754AD2F00E37C /* nettle.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = nettle.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/nettle.xcframework; sourceTree = SOURCE_ROOT; };
-		A1B2C3D4E5F6789ABCDEF0123 /* JiujiuService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JiujiuService.swift; sourceTree = "<group>"; };
 		A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libuavs3d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libuavs3d.xcframework; sourceTree = SOURCE_ROOT; };
 		A7C9E001A7C9E001A7C9E001 /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = alivcffmpeg.framework; path = vbox/Libraries/alivcffmpeg.framework; sourceTree = SOURCE_ROOT; };
@@ -476,9 +443,7 @@
 		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
 		B10157 /* CMSV10Helper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMSV10Helper.swift; sourceTree = "<group>"; };
 		B10158 /* AidanVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanVideoService.swift; sourceTree = "<group>"; };
-		B10159 /* AidanComicService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanComicService.swift; sourceTree = "<group>"; };
 		B10160 /* ComicDetailBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicDetailBridgeView.swift; sourceTree = "<group>"; };
-		B10161 /* RemoteCMSV10Service.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCMSV10Service.swift; sourceTree = "<group>"; };
 		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
 		B10203 /* WelfareSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSubViews.swift; sourceTree = "<group>"; };
 		B10999 /* vbox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vbox.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -522,20 +487,17 @@
 		B12035 /* SecureCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureCredentialStore.swift; sourceTree = "<group>"; };
 		B13001 /* MPVKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = MPV/MPVKit.xcframework; sourceTree = "<group>"; };
 		B1F0C0010000000000000001 /* SpiderEngineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderEngineFactory.swift; sourceTree = "<group>"; };
-		B2C3D4E5F6789ABCDEF01234 /* JiujiuHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JiujiuHomeView.swift; sourceTree = "<group>"; };
 		B37DD5E807D330AA4BF0028D /* WelfarePlatformConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformConfigStore.swift; sourceTree = "<group>"; };
 		B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliVideoBridgeView.swift; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
 		B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformMainView.swift; sourceTree = "<group>"; };
 		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
-		BBBB000000000000000000001 /* HeiliaoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeiliaoService.swift; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		C0E84749E9834DDCBAF5CBB3 /* FuliPlatformService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformService.swift; sourceTree = "<group>"; };
 		C1A000000000000000000001 /* CloudDriveSortManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveSortManager.swift; sourceTree = "<group>"; };
 		C1A000000000000000000002 /* CloudDriveSortView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveSortView.swift; sourceTree = "<group>"; };
 		C2108BAE857F9C778CD8A3A9 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
-		C3D4E5F6789ABCDEF01234567 /* KoreanPornService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornService.swift; sourceTree = "<group>"; };
 		C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSettingsView.swift; sourceTree = "<group>"; };
 		C58B12E309090FC8BE8664F2 /* RemoteWelfarePasswordSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWelfarePasswordSheet.swift; sourceTree = "<group>"; };
 		C9E623AC03FF5B83F03C95FD /* gmp.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gmp.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gmp.xcframework; sourceTree = SOURCE_ROOT; };
@@ -549,19 +511,14 @@
 		CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcePickerSheet.swift; sourceTree = "<group>"; };
 		CFF33E1BB4E9046F17208D3E /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
 		D0F468EC9922AFBBB856E9DB /* Libfreetype.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libfreetype.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libfreetype.xcframework; sourceTree = SOURCE_ROOT; };
-		D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MysteryMovieService.swift; sourceTree = "<group>"; };
 		D335C9314BCA41E37F2D5605 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
-		D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoreanPornHomeView.swift; sourceTree = "<group>"; };
 		D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonWebViewBridge.h; sourceTree = "<group>"; };
 		D62F6461A137466FAE5F133B /* DuckVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckVideoService.swift; sourceTree = "<group>"; };
 		D810A485ED03241B4D419B1B /* PythonLogStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonLogStore.m; sourceTree = "<group>"; };
 		D8815F39A6013262E7F5B211 /* PushPlayStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayStore.swift; path = PushPlayStore.swift; sourceTree = "<group>"; };
-		DDDD000000000000000000001 /* HeiliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeiliaoHomeView.swift; sourceTree = "<group>"; };
-		E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LuoliAVService.swift; sourceTree = "<group>"; };
 		E4B44716C2FC412BACA38D26 /* WaibiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaibiService.swift; sourceTree = "<group>"; };
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
-		E70363C93B7E4A60A895A08B /* MadouFreeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadouFreeService.swift; sourceTree = "<group>"; };
 		E9DF469611A11F5125227C37 /* PythonBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonBridge.m; sourceTree = "<group>"; };
 		F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDiscoveryView.swift; sourceTree = "<group>"; };
 		F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnePlatformViews.swift; sourceTree = "<group>"; };
@@ -576,9 +533,6 @@
 		FF4A2F51F4D48142714B5109 /* WelfarePlatformConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformConfig.swift; sourceTree = "<group>"; };
 		TG0100000000000000000B001 /* TGSearchConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGSearchConfigStore.swift; sourceTree = "<group>"; };
 		TG0100000000000000000B002 /* TGChannelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGChannelListView.swift; sourceTree = "<group>"; };
-		XIGUA1000000000000000001 /* XiguaModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaModels.swift; sourceTree = "<group>"; };
-		XIGUA1000000000000000002 /* XiguaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaService.swift; sourceTree = "<group>"; };
-		XIGUA1000000000000000003 /* XiguaHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiguaHomeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -774,7 +728,6 @@
 			children = (
 				B10004 /* SpiderModels.swift */,
 				56395FB5B97A49719A76B89B /* FuliPlatformKit.swift */,
-				XIGUA1000000000000000001 /* XiguaModels.swift */,
 				B11001 /* DBModels.swift */,
 				B12032 /* SangeModels.swift */,
 				AE18719058C97F4EF082F120 /* SourceDisplayItem.swift */,
@@ -818,19 +771,10 @@
 				95838F158F95F94719AAE9D0 /* OnePlatformService.swift */,
 				D3AEA5E3D59D5893B8304746 /* MDTVService.swift */,
 				86829CD08A7449B682FF058E /* DailyBattleService.swift */,
-				D2A6ECFD24C04CF08C4CB2D2 /* MysteryMovieService.swift */,
 				B12031 /* KXSPAPIService.swift */,
 				B10155 /* MissAVService.swift */,
 				5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */,
-				1100D2E5FACA1BCB9FDF00FB /* SBAggregationService.swift */,
-				04A80014896281C5C1B943BE /* SihuVideoService.swift */,
-				04C3F7A91D82E4B6F05A7C1E /* XCPService.swift */,
-				E06CE99605BF44E2BD71A83D /* LuoliAVService.swift */,
-				E70363C93B7E4A60A895A08B /* MadouFreeService.swift */,
-				A1B2C3D4E5F6789ABCDEF0123 /* JiujiuService.swift */,
-				C3D4E5F6789ABCDEF01234567 /* KoreanPornService.swift */,
 				F6789ABCDEF0123456789012 /* KanliaoService.swift */,
-				BBBB000000000000000000001 /* HeiliaoService.swift */,
 				AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */,
 				CAE17801050B4022A4E5415C /* WelfareProxyStore.swift */,
 				TG0100000000000000000B001 /* TGSearchConfigStore.swift */,
@@ -845,9 +789,6 @@
 				C0E84749E9834DDCBAF5CBB3 /* FuliPlatformService.swift */,
 				B10157 /* CMSV10Helper.swift */,
 				B10158 /* AidanVideoService.swift */,
-				B10159 /* AidanComicService.swift */,
-				B10161 /* RemoteCMSV10Service.swift */,
-				XIGUA1000000000000000002 /* XiguaService.swift */,
 				D8815F39A6013262E7F5B211 /* PushPlayStore.swift */,
 				30877432D1026706D7E805DA /* PythonWebViewBridge.swift */,
 				73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */,
@@ -884,18 +825,11 @@
 				8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */,
 				F32FE1D2CC2DBD7A1E776A97 /* OnePlatformViews.swift */,
 				F73C15E736105CF390FD2313 /* MDTVViews.swift */,
-				455DB3278E654F2C8141409F /* LuoliAVHomeView.swift */,
-				2F23951FA2554A0C96CA412E /* MadouFreeHomeView.swift */,
-				B2C3D4E5F6789ABCDEF01234 /* JiujiuHomeView.swift */,
-				D4E5F6789ABCDEF0123456789 /* KoreanPornHomeView.swift */,
 				789ABCDEF0123456789012345 /* KanliaoHomeView.swift */,
-				DDDD000000000000000000001 /* HeiliaoHomeView.swift */,
 				B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */,
 				B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */,
 				B10160 /* ComicDetailBridgeView.swift */,
-				XIGUA1000000000000000003 /* XiguaHomeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
-				62F18FA3F4A14467BE76CCEC /* MysteryMovieMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
 				B10128 /* ShortDramaDetailView.swift */,
 				B10203 /* WelfareSubViews.swift */,
@@ -903,9 +837,6 @@
 				B12034 /* SangeListView.swift */,
 				B10156 /* MissAVViews.swift */,
 				424FDF0E29EDDCE590D85773 /* PlatformAsyncImage.swift */,
-				5D4C5BB86FE0830ED556C25C /* SBAggregationView.swift */,
-				04A95C5BCDA70797DFE02A84 /* SihuVideoView.swift */,
-				04C8B2D4E6F13A7C9D04B5F2 /* XCPView.swift */,
 				C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */,
 				TG0100000000000000000B002 /* TGChannelListView.swift */,
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
@@ -1129,7 +1060,6 @@
 				A10003 /* AppSettings.swift in Sources */,
 				A10004 /* SpiderModels.swift in Sources */,
 				18B1B3504B90430DAE0FD79C /* FuliPlatformKit.swift in Sources */,
-				XIGUA0000000000000000001 /* XiguaModels.swift in Sources */,
 				A10005 /* JSSpiderEngine.swift in Sources */,
 				A10006 /* JSHTTPBridge.swift in Sources */,
 				A10007 /* SpiderRepository.swift in Sources */,
@@ -1181,23 +1111,12 @@
 				FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */,
 				2EA577E0E4961A799C3DE3AA /* OnePlatformService.swift in Sources */,
 				5CCD32EF8BCC5461BECAB1DA /* MDTVService.swift in Sources */,
-				28CE8B125EB94752A36155B9 /* LuoliAVService.swift in Sources */,
-				AB632427452D4A4FB4347444 /* MadouFreeService.swift in Sources */,
-				7A1B2C3D4E5F6789ABCDEF01 /* JiujiuService.swift in Sources */,
 				8CFE777E79B66B49E936B16F /* OnePlatformViews.swift in Sources */,
 				B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */,
-				54F6EC4C7F744F07BAD31DCD /* LuoliAVHomeView.swift in Sources */,
-				D062D7DAF9844F198AF617FC /* MadouFreeHomeView.swift in Sources */,
-				8B2C3D4E5F6789ABCDEF0123 /* JiujiuHomeView.swift in Sources */,
-				9C3D4E5F6789ABCDEF012345 /* KoreanPornService.swift in Sources */,
-				0D4E5F6789ABCDEF012345678 /* KoreanPornHomeView.swift in Sources */,
 				E5F6789ABCDEF01234567890 /* KanliaoService.swift in Sources */,
 				6789ABCDEF01234567890123 /* KanliaoHomeView.swift in Sources */,
-				AAAA000000000000000000001 /* HeiliaoService.swift in Sources */,
-				CCCC000000000000000000001 /* HeiliaoHomeView.swift in Sources */,
 				22BD95EA9E854A358B027BE1 /* FuliVideoBridgeView.swift in Sources */,
 				EE85FEE2D9F84D5CB8FA5188 /* FuliPlatformMainView.swift in Sources */,
-				XIGUA0000000000000000003 /* XiguaHomeView.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
@@ -1205,11 +1124,9 @@
 				A10128 /* ShortDramaDetailView.swift in Sources */,
 				A10200 /* YBoxService2.swift in Sources */,
 				D2AC0641D1BA4218849EFA47 /* DailyBattleService.swift in Sources */,
-				4CDF9B1C88D4490285B1CB49 /* MysteryMovieService.swift in Sources */,
 				C0MISSAV001 /* MissAVService.swift in Sources */,
 				A10203 /* WelfareSubViews.swift in Sources */,
 				E0A23E9AE3C34739820CF102 /* DailyBattleMainView.swift in Sources */,
-				4727A084B2BA4846BD0154C8 /* MysteryMovieMainView.swift in Sources */,
 				A12031 /* KXSPAPIService.swift in Sources */,
 				A12032 /* SangeModels.swift in Sources */,
 				A12033 /* SangeCategoryView.swift in Sources */,
@@ -1217,8 +1134,6 @@
 				A12035 /* SecureCredentialStore.swift in Sources */,
 				0D1E865FB508DE73B04C17AC /* PlatformAsyncImage.swift in Sources */,
 				1D659AECAD5496C5F3EAC601 /* PlatformImageLoader.swift in Sources */,
-				F523EDE6FFF04DFF1D29EE07 /* SBAggregationService.swift in Sources */,
-				B4995FA0CD5255A6D5E53E6D /* SBAggregationView.swift in Sources */,
 				AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */,
 				D93B82BABD624B7F9109A747 /* WelfareProxyStore.swift in Sources */,
 				TG0100000000000000000A001 /* TGSearchConfigStore.swift in Sources */,
@@ -1234,20 +1149,13 @@
 				385F07D3D464C0CB901A1710 /* PushPlayStore.swift in Sources */,
 				327EE1F4CD684916B734E66C /* PandaVideoService.swift in Sources */,
 				84CD00DB6B4B418E857E5481 /* FuliPlatformService.swift in Sources */,
-				XIGUA0000000000000000002 /* XiguaService.swift in Sources */,
 				3A0F654B18027EB301542742 /* WelfareSettingsView.swift in Sources */,
-				04B0DEEA45C070B534622DEB /* SihuVideoService.swift in Sources */,
-				04BF233ED75D3E26ADB4A94B /* SihuVideoView.swift in Sources */,
-				04D5E1C8A3B74F2D9E6C80A3 /* XCPService.swift in Sources */,
-				04D9A4F2C7E81B3D5A0F7E6B /* XCPView.swift in Sources */,
 				A99235B75AB7AAAC2D091226 /* SourceDisplayItem.swift in Sources */,
 				D961E13FC4DBC8E61FF0C4D2 /* SourceDiscoveryView.swift in Sources */,
 				A29A2254D46552FF29C75446 /* SourcePickerSheet.swift in Sources */,
 				0A6139A598995C942D64C787 /* WelfareRemoteAutoLoader.m in Sources */,
 				A10157 /* CMSV10Helper.swift in Sources */,
 				A10158 /* AidanVideoService.swift in Sources */,
-				A10159 /* AidanComicService.swift in Sources */,
-				A10161 /* RemoteCMSV10Service.swift in Sources */,
 				A10160 /* ComicDetailBridgeView.swift in Sources */,
 				846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */,
 				C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */,

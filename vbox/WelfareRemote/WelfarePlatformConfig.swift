@@ -106,21 +106,12 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let desc: String
     /// 对应客户端 Service 实现类型（用于路由分发）
     ///   - "ybox_special"    → 香蕉秀专用（fetchBanana* 系列）
-    ///   - "ybox_xjsp"       → 香蕉秀通用分类（XJSPWelfareMainView）
     ///   - "daily_battle"    → 每日大乱斗 / 每日大赛
-    ///   - "mystery_movie"   → 神秘电影
-    ///   - "sihu_video"      → 四虎视频
-    ///   - "xcp"             → 香肠派对
-    ///   - "luoli_av"        → 萝莉AV
-    ///   - "madou_free"      → 麻豆免费
-    ///   - "jiujiu"          → 久久網
-    ///   - "korean_porn"     → 韩国色情电影
     ///   - "kanliao"         → 今日看料
-    ///   - "heiliao"         → 黑料不打烊
-    ///   - "xigua"           → 通用吸瓜
-    ///   - "fuli_base"       → 通用 FuliBaseService 子类
-    ///   - "sb_aggregation"  → 色播聚合
-    ///   - "welfare_spider"  → 福利专区专用远程 Spider 脚本
+    ///   - "aidan_video"     → 艾旦福利视频（CMS V10）
+    ///   - "welfare_spider"  → 福利专区专用远程 Spider 脚本（JS）
+    ///   - "python_spider"   → 福利专区 Python 蜘蛛脚本
+    /// 阶段3 改造：删除 14 个死 case 注释（mystery_movie/sihu_video/xcp/luoli_av/madou_free/jiujiu/korean_porn/heiliao/xigua/fuli_base/sb_aggregation/aidan_comic/remote_cms_v10/ybox_xjsp）
     let serviceType: String
     /// 默认域名列表（按顺序回退探测）
     let defaultHosts: [String]
@@ -269,28 +260,15 @@ enum RemoteWelfareCategory: String, CaseIterable, Identifiable {
 
 /// 客户端 Service 实现类型枚举
 /// 与 WelfarePlatform.serviceType 字符串对应。
+/// 阶段3 改造：删 14 个死 case，仅保留实际使用的 6 个 + 兜底 .unknown
 /// 新增 Service 时只需在此处加一个 case，并在 WelfarePlatformRouter 中加一个 case 分支。
 enum WelfareServiceType: String, CaseIterable {
     case yboxSpecial = "ybox_special"          // 香蕉秀专用
-    case yboxXjsp = "ybox_xjsp"                // 香蕉秀通用分类
     case dailyBattle = "daily_battle"          // 每日大乱斗 / 每日大赛
-    case mysteryMovie = "mystery_movie"        // 神秘电影
-    case sihuVideo = "sihu_video"              // 四虎视频
-    case xcp = "xcp"                           // 香肠派对
-    case luoliAv = "luoli_av"                  // 萝莉AV
-    case madouFree = "madou_free"              // 麻豆免费
-    case jiujiu = "jiujiu"                     // 久久網
-    case koreanPorn = "korean_porn"            // 韩国色情电影
     case kanliao = "kanliao"                   // 今日看料
-    case heiliao = "heiliao"                   // 黑料不打烊
-    case xigua = "xigua"                       // 通用吸瓜
-    case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类
-    case sbAggregation = "sb_aggregation"      // 色播聚合
-    case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本
-    case pythonSpider = "python_spider"        // 福利专区 Python 蜘蛛脚本
     case aidanVideo = "aidan_video"            // 艾旦福利视频（CMS V10）
-    case aidanComic = "aidan_comic"            // 艾旦福利套图（CMS V10 图片类）
-    case remoteCmsV10 = "remote_cms_v10"        // 远程可配置 CMS V10 福利源
+    case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本（JS）
+    case pythonSpider = "python_spider"        // 福利专区 Python 蜘蛛脚本
 
     /// 未知 serviceType：远程 JSON 中的 serviceType 在枚举中找不到时使用，
     /// 路由会显示 UnsupportedPlatformView 错误页，不会兜底到其他平台。
