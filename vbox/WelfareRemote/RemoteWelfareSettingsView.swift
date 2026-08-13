@@ -576,28 +576,17 @@ struct RemoteWelfareSettingsView: View {
         case .dailyBattle:
             DailyBattleService.shared.reprobe()
             DailyBattleService.contest.reprobe()
-        case .luoliAv:
-            LuoliAVService.shared.reprobe()
-        case .madouFree:
-            MadouFreeService.shared.reprobe()
-        case .jiujiu:
-            JiujiuService.shared.reprobe()
-        case .koreanPorn:
-            KoreanPornService.shared.reprobe()
         case .kanliao:
             KanliaoService.shared.reprobe()
-        case .heiliao:
-            HeiliaoService.shared.reprobe()
-        case .xigua:
-            XiguaService.shared.reprobe()
         case .aidanVideo:
             AidanVideoService.shared.reprobe()
-        case .aidanComic:
-            AidanComicService.shared.reprobe()
-        case .remoteCmsV10:
-            RemoteCMSV10Service.service(for: platform).reprobe()
-        case .mysteryMovie, .sihuVideo, .xcp, .sbAggregation, .fuliBase, .yboxSpecial, .yboxXjsp, .welfareSpider, .pythonSpider, .unknown:
-            // 这些 Service 当前未暴露 reprobe()，域名已通过 WelfareDomainStore 持久化，
+        case .welfareSpider:
+            // 通用 JS Spider：脚本内 Service 实例，域名变更后下次进入会重新解析
+            break
+        case .pythonSpider:
+            WelfarePythonSpiderService.service(for: platform).reprobe()
+        case .yboxSpecial, .unknown:
+            // 香蕉秀 / 未知 serviceType：域名已通过 WelfareDomainStore 持久化，
             // 下次进入页面会从 domain store 读取最新域名。
             break
         }

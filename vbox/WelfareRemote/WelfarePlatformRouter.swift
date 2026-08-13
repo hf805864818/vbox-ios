@@ -40,103 +40,32 @@ struct WelfarePlatformRouter {
         let type = WelfareServiceType(raw: platform.serviceType)
 
         switch type {
-        // MARK: 香蕉秀系列
+        // MARK: 香蕉秀专用
         case .yboxSpecial:
             // 香蕉秀专用：使用 YBoxXjspMainView（兼容现有 .special 模式）
             return AnyView(
                 YBoxXjspMainView(platform: makeYBoxPlatform2(from: platform))
             )
 
-        case .yboxXjsp:
-            // 香蕉秀通用分类：走 XJSPWelfareMainView（本期新增）
-            return AnyView(
-                XJSPWelfareMainView(platform: makeYBoxPlatform2(from: platform))
-            )
-
-        // MARK: 旧式 Service 系列（不继承 FuliBaseService 的）
+        // MARK: 每日大乱斗 / 每日大赛
         case .dailyBattle:
             return AnyView(
                 DailyBattleMainView(platform: makeYBoxPlatform2(from: platform))
             )
 
-        case .mysteryMovie:
-            return AnyView(
-                MysteryMovieMainView(platform: makeYBoxPlatform2(from: platform))
-            )
-
-        case .sihuVideo:
-            return AnyView(
-                SihuVideoHomeView(platform: makeYBoxPlatform2(from: platform))
-            )
-
-        case .xcp:
-            return AnyView(
-                XCPHomeView(platform: makeYBoxPlatform2(from: platform))
-            )
-
-        case .luoliAv:
-            return AnyView(
-                LuoliAVHomeView()
-            )
-
-        case .madouFree:
-            return AnyView(
-                MadouFreeHomeView()
-            )
-
-        case .jiujiu:
-            return AnyView(
-                JiujiuHomeView()
-            )
-
-        case .koreanPorn:
-            return AnyView(
-                KoreanPornHomeView()
-            )
-
+        // MARK: 今日看料
         case .kanliao:
             return AnyView(
                 KanliaoHomeView()
             )
 
-        case .heiliao:
-            return AnyView(
-                HeiliaoHomeView()
-            )
-
-        case .xigua:
-            return AnyView(
-                XiguaMainView(platform: makeYBoxPlatform2(from: platform))
-            )
-
-        case .sbAggregation:
-            return AnyView(
-                SBAggregationView(platform: makeYBoxPlatform2(from: platform))
-            )
-
-        // MARK: 新式 FuliBaseService 系列
-        case .fuliBase:
-            return makeFuliBaseDestination(for: platform)
-
+        // MARK: 艾旦福利视频（CMS V10）
         case .aidanVideo:
             return AnyView(
                 FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanVideoService.shared)
             )
 
-        case .aidanComic:
-            return AnyView(
-                FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanComicService.shared)
-            )
-
-        case .remoteCmsV10:
-            return AnyView(
-                FuliPlatformMainView(
-                    platform: makeYBoxPlatform2(from: platform),
-                    service: RemoteCMSV10Service.service(for: platform)
-                )
-            )
-
-        // MARK: 福利专区专用远程 Spider
+        // MARK: 福利专区专用远程 Spider（JS）
         case .welfareSpider:
             return makeWelfareSpiderDestination(for: platform)
 
@@ -147,37 +76,6 @@ struct WelfarePlatformRouter {
         // MARK: 未实现路由
         case .unknown:
             // serviceType 不在枚举中：显示明确错误，不兜底到其他平台
-            return AnyView(UnsupportedPlatformView(platform: platform))
-        }
-    }
-
-    // MARK: - 私有辅助
-
-    /// 根据 platformKey 解析到对应的 FuliBaseService 单例
-    private func makeFuliBaseDestination(for platform: WelfarePlatform) -> AnyView {
-        let key = platform.platformKey
-        let p = makeYBoxPlatform2(from: platform)
-
-        // 直接根据 platformKey 匹配（不依赖 platform.name，名字改了排序数据也不会丢）
-        switch key {
-        case "panda_video":
-            return AnyView(
-                FuliPlatformMainView(platform: p, service: PandaVideoService.shared)
-            )
-        case "four_h_video":
-            return AnyView(
-                FuliPlatformMainView(platform: p, service: FourHVideoService.shared)
-            )
-        case "full_hd":
-            return AnyView(
-                FuliPlatformMainView(platform: p, service: FullHDService.shared)
-            )
-        case "banana_video":
-            return AnyView(
-                FuliPlatformMainView(platform: p, service: BananaVideoService.shared)
-            )
-        default:
-            // 未知 fuli_base 平台：显示明确错误，不兜底到 XJSP
             return AnyView(UnsupportedPlatformView(platform: platform))
         }
     }

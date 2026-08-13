@@ -240,6 +240,31 @@ class YBoxService2: ObservableObject {
     private func buildCategories() {
         let bananaURL = apiGateway
 
+        // 阶段3 改造：完全数据驱动
+        // - 远程源模式（switchEnabled = true）：返回空壳 categories，所有平台数据从
+        //   WelfarePlatformConfigStore 读取（远程 JSON 是单一数据源）
+        // - 兼容模式（switchEnabled = false）：保留硬编码平台，仅用于非福利入口兜底
+        let remoteEnabled = WelfarePlatformConfigStore.shared.switchEnabled
+
+        if remoteEnabled {
+            // 远程源模式：返回 3 个空分类（视频/直播/漫画）
+            // 平台数据从 WelfarePlatformConfigStore.platforms(in:) 动态获取
+            categories = [
+                YBoxCategory2(name: "视频", platforms: []),
+                YBoxCategory2(name: "直播", platforms: []),
+                YBoxCategory2(name: "漫画", platforms: []),
+            ]
+            return
+        }
+
+        // 兼容模式：仅保留少量被非福利入口引用的硬编码平台
+        // 阶段2 已移除 16 个福利 JS 平台，剩余非福利入口依赖：
+        // - MissAV：ProfileView 仍引用
+        // - 香蕉秀系列（幻想次元/午夜寻欢/绿帽淫妻/1080视频）：非福利入口使用
+        // - One平台/麻豆平台：非福利入口使用
+        // 其余 18 个福利平台（神秘电影/四虎视频/香肠派对/萝莉AV/麻豆免费/久久網/韩国色情电影/
+        //                   今日看料/黑料不打烊/通用吸瓜/熊猫视频/4H视频/FullHD/香蕉视频/色播聚合）
+        // 全部由远程源 WelfarePlatformConfigStore 加载，本地不再写死
         let yboxVideo: [YBoxPlatform2] = [
             YBoxPlatform2(name: "MissAV", icon: "star.fill", type: .video,
                          baseURL: "https://missav.ws", desc: "高清无码"),
@@ -253,48 +278,13 @@ class YBoxService2: ObservableObject {
                          baseURL: bananaURL, desc: "专题视频"),
             YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
                          baseURL: "https://1080.hlkjsm.com", desc: "综合视频站"),
-            YBoxPlatform2(name: "每日大乱斗", icon: "flame.fill", type: .video,
-                         baseURL: "https://border.bshzjjgq.cc", desc: "每日更新"),
-            YBoxPlatform2(name: "每日大赛", icon: "trophy.fill", type: .video,
-                         baseURL: "https://www.mrds66.com", desc: "每日精选"),
-            YBoxPlatform2(name: "神秘电影", icon: "theatermasks.fill", type: .video,
-                         baseURL: "https://h4ivs.sm431.vip", desc: "加密解密"),
-            YBoxPlatform2(name: "四虎视频", icon: "film.fill", type: .video,
-                         baseURL: "https://www.sihuhu.xyz", desc: "综合视频站"),
-            YBoxPlatform2(name: "香肠派对", icon: "party.popper.fill", type: .video,
-                         baseURL: "https://xiang512.xiang.party/xcpd", desc: "免费视频"),
             YBoxPlatform2(name: "One平台", icon: "sparkles.tv", type: .video,
                          baseURL: "https://api.em1oifd0.com", desc: "AES加密视频站"),
             YBoxPlatform2(name: "麻豆平台", icon: "tv.circle.fill", type: .video,
                          baseURL: "https://api.nzp1ve.com", desc: "MDTV加密视频站"),
-            YBoxPlatform2(name: "萝莉AV", icon: "heart.circle.fill", type: .video,
-                         baseURL: "https://212602.luoliav.cc", desc: "精选分类视频"),
-            YBoxPlatform2(name: "麻豆免费", icon: "play.tv.fill", type: .video,
-                         baseURL: "https://c-you.hair", desc: "在线免费播放"),
-            YBoxPlatform2(name: "久久網", icon: "film.stack.fill", type: .video,
-                         baseURL: "https://ww.jiujiu.one", desc: "23个分类视频站"),
-            YBoxPlatform2(name: "韩国色情电影", icon: "flag.fill", type: .video,
-                         baseURL: "https://koreanpornmovie.com", desc: "4级回退播放地址"),
-            YBoxPlatform2(name: "今日看料", icon: "eye.fill", type: .video,
-                         baseURL: "https://kanliao2.one", desc: "动态域名+自适应分类"),
-            YBoxPlatform2(name: "黑料不打烊", icon: "flame.circle.fill", type: .video,
-                         baseURL: "https://heiliao.com", desc: "AES图片解密+19分类"),
-            YBoxPlatform2(name: "通用吸瓜", icon: "flame.fill", type: .video,
-                         baseURL: "https://advise.nlwkmsv.cc", desc: "动态域名+自适应分类"),
-            YBoxPlatform2(name: "熊猫视频", icon: "pawprint.fill", type: .video,
-                         baseURL: "https://spiderscloudcn2.51111666.com", desc: "API接口+子分类"),
-            YBoxPlatform2(name: "4H视频", icon: "film.fill", type: .video,
-                         baseURL: "https://4h05.cc", desc: "HTML自适应分类"),
-            YBoxPlatform2(name: "FullHD", icon: "display", type: .video,
-                         baseURL: "https://fullhd.cc", desc: "HTML高清视频"),
-            YBoxPlatform2(name: "香蕉视频", icon: "play.rectangle.fill", type: .video,
-                         baseURL: "https://618013.xyz", desc: "HTML自适应分类"),
         ]
 
-        let yboxLive: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "色播聚合", icon: "tv.fill", type: .live,
-                         baseURL: "http://api.hclyz.com:81/mf", desc: "直播聚合"),
-        ]
+        let yboxLive: [YBoxPlatform2] = []
 
         categories = [
             YBoxCategory2(name: "视频", platforms: yboxVideo),

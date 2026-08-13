@@ -18,26 +18,13 @@ struct WelfareSettingsView: View {
     @State private var isProxyExpanded: Bool = true
     @FocusState private var proxyFocused: Bool
 
+    // 阶段3 改造：此数组仅在 switchEnabled=false 兼容模式下使用
+    // 远程源模式（switchEnabled=true）直接走 RemoteWelfareSettingsView，
+    // 平台列表从 WelfarePlatformConfigStore 动态加载，无需硬编码。
     private let platforms: [(name: String, icon: String, defaultHosts: [String])] = [
-        ("每日大乱斗", "flame.fill", ["https://border.bshzjjgq.cc", "https://blood.bshzjjgq.cc"]),
-        ("每日大赛", "trophy.fill", ["https://www.ercwvciks.cc"]),
-        ("神秘电影", "theatermasks.fill", ["https://h4ivs.sm431.vip"]),
-        ("四虎视频", "film.fill", ["https://www.sihuhu.xyz"]),
-        ("香肠派对", "party.popper.fill", ["https://xiang512.xiang.party/xcpd"]),
+        // 兼容模式：仅保留被非福利入口引用的核心平台
+        ("MissAV", "star.fill", ["https://missav.ws"]),
         ("香蕉秀", "heart.fill", []),
-        ("萝莉AV", "heart.circle.fill", ["https://212602.luoliav.cc"]),
-        ("麻豆免费", "play.tv.fill", ["https://c-you.hair"]),
-        ("久久網", "film.stack.fill", ["https://ww.jiujiu.one"]),
-        ("韩国色情电影", "flag.fill", ["https://koreanpornmovie.com"]),
-        ("今日看料", "eye.fill", ["https://kanliao2.one"]),
-        ("黑料不打烊", "flame.circle.fill", ["https://heiliao.com"]),
-        ("通用吸瓜", "flame.fill", ["https://advise.nlwkmsv.cc"]),
-        ("熊猫视频", "pawprint.fill", ["https://spiderscloudcn2.51111666.com", "https://spiderscloudcn1.51111666.com"]),
-        ("4H视频", "film.fill", ["https://4h05.cc", "https://4h04.cc", "https://4h03.cc"]),
-        ("FullHD", "display", ["https://fullhd.cc", "https://fullhd.tv", "https://fullhd.me"]),
-        ("歪比", "cube.fill", ["https://waibi.com", "https://waibi.tv", "https://waibi.net"]),
-        ("小鸭子看看", "bird.fill", ["https://www.xiaoyazikankan.com"]),
-        ("香蕉视频", "play.rectangle.fill", ["https://618013.xyz", "https://618012.xyz", "https://618011.xyz"]),
     ]
 
     var body: some View {
@@ -430,44 +417,20 @@ struct WelfareSettingsView: View {
     }
 
     private func resetService(for name: String) {
-        switch name {
-        case "每日大乱斗": DailyBattleService.shared.reprobe()
-        case "每日大赛": DailyBattleService.contest.reprobe()
-        case "萝莉AV": LuoliAVService.shared.reprobe()
-        case "麻豆免费": MadouFreeService.shared.reprobe()
-        case "久久網": JiujiuService.shared.reprobe()
-        case "韩国色情电影": KoreanPornService.shared.reprobe()
-        case "今日看料": KanliaoService.shared.reprobe()
-        case "黑料不打烊": HeiliaoService.shared.reprobe()
-        case "通用吸瓜": XiguaService.shared.reprobe()
-        case "熊猫视频": PandaVideoService.shared.reprobe()
-        case "4H视频": FourHVideoService.shared.reprobe()
-        case "FullHD": FullHDService.shared.reprobe()
-        case "歪比": WaibiService.shared.reprobe()
-        case "小鸭子看看": DuckVideoService.shared.reprobe()
-        case "香蕉视频": BananaVideoService.shared.reprobe()
-        default: break
-        }
+        // 阶段3 + 阶段4 改造：兼容模式仅保留 2 个平台（MissAV / 香蕉秀），
+        // 这两个平台不在 service 切换体系内（香蕉秀是 View 直连 YBoxService2，
+        // MissAV 是 View 直连 MissAVService），域名变更由各自 View 的 onAppear
+        // 重新读取 WelfareDomainStore 完成，无需在此 reset。
+        // 因此此函数目前是 no-op，保留方法签名避免 caller 报错。
+        _ = name
     }
 
     private func clearAndReset(for name: String) {
-        switch name {
-        case "每日大乱斗": DailyBattleService.shared.resetDomain()
-        case "每日大赛": DailyBattleService.contest.resetDomain()
-        case "萝莉AV": LuoliAVService.shared.resetDomain()
-        case "麻豆免费": MadouFreeService.shared.resetDomain()
-        case "久久網": JiujiuService.shared.resetDomain()
-        case "韩国色情电影": KoreanPornService.shared.resetDomain()
-        case "今日看料": KanliaoService.shared.resetDomain()
-        case "黑料不打烊": HeiliaoService.shared.resetDomain()
-        case "通用吸瓜": XiguaService.shared.resetDomain()
-        case "熊猫视频": PandaVideoService.shared.resetDomain()
-        case "4H视频": FourHVideoService.shared.resetDomain()
-        case "FullHD": FullHDService.shared.resetDomain()
-        case "歪比": WaibiService.shared.resetDomain()
-        case "小鸭子看看": DuckVideoService.shared.resetDomain()
-        case "香蕉视频": BananaVideoService.shared.resetDomain()
-        default: break
-        }
+        // 阶段3 + 阶段4 改造：兼容模式仅保留 2 个平台（MissAV / 香蕉秀），
+        // 这两个平台不在 service 切换体系内（香蕉秀是 View 直连 YBoxService2，
+        // MissAV 是 View 直连 MissAVService），域名变更由各自 View 的 onAppear
+        // 重新读取 WelfareDomainStore 完成，无需在此 reset。
+        // 因此此函数目前是 no-op，保留方法签名避免 caller 报错。
+        _ = name
     }
 }
