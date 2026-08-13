@@ -81,12 +81,12 @@ final class WelfarePythonSpiderService: FuliBaseService {
     /// 图片 Referer：从平台配置读取（如果有）
     override var imageReferer: String? { platform.imageReferer }
 
-    // MARK: - 域名管理（重写基类，适配 Python 蜘蛛）
+    // MARK: - 域名管理（重写协议扩展，适配 Python 蜘蛛）
 
     /// 重新探测域名。
     /// Python 蜘蛛通过发起一次 homeContent 调用来验证域名是否可用，
-    /// 而不是基类的 URLSession 探测（两者网络栈不同）。
-    override func reprobe() {
+    /// 而不是协议扩展的 URLSession 探测（两者网络栈不同）。
+    func reprobe() {
         Task {
             isHostReady = false
             await ensureEngine()
@@ -104,7 +104,7 @@ final class WelfarePythonSpiderService: FuliBaseService {
     }
 
     /// 重置域名：清除用户自定义域名，回退到 defaultHosts。
-    override func resetDomain() {
+    func resetDomain() {
         WelfareDomainStore.shared.clearDomains(for: platformName)
         // 下次请求时 injectDict 会重新构建，自动使用 defaultHosts
         reprobe()
@@ -126,8 +126,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
 
             // 创建引擎
             let eng = PythonSpiderEngine(scriptPath: script.localURL.path, key: platform.platformKey)
-            eng.onLog = { msg in
-                print("[WelfarePy:\(platform.platformKey)] \(msg)")
+            eng.onLog = { [weak self] msg in
+                print("[WelfarePy:\(self?.platform.platformKey ?? "")] \(msg)")
             }
 
             // 注入福利上下文（自定义域名 + 代理设置）
