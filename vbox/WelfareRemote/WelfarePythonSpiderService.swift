@@ -187,15 +187,13 @@ final class WelfarePythonSpiderService: FuliBaseService {
         }
 
         do {
-            // 每次调用前刷新注入（用户可能刚改了代理/域名设置）
-            engine.injectDict = buildInjectDict()
-
-            let result = try await engine.callHomeContentAsync()
+            let inject = buildInjectDict()
+            let result = try await engine.callHomeContentAsync(injectDict: inject)
             let mapped = mapper.mapHome(result)
 
             // 如果 homeContent 没有返回 list，尝试调用 homeVideoContent
             if mapped.videos.isEmpty {
-                let videoResult = try await engine.callHomeVideoContentAsync()
+                let videoResult = try await engine.callHomeVideoContentAsync(injectDict: inject)
                 if let list = videoResult.list, !list.isEmpty {
                     let videos = list.compactMap { mapVideo($0) }
                     return FuliHomeResult(categories: mapped.categories, videos: videos)
@@ -223,8 +221,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
         let extend = "{}"
 
         do {
-            engine.injectDict = buildInjectDict()
-            let result = try await engine.callCategoryContentAsync(tid: tid, pg: page, extend: extend)
+            let inject = buildInjectDict()
+            let result = try await engine.callCategoryContentAsync(tid: tid, pg: page, extend: extend, injectDict: inject)
             return mapper.mapCategory(result)
         } catch {
             print("[WelfarePy:\(platform.platformKey)] ❌ fetchCategoryContent: \(error.localizedDescription)")
@@ -242,8 +240,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
         }
 
         do {
-            engine.injectDict = buildInjectDict()
-            let result = try await engine.callDetailContentAsync(ids: vodId)
+            let inject = buildInjectDict()
+            let result = try await engine.callDetailContentAsync(ids: vodId, injectDict: inject)
             let detail = mapper.mapDetail(result)
             // 记录 playFrom，供 playerContent 的 flag 参数使用
             lastPlayFrom = detail.playFrom
@@ -264,8 +262,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
         }
 
         do {
-            engine.injectDict = buildInjectDict()
-            let result = try await engine.callSearchContentAsync(keyword: keyword, pg: page)
+            let inject = buildInjectDict()
+            let result = try await engine.callSearchContentAsync(keyword: keyword, pg: page, injectDict: inject)
             return mapper.mapSearch(result)
         } catch {
             print("[WelfarePy:\(platform.platformKey)] ❌ fetchSearch: \(error.localizedDescription)")
@@ -279,11 +277,12 @@ final class WelfarePythonSpiderService: FuliBaseService {
         // 如果 Python 蜘蛛就绪，优先调用 playerContent 获取最终播放地址
         if let engine = engine, engine.isSpiderReady {
             do {
-                engine.injectDict = buildInjectDict()
+                let inject = buildInjectDict()
                 let result = try await engine.callPlayerContentAsync(
                     vodId: "",
                     flag: playFromFromEpisode(episode),
-                    url: episode.url
+                    url: episode.url,
+                    injectDict: inject
                 )
                 let mapped = mapper.mapPlayer(result)
                 if !mapped.url.isEmpty {
