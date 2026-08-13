@@ -59,8 +59,20 @@ struct WelfarePlatformRouter {
                 KanliaoHomeView()
             )
 
-        // MARK: 艾旦福利视频（CMS V10）
+        // MARK: 艾旦福利视频（CMS V10 专用）
         case .aidanVideo:
+            return AnyView(
+                FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanVideoService.shared)
+            )
+
+        // MARK: 通用 FuliBaseService 子类（熊猫视频等）
+        case .fuliBase:
+            return makeFuliBaseDestination(for: platform)
+
+        // MARK: 远程可配置 CMS V10 福利源
+        case .remoteCmsV10:
+            // RemoteCMSV10Service 已在阶段3清理中移除，
+            // 艾旦福利视频（aidan_video）复用 AidanVideoService
             return AnyView(
                 FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanVideoService.shared)
             )
@@ -76,6 +88,36 @@ struct WelfarePlatformRouter {
         // MARK: 未实现路由
         case .unknown:
             // serviceType 不在枚举中：显示明确错误，不兜底到其他平台
+            return AnyView(UnsupportedPlatformView(platform: platform))
+        }
+    }
+
+    /// 通用 FuliBaseService 路由
+    ///
+    /// 根据 platformKey 匹配到对应的 FuliBaseService 子类。
+    /// 新增 fuli_base 平台时：在此处加一个 case + 创建对应 Service 文件。
+    private func makeFuliBaseDestination(for platform: WelfarePlatform) -> AnyView {
+        let key = platform.platformKey
+        let p = makeYBoxPlatform2(from: platform)
+
+        switch key {
+        case "panda_video":
+            return AnyView(
+                FuliPlatformMainView(platform: p, service: PandaVideoService.shared)
+            )
+        case "four_h_video":
+            return AnyView(
+                FuliPlatformMainView(platform: p, service: FourHVideoService.shared)
+            )
+        case "full_hd":
+            return AnyView(
+                FuliPlatformMainView(platform: p, service: FullHDService.shared)
+            )
+        case "banana_video":
+            return AnyView(
+                FuliPlatformMainView(platform: p, service: BananaVideoService.shared)
+            )
+        default:
             return AnyView(UnsupportedPlatformView(platform: platform))
         }
     }

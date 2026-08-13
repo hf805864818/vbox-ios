@@ -260,13 +260,14 @@ enum RemoteWelfareCategory: String, CaseIterable, Identifiable {
 
 /// 客户端 Service 实现类型枚举
 /// 与 WelfarePlatform.serviceType 字符串对应。
-/// 阶段3 改造：删 14 个死 case，仅保留实际使用的 6 个 + 兜底 .unknown
 /// 新增 Service 时只需在此处加一个 case，并在 WelfarePlatformRouter 中加一个 case 分支。
 enum WelfareServiceType: String, CaseIterable {
     case yboxSpecial = "ybox_special"          // 香蕉秀专用
     case dailyBattle = "daily_battle"          // 每日大乱斗 / 每日大赛
     case kanliao = "kanliao"                   // 今日看料
-    case aidanVideo = "aidan_video"            // 艾旦福利视频（CMS V10）
+    case aidanVideo = "aidan_video"            // 艾旦福利视频（CMS V10 专用）
+    case fuliBase = "fuli_base"                // 通用 FuliBaseService 子类（熊猫视频等）
+    case remoteCmsV10 = "remote_cms_v10"       // 远程可配置 CMS V10 福利源
     case welfareSpider = "welfare_spider"      // 福利专区专用远程 Spider 脚本（JS）
     case pythonSpider = "python_spider"        // 福利专区 Python 蜘蛛脚本
 
