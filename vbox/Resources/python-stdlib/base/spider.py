@@ -102,26 +102,30 @@ class Spider:
     def _apply_injected_hosts(self):
         """读取 Swift 注入的 _vbox_effective_hosts 并应用为 self.host
 
-        优先级：注入的域名 > 脚本自身设置的域名
+        优先级：实例属性（PythonBridge 注入，实例级隔离）> 模块 globals > 脚本自身
+        实例属性注入确保 100+ 平台并发时不会串域名。
         普通资源（非福利）不注入，保持原有行为。
         """
-        injected = globals().get('_vbox_effective_hosts')
+        injected = getattr(self, '_vbox_effective_hosts', None) \
+                or globals().get('_vbox_effective_hosts')
         if injected and isinstance(injected, list) and len(injected) > 0:
             self.host = str(injected[0]).rstrip('/')
             self._backup_hosts = [str(h).rstrip('/') for h in injected[1:]]
 
     def _proxy_enabled(self):
-        """是否启用代理（从 Swift 注入的 _vbox_proxy_enabled 读取）"""
-        return bool(globals().get('_vbox_proxy_enabled', False))
+        """是否启用代理（优先从实例属性读取，实例级隔离）"""
+        return bool(getattr(self, '_vbox_proxy_enabled', None) \
+                or globals().get('_vbox_proxy_enabled', False))
 
     def _proxy_url_template(self):
-        """代理 URL 模板（从 Swift 注入的 _vbox_proxy_url 读取）
+        """代理 URL 模板（优先从实例属性读取，实例级隔离）
 
         支持两种格式：
         - https://proxy.com/?url={url}  （含 {url} 占位符，推荐）
         - https://proxy.com/?url=        （无占位符，自动追加）
         """
-        return str(globals().get('_vbox_proxy_url', '') or '')
+        return str(getattr(self, '_vbox_proxy_url', None) \
+                or globals().get('_vbox_proxy_url', '') or '')
 
     def _apply_proxy(self, url):
         """对 URL 应用代理转发（如果启用了代理）"""

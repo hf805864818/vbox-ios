@@ -228,7 +228,34 @@ static NSString *_pyHome = nil;
             Py_XDECREF(initArgs);
         }
         Py_XDECREF(initMethod);
-        
+
+        // === Phase 3.5: 实例属性注入（福利专区域名/代理自适应）===
+        // 将 injectDict 中的键值对设为 Spider 实例的属性（实例级隔离）。
+        // base.spider.Spider 的 _apply_injected_hosts / _proxy_enabled /
+        // _proxy_url_template 通过 getattr(self, ...) 优先读取实例属性。
+        // 每个实例独立持有注入值，100+ 平台并发也不会串域名。
+        // 普通资源（injectDict=nil）跳过此段，行为不变。
+        if (injectDict != nil && injectDict.count > 0) {
+            for (NSString *key in injectDict) {
+                id value = injectDict[key];
+                PyObject *pyValue = [self pyObjectFromObjC:value];
+                if (pyValue) {
+                    PyObject_SetAttrString(spider, [key UTF8String], pyValue);
+                    Py_DECREF(pyValue);
+                }
+            }
+            // 重新应用域名：__init__ 时实例属性尚未注入，
+            // 此刻补上，让 self.host / _backup_hosts 立即生效。
+            PyObject *applyMethod = PyObject_GetAttrString(spider, "_apply_injected_hosts");
+            if (applyMethod) {
+                PyObject *applyRet = PyObject_CallObject(applyMethod, NULL);
+                Py_XDECREF(applyRet);
+                Py_DECREF(applyMethod);
+            } else {
+                PyErr_Clear();
+            }
+        }
+
         // === Phase 4: 调用目标方法 ===
         PyObject *method = PyObject_GetAttrString(spider, [functionName UTF8String]);
         if (!method || !PyCallable_Check(method)) {
