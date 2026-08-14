@@ -103,16 +103,19 @@ final class WelfarePythonSpiderService: FuliBaseService {
 
     // MARK: - FuliPlatformService 附加属性
 
-    /// 内容类型：从平台配置读取，默认视频
+    /// 内容类型：从平台配置读取（contentType 优先，其次用 category），默认视频
     override var contentCategory: FuliContentCategory {
-        switch platform.contentType {
+        let type = (platform.contentType ?? platform.category).lowercased()
+        switch type {
         case "comic": return .comic
+        // 直播目前也走视频播放链路（AVPlayer 支持 m3u8 直播流）
+        case "live": return .video
         default: return .video
         }
     }
 
-    /// 图片 SSL 绕过：从平台配置读取
-    override var imageSSLBypass: Bool { platform.sslBypass ?? false }
+    /// 图片 SSL 绕过：从平台配置的 imageSSLBypass 字段读取
+    override var imageSSLBypass: Bool { platform.imageSSLBypass ?? false }
 
     /// 图片 Referer：从平台配置读取（如果有）
     override var imageReferer: String? { platform.imageReferer }
@@ -326,6 +329,11 @@ final class WelfarePythonSpiderService: FuliBaseService {
                     var playerHeaders = mapped.headers
                     if playerHeaders["User-Agent"] == nil {
                         playerHeaders["User-Agent"] = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36"
+                    }
+                    // playerRefererMode = "keep" 时注入标记头，告知播放器保留脚本返回的 Referer
+                    // （默认行为是域名不匹配时用 CDN 自身 Referer 替换，但直播源往往需要主站 Referer 才能通过防盗链）
+                    if (platform.playerRefererMode ?? "").lowercased() == "keep" {
+                        playerHeaders["X-VBox-Player-Referer-Mode"] = "keep"
                     }
                     return FuliPlayerResult(url: mapped.url, headers: playerHeaders, parse: mapped.parse)
                 }

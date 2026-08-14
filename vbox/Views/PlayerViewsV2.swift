@@ -5307,17 +5307,29 @@ class PlayerState: ObservableObject {
                 log("[PlayerV2] HTTP头配置 - 不带Referer（重试模式）")
             }
             if let customHeaders {
+                // 检查是否启用了"保留Referer"模式（由福利平台 playerRefererMode=keep 触发）
+                // 此模式下，即使 Referer 域名与播放域名不匹配，也保留脚本返回的 Referer
+                // （直播源等场景：CDN 域名与主站域名不同，但仍需主站 Referer 通过防盗链）
+                let keepReferer = (customHeaders["X-VBox-Player-Referer-Mode"] ?? "").lowercased() == "keep"
                 for (key, value) in customHeaders {
+                    // 跳过内部标记头，不传给 AVPlayer
+                    if key.lowercased() == "x-vbox-player-referer-mode" { continue }
                     if key.lowercased() == "referer" && !noReferer {
-                        // 修复: 蜘蛛返回的Referer域名与播放URL域名不匹配时，用CDN自身Referer替代
-                        // 避免主站Referer导致CDN返回403
-                        let customHost = extractHost(from: value)
-                        let playHost = url.host ?? ""
-                        if !customHost.isEmpty && !playHost.isEmpty && customHost != playHost {
-                            log("[PlayerV2] ⚠️ Referer域名不匹配(spider=\(customHost) vs play=\(playHost))，使用CDN自身Referer")
-                            // 保留CDN自身Referer，不覆盖
-                        } else {
+                        if keepReferer {
+                            // keep 模式：直接使用脚本返回的 Referer，不做域名检查
                             headers[key] = value
+                            log("[PlayerV2] Referer策略=keep，使用脚本返回的Referer: \(value)")
+                        } else {
+                            // 默认: 蜘蛛返回的Referer域名与播放URL域名不匹配时，用CDN自身Referer替代
+                            // 避免主站Referer导致CDN返回403
+                            let customHost = extractHost(from: value)
+                            let playHost = url.host ?? ""
+                            if !customHost.isEmpty && !playHost.isEmpty && customHost != playHost {
+                                log("[PlayerV2] ⚠️ Referer域名不匹配(spider=\(customHost) vs play=\(playHost))，使用CDN自身Referer")
+                                // 保留CDN自身Referer，不覆盖
+                            } else {
+                                headers[key] = value
+                            }
                         }
                     } else {
                         headers[key] = value

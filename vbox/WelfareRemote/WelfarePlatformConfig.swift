@@ -162,6 +162,9 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
     let imageSSLBypass: Bool?
     /// 远程源自定义请求头，仅通用远程 Service 使用。
     let headers: [String: String]?
+    /// 播放器 Referer 策略："auto"（默认，域名不匹配时用CDN自身Referer）/ "keep"（始终保留脚本返回的Referer）。
+    /// 直播类福利源常用 "keep"，因为播放CDN域名与主站域名不同但仍需主站Referer防盗链。
+    let playerRefererMode: String?
     /// 条目过滤规则。
     let itemRule: WelfareRemoteItemRule?
 
@@ -197,6 +200,7 @@ struct WelfarePlatform: Codable, Equatable, Identifiable {
         case imageReferer
         case imageSSLBypass
         case headers
+        case playerRefererMode
         case itemRule
     }
 
