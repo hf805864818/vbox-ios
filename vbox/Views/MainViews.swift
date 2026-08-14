@@ -1534,7 +1534,7 @@ struct SearchView: View {
                 if !batch.isEmpty {
                     Task { @MainActor in
                         self.searchResults.append(contentsOf: batch)
-                        self.isSearchLoading = false
+                        // 注意：isSearchLoading 在搜索完全结束后才设为 false，保持动画持续
                     }
                 }
             }, onLog: { msg in
