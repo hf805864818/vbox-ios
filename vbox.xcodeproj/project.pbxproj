@@ -27,6 +27,7 @@
 		1D659AECAD5496C5F3EAC601 /* PlatformImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5458D77632B6F26780AA4C42 /* PlatformImageLoader.swift */; };
 		1D8CF6C0CE02F334F964A6DF /* Libharfbuzz.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 03F4D127BE463286B5D12AA8 /* Libharfbuzz.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		22BD95EA9E854A358B027BE1 /* FuliVideoBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */; };
+		C3C049766F4C4425B96E349D8163966B /* SearchWiggleModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99DA7DCE2A7043ABB95571FE518A8055 /* SearchWiggleModifier.swift */; };
 		23A1945FAC72E9863F8D8AFF /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2298D3101C1AE3DA9002687B /* CoreVideo.framework */; };
 		243C852194A8EB89CC6C098A /* Libbluray.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B0F74E8951368DECD8322237 /* Libbluray.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		24894AD67FD7DADF6676A1A5 /* Libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F804EDDCDA642682760842DD /* Libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -491,6 +492,7 @@
 		B1F0C0010000000000000001 /* SpiderEngineFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderEngineFactory.swift; sourceTree = "<group>"; };
 		B37DD5E807D330AA4BF0028D /* WelfarePlatformConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformConfigStore.swift; sourceTree = "<group>"; };
 		B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliVideoBridgeView.swift; sourceTree = "<group>"; };
+		99DA7DCE2A7043ABB95571FE518A8055 /* SearchWiggleModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchWiggleModifier.swift; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
 		B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformMainView.swift; sourceTree = "<group>"; };
 		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
@@ -830,6 +832,7 @@
 				F73C15E736105CF390FD2313 /* MDTVViews.swift */,
 				789ABCDEF0123456789012345 /* KanliaoHomeView.swift */,
 				B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */,
+				99DA7DCE2A7043ABB95571FE518A8055 /* SearchWiggleModifier.swift */,
 				B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */,
 				B10160 /* ComicDetailBridgeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
@@ -1119,6 +1122,7 @@
 				E5F6789ABCDEF01234567890 /* KanliaoService.swift in Sources */,
 				6789ABCDEF01234567890123 /* KanliaoHomeView.swift in Sources */,
 				22BD95EA9E854A358B027BE1 /* FuliVideoBridgeView.swift in Sources */,
+				C3C049766F4C4425B96E349D8163966B /* SearchWiggleModifier.swift in Sources */,
 				EE85FEE2D9F84D5CB8FA5188 /* FuliPlatformMainView.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
