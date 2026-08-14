@@ -155,6 +155,7 @@
 		A10154 /* DoubanChartService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10154 /* DoubanChartService.swift */; };
 		A10157 /* CMSV10Helper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10157 /* CMSV10Helper.swift */; };
 		A10158 /* AidanVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10158 /* AidanVideoService.swift */; };
+		A10159 /* RemoteCMSV10Service.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10159 /* RemoteCMSV10Service.swift */; };
 		A10160 /* ComicDetailBridgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10160 /* ComicDetailBridgeView.swift */; };
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
@@ -443,6 +444,7 @@
 		B10156 /* MissAVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissAVViews.swift; sourceTree = "<group>"; };
 		B10157 /* CMSV10Helper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMSV10Helper.swift; sourceTree = "<group>"; };
 		B10158 /* AidanVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidanVideoService.swift; sourceTree = "<group>"; };
+		B10159 /* RemoteCMSV10Service.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCMSV10Service.swift; sourceTree = "<group>"; };
 		B10160 /* ComicDetailBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComicDetailBridgeView.swift; sourceTree = "<group>"; };
 		B10200 /* YBoxService2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YBoxService2.swift; sourceTree = "<group>"; };
 		B10203 /* WelfareSubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSubViews.swift; sourceTree = "<group>"; };
@@ -789,6 +791,7 @@
 				C0E84749E9834DDCBAF5CBB3 /* FuliPlatformService.swift */,
 				B10157 /* CMSV10Helper.swift */,
 				B10158 /* AidanVideoService.swift */,
+				B10159 /* RemoteCMSV10Service.swift */,
 				D8815F39A6013262E7F5B211 /* PushPlayStore.swift */,
 				30877432D1026706D7E805DA /* PythonWebViewBridge.swift */,
 				73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */,
@@ -1156,6 +1159,7 @@
 				0A6139A598995C942D64C787 /* WelfareRemoteAutoLoader.m in Sources */,
 				A10157 /* CMSV10Helper.swift in Sources */,
 				A10158 /* AidanVideoService.swift in Sources */,
+				A10159 /* RemoteCMSV10Service.swift in Sources */,
 				A10160 /* ComicDetailBridgeView.swift in Sources */,
 				846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */,
 				C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */,
