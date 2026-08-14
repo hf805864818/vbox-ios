@@ -25,7 +25,6 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
             VStack(spacing: 16) {
                 FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, sslBypass: svc.imageSSLBypass, contentMode: .fit)
                     .aspectRatio(16/9, contentMode: .fit)
-                    .background(Color.gray.opacity(0.2))
                     .cornerRadius(12)
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .center) {
@@ -35,9 +34,12 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                         EmptyView()
                     } else if detail?.episodes.isEmpty == false {
                         Button(action: { playFirst() }) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 64))
+                                .foregroundColor(.white.opacity(0.95))
+                                .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 2)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
 

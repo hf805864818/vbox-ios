@@ -118,6 +118,8 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
     @State private var currentPage = 1
     @State private var hasMore = true
     @State private var loadError: String?
+    @State private var hasLoaded = false  // 标记是否已加载过，避免返回时重复刷新
+    @State private var isRefreshing = false  // 下拉刷新状态
 
     var body: some View {
         VStack(spacing: 0) {
@@ -126,11 +128,11 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         subButton(title: "全部", isSelected: selectedSub == nil) {
-                            selectedSub = nil; refresh()
+                            selectedSub = nil; refresh(force: true)
                         }
                         ForEach(subs) { sub in
                             subButton(title: sub.typeName, isSelected: selectedSub?.id == sub.id) {
-                                selectedSub = sub; refresh()
+                                selectedSub = sub; refresh(force: true)
                             }
                         }
                     }
@@ -146,12 +148,17 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 VStack(spacing: 12) {
                     Spacer()
                     Text(err).font(.system(size: 14)).foregroundColor(.secondary)
-                    Button("重试") { refresh() }
+                    Button("重试") { refresh(force: true) }
                         .font(.system(size: 14))
                     Spacer()
                 }
             } else {
                 ScrollView {
+                    // 下拉刷新指示器
+                    PullToRefreshView(coordinateSpace: .named("categoryScroll"), isRefreshing: isRefreshing, onRefresh: {
+                        refresh(force: true)
+                    })
+
                     LazyVGrid(
                         columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                         spacing: 14
@@ -172,9 +179,15 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                         Text("已加载全部").font(.system(size: 12)).foregroundColor(.secondary).padding(.bottom, 20)
                     }
                 }
+                .coordinateSpace(name: "categoryScroll")
             }
         }
-        .onAppear { refresh() }
+        .onAppear {
+            if !hasLoaded {
+                refresh(force: false)
+                hasLoaded = true
+            }
+        }
     }
 
     private func detailView(for video: FuliVideo) -> some View {
@@ -199,13 +212,18 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
         .buttonStyle(.plain)
     }
 
-    private func refresh() {
+    private func refresh(force: Bool) {
+        // 非强制刷新且已有数据时，不重新加载
+        if !force && !videos.isEmpty { return }
+
         currentPage = 1; hasMore = true; isLoading = true; loadError = nil
+        if force { isRefreshing = true }
+
         Task {
             await svc.ensureHostReady()
             let result = await svc.fetchCategoryContent(category: category, subCategory: selectedSub, page: 1)
             await MainActor.run {
-                videos = result.videos; isLoading = false
+                videos = result.videos; isLoading = false; isRefreshing = false
                 hasMore = result.hasMore
                 if result.videos.isEmpty { loadError = "暂无内容" }
             }
@@ -229,6 +247,48 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 isLoadingMore = false
             }
         }
+    }
+}
+
+// MARK: - 下拉刷新控件
+/// 纯 SwiftUI 实现的下拉刷新，基于 ScrollView 偏移量检测
+struct PullToRefreshView: View {
+    let coordinateSpace: CoordinateSpace
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+
+    @State private var canTrigger = true
+    @State private var dragOffset: CGFloat = 0
+    private let triggerThreshold: CGFloat = 60
+
+    var body: some View {
+        GeometryReader { proxy -> Color in
+            let minY = proxy.frame(in: coordinateSpace).minY
+            DispatchQueue.main.async {
+                dragOffset = minY
+                if minY > triggerThreshold && canTrigger && !isRefreshing {
+                    canTrigger = false
+                    let impact = UIImpactFeedbackGenerator(style: .medium)
+                    impact.impactOccurred()
+                    onRefresh()
+                }
+                if minY <= 0 {
+                    canTrigger = true
+                }
+            }
+            return Color.clear
+        }
+        .frame(height: isRefreshing ? 50 : max(0, dragOffset))
+        .overlay(
+            VStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.9)
+                Text(isRefreshing ? "正在刷新..." : (dragOffset > triggerThreshold ? "松开刷新" : "下拉刷新"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+            .opacity((isRefreshing || dragOffset > 10) ? 1 : 0)
+        )
     }
 }
 
