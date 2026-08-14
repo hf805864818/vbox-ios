@@ -61,6 +61,7 @@ struct MangaReaderView: View {
                 Spacer()
                 bottomBar
             }
+            .ignoresSafeArea()
             .opacity(showBars ? 1 : 0)
             .animation(.easeInOut(duration: 0.2), value: showBars)
         }
@@ -257,14 +258,16 @@ struct MangaImageView: View {
         }
     }
 
+    /// 加载图片（与浏览器行为一致）
     private func loadImage() async {
         isLoading = true
         loadFailed = false
 
-        // 构建带 @UA@Referer 后缀的 URL（与 sourceCover 逻辑一致）
+        // 构建带 @UA@Referer 后缀的 URL
+        // 使用桌面浏览器 UA，因为网站（桌面浏览器）能正常显示图片
         let finalURL: String
         if let ref = referer, !ref.isEmpty {
-            let ua = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36"
+            let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
             let normalizedRef = ref.hasSuffix("/") ? ref : "\(ref)/"
             let sslFlag = sslBypass ? "@X-VBox-SSL-Bypass=1" : ""
             finalURL = "\(url)@User-Agent=\(ua)@Referer=\(normalizedRef)\(sslFlag)"
@@ -272,16 +275,21 @@ struct MangaImageView: View {
             finalURL = url
         }
 
-        let loaded = await PlatformImageLoader.shared.loadImage(
+        print("[MangaImageView] 加载图片: \(url.prefix(80))...")
+        print("[MangaImageView] Referer: \(referer ?? "无")")
+
+        let loaded = await PlatformImageLoader.shared.loadImageWithDetail(
             urlString: finalURL,
             mode: .mysteryMovie
         )
 
         await MainActor.run {
-            if let loaded = loaded {
-                self.image = loaded
+            switch loaded {
+            case .success(let img):
+                self.image = img
                 self.isLoading = false
-            } else {
+            case .failure(let error):
+                print("[MangaImageView] ❌ 失败: \(error.localizedDescription)")
                 self.loadFailed = true
                 self.isLoading = false
             }

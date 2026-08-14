@@ -108,7 +108,7 @@ extension PlatformAsyncImage {
         let finalURL: String
         if let ref = referer, !ref.isEmpty {
             // 使用 @key=value 格式与 parseHeaderSuffix 匹配
-            let ua = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36"
+            let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
             let normalizedRef = ref.hasSuffix("/") ? ref : "\(ref)/"
             let sslFlag = sslBypass ? "@X-VBox-SSL-Bypass=1" : ""
             finalURL = "\(urlString)@User-Agent=\(ua)@Referer=\(normalizedRef)\(sslFlag)"
