@@ -33,8 +33,8 @@ class UpdateManager: ObservableObject {
     @Published var isMinimized = false
 
     // B 仓库配置 — APP 从这里检查更新和下载 IPA
-    private let repoOwner = "hfkj520"
-    private let repoName = "vbox-release"
+    private let repoOwner = "vbox-Ai"
+    private let repoName = "app"
 
     /// 分享/下载地址：和下载相同的代理顺序（主代理 → 备用代理 → 直连）
     /// ShareLink 分享出去的 URL 别人也能快速下载
