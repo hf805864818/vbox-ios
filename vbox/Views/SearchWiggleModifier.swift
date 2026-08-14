@@ -2,8 +2,9 @@
 //  SearchWiggleModifier.swift
 //  vbox
 //
-//  搜索中放大镜"原地转圈"动画
-//  放大镜在原地旋转，模拟"搜索中"的加载效果
+//  搜索中放大镜"原地摇摆"动画
+//  放大镜在原地左右轻微旋转，模拟"四处张望寻找"的效果
+//  放大镜始终保持正立，不会倒过来
 //
 //  使用方式：
 //    Image(systemName: "magnifyingglass")
@@ -12,16 +13,16 @@
 
 import SwiftUI
 
-// MARK: - 搜索旋转动画 Modifier
+// MARK: - 搜索摇摆动画 Modifier
 
 struct SearchWiggleModifier: ViewModifier {
     /// 是否激活动画
     let isActive: Bool
 
-    /// 旋转角度（度）- 一圈 360°
-    private let rotationPerCycle: Double = 360
-    /// 一圈动画时长（秒）
-    private let cycleDuration: Double = 1.2
+    /// 单次摆动角度（度）- ±15°，放大镜不会倒过来
+    private let swingAngle: Double = 15
+    /// 单程动画时长（秒）
+    private let swingDuration: Double = 0.5
 
     @State private var rotation: Double = 0
     @State private var animating = false
@@ -47,29 +48,47 @@ struct SearchWiggleModifier: ViewModifier {
         guard !animating else { return }
         animating = true
         rotation = 0
-        runNextCycle()
+        runSwingCycle()
     }
 
     private func stopAnimation() {
         animating = false
-        // 平滑归位
-        withAnimation(.easeOut(duration: 0.3)) {
+        withAnimation(.easeOut(duration: 0.25)) {
             rotation = 0
         }
     }
 
-    private func runNextCycle() {
+    /// 摆动循环：0 → +15° → 0 → -15° → 0 → 重复
+    private func runSwingCycle() {
         guard animating else { return }
 
-        // 线性旋转一圈，循环不停
-        withAnimation(.linear(duration: cycleDuration)) {
-            rotation += rotationPerCycle
-        }
+        let anim = Animation.easeInOut(duration: swingDuration)
 
-        // 一圈结束后继续下一圈
-        DispatchQueue.main.asyncAfter(deadline: .now() + cycleDuration) {
+        // 0 → 右摆 (+15°)
+        withAnimation(anim) { rotation = swingAngle }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + swingDuration) {
             guard self.animating else { return }
-            self.runNextCycle()
+            // 右摆 → 回正 (0°)
+            withAnimation(anim) { self.rotation = 0 }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.swingDuration) {
+                guard self.animating else { return }
+                // 回正 → 左摆 (-15°)
+                withAnimation(anim) { self.rotation = -self.swingAngle }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.swingDuration) {
+                    guard self.animating else { return }
+                    // 左摆 → 回正 (0°)
+                    withAnimation(anim) { self.rotation = 0 }
+
+                    // 短暂停顿后继续下一轮
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.swingDuration + 0.15) {
+                        guard self.animating else { return }
+                        self.runSwingCycle()
+                    }
+                }
+            }
         }
     }
 }
@@ -77,7 +96,7 @@ struct SearchWiggleModifier: ViewModifier {
 // MARK: - View 便捷扩展
 
 extension View {
-    /// 搜索旋转动画：搜索中时放大镜原地转圈
+    /// 搜索摇摆动画：搜索中放大镜左右轻微旋转（±15°），保持正立
     /// - Parameter isActive: 是否激活动画（通常绑定 isSearchLoading）
     func searchWiggle(isActive: Bool) -> some View {
         modifier(SearchWiggleModifier(isActive: isActive))
