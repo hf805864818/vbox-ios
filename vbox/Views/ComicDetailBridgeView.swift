@@ -87,7 +87,7 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showGallery) {
                 if let images = detail?.episodes.first?.images {
-                    ComicGalleryView(images: images, title: detail?.vodName ?? "", referer: svc.imageReferer, sslBypass: svc.imageSSLBypass)
+                    MangaReaderView(images: images, title: detail?.vodName ?? "", referer: svc.imageReferer, sslBypass: svc.imageSSLBypass)
                 }
             }
         }

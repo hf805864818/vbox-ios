@@ -284,6 +284,20 @@ final class WelfarePythonSpiderService: FuliBaseService {
             let detail = mapper.mapDetail(result)
             // 记录 playFrom，供 playerContent 的 flag 参数使用
             lastPlayFrom = detail.playFrom
+
+            // 漫画类型：调用 playerContent 获取 manga:// 图片列表
+            if contentCategory == .comic {
+                let episodesWithImages = await loadComicImages(for: detail.episodes, inject: inject)
+                return FuliDetail(
+                    vodId: detail.vodId,
+                    vodName: detail.vodName,
+                    vodPic: detail.vodPic,
+                    vodContent: detail.vodContent,
+                    playFrom: detail.playFrom,
+                    episodes: episodesWithImages
+                )
+            }
+
             return detail
         } catch {
             pyLog("❌ fetchDetail: \(error.localizedDescription)")
@@ -291,6 +305,44 @@ final class WelfarePythonSpiderService: FuliBaseService {
                 vodId: vodId, vodName: "", vodPic: "",
                 vodContent: nil, playFrom: platformName, episodes: []
             )
+        }
+    }
+
+    /// 加载漫画图片列表：对每个剧集调用 playerContent，解析 manga:// 协议为图片数组
+    private func loadComicImages(for episodes: [FuliEpisode], inject: [String: Any]) async -> [FuliEpisode] {
+        guard let engine = engine else { return episodes }
+
+        return await withTaskGroup(of: (Int, FuliEpisode).self) { group in
+            for (index, ep) in episodes.enumerated() {
+                group.addTask { [weak self] in
+                    guard let self = self else { return (index, ep) }
+                    do {
+                        let playerResult = try await engine.callPlayerContentAsync(
+                            vodId: "",
+                            flag: self.playFromFromEpisode(ep),
+                            url: ep.url,
+                            injectDict: inject
+                        )
+                        let playerURL = playerResult.playUrl ?? playerResult.url ?? ""
+                        // 解析 manga:// 或 pics:// 协议
+                        let images = self.mapper.parseMangaURL(playerURL)
+                        if !images.isEmpty {
+                            var newEp = ep
+                            newEp.images = images
+                            return (index, newEp)
+                        }
+                    } catch {
+                        self.pyLog("❌ loadComicImages[\(ep.name)]: \(error.localizedDescription)")
+                    }
+                    return (index, ep)
+                }
+            }
+
+            var result: [(Int, FuliEpisode)] = []
+            for await item in group {
+                result.append(item)
+            }
+            return result.sorted { $0.0 < $1.0 }.map { $0.1 }
         }
     }
 

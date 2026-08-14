@@ -76,6 +76,26 @@ struct WelfareResultMapper {
         return FuliPlayerResult(url: url, headers: headers, parse: parse)
     }
 
+    // MARK: - 漫画图片解析
+
+    /// 解析 manga:// 或 pics:// 协议的 URL 为图片列表
+    /// 格式：manga://url1&&url2&&url3...
+    func parseMangaURL(_ url: String) -> [String] {
+        guard url.hasPrefix("manga://") || url.hasPrefix("pics://") else {
+            return []
+        }
+        let content = url.dropFirst(url.hasPrefix("manga://") ? 8 : 7)
+        let images = content.components(separatedBy: "&&")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.hasPrefix("http") }
+        return images
+    }
+
+    /// 判断 URL 是否为漫画图片协议
+    func isMangaProtocol(_ url: String) -> Bool {
+        url.hasPrefix("manga://") || url.hasPrefix("pics://")
+    }
+
     // MARK: - Private Helpers
 
     private func mapVideo(_ item: VodItem) -> FuliVideo? {
