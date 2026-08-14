@@ -70,7 +70,9 @@ struct WelfareResultMapper {
     // MARK: - Player
 
     func mapPlayer(_ result: PlayerContentResult) -> FuliPlayerResult {
-        let url = result.playUrl ?? result.url ?? ""
+        let url = (result.playUrl?.isEmpty == false ? result.playUrl : nil)
+            ?? result.url
+            ?? ""
         let headers = result.header ?? [:]
         let parse = result.parse ?? 0
         return FuliPlayerResult(url: url, headers: headers, parse: parse)

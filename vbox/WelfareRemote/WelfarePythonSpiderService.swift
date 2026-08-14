@@ -323,7 +323,9 @@ final class WelfarePythonSpiderService: FuliBaseService {
                             url: ep.url,
                             injectDict: inject
                         )
-                        let playerURL = playerResult.playUrl ?? playerResult.url ?? ""
+                        let playerURL = (playerResult.playUrl?.isEmpty == false ? playerResult.playUrl : nil)
+                            ?? playerResult.url
+                            ?? ""
                         // 解析 manga:// 或 pics:// 协议
                         let images = self.mapper.parseMangaURL(playerURL)
                         if !images.isEmpty {
