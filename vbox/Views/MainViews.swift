@@ -1289,8 +1289,8 @@ struct SearchView: View {
             }
             
             ZStack {
-                if isSearching && !isSearchLoading && !searchResults.isEmpty {
-                    // 已有搜索结果：展示结果页
+                if isSearching && !searchResults.isEmpty {
+                    // 搜索中或搜索完成，已有结果：展示结果页
                     SearchResultsView(results: searchResults, searchText: searchText)
                 } else if isSearching && !isSearchLoading && searchResults.isEmpty {
                     // 已结束搜索但无结果：展示空态
@@ -1302,7 +1302,7 @@ struct SearchView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    // 默认/搜索中：保持默认内容（搜索历史 + 豆瓣榜单），顶部以小条提示「搜索中」
+                    // 默认/搜索中（无结果）：保持默认内容（搜索历史 + 豆瓣榜单），顶部以小条提示「搜索中」
                     ZStack(alignment: .top) {
                         defaultContentView
                         if isSearching && isSearchLoading {
