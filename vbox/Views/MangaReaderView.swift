@@ -200,7 +200,7 @@ struct MangaImageView: View {
                     .scaleEffect(scale)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
-                        withAnimation(.spring(response: 0.3, dampingRatio: 0.7)) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             scale = scale > 1 ? 1.0 : 2.0
                         }
                     }
