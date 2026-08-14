@@ -1182,6 +1182,7 @@ struct SearchView: View {
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.gray)
+                        .searchWiggle(isActive: isSearchLoading)
                     TextField("搜索影片、剧集", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 15))
