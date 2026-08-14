@@ -589,7 +589,7 @@ struct RemoteWelfareSettingsView: View {
             default: break
             }
         case .remoteCmsV10:
-            AidanVideoService.shared.reprobe()
+            RemoteCMSV10Service.service(for: platform).reprobe()
         case .welfareSpider:
             // 通用 JS Spider：脚本内 Service 实例，域名变更后下次进入会重新解析
             break

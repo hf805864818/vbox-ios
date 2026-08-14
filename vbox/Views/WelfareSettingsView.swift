@@ -18,14 +18,9 @@ struct WelfareSettingsView: View {
     @State private var isProxyExpanded: Bool = true
     @FocusState private var proxyFocused: Bool
 
-    // 阶段3 改造：此数组仅在 switchEnabled=false 兼容模式下使用
-    // 远程源模式（switchEnabled=true）直接走 RemoteWelfareSettingsView，
-    // 平台列表从 WelfarePlatformConfigStore 动态加载，无需硬编码。
-    private let platforms: [(name: String, icon: String, defaultHosts: [String])] = [
-        // 兼容模式：仅保留被非福利入口引用的核心平台
-        ("MissAV", "star.fill", ["https://missav.ws"]),
-        ("香蕉秀", "heart.fill", []),
-    ]
+    // 阶段3 改造：兼容模式下不再硬编码任何福利平台，
+    // 所有平台由远程源统一配置驱动，用户需开启远程源后在 RemoteWelfareSettingsView 中管理。
+    private let platforms: [(name: String, icon: String, defaultHosts: [String])] = []
 
     var body: some View {
         if remoteConfigStore.switchEnabled {
@@ -76,8 +71,24 @@ struct WelfareSettingsView: View {
                 }
 
                 Section {
-                    ForEach(platforms, id: \.name) { platform in
-                        platformRow(platform)
+                    if platforms.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "arrow.up.circle")
+                                .font(.system(size: 32))
+                                .foregroundColor(.accentColor)
+                            Text("请开启上方「使用福利远程源」")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("开启后可在远程源设置页管理各平台的域名和代理")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                    } else {
+                        ForEach(platforms, id: \.name) { platform in
+                            platformRow(platform)
+                        }
                     }
                 }
             }
@@ -417,20 +428,16 @@ struct WelfareSettingsView: View {
     }
 
     private func resetService(for name: String) {
-        // 阶段3 + 阶段4 改造：兼容模式仅保留 2 个平台（MissAV / 香蕉秀），
-        // 这两个平台不在 service 切换体系内（香蕉秀是 View 直连 YBoxService2，
-        // MissAV 是 View 直连 MissAVService），域名变更由各自 View 的 onAppear
-        // 重新读取 WelfareDomainStore 完成，无需在此 reset。
-        // 因此此函数目前是 no-op，保留方法签名避免 caller 报错。
+        // 阶段3 改造：兼容模式下不再硬编码任何平台，
+        // 所有平台域名/代理管理在 RemoteWelfareSettingsView 中处理。
+        // 此函数保留 no-op，避免 caller 编译报错。
         _ = name
     }
 
     private func clearAndReset(for name: String) {
-        // 阶段3 + 阶段4 改造：兼容模式仅保留 2 个平台（MissAV / 香蕉秀），
-        // 这两个平台不在 service 切换体系内（香蕉秀是 View 直连 YBoxService2，
-        // MissAV 是 View 直连 MissAVService），域名变更由各自 View 的 onAppear
-        // 重新读取 WelfareDomainStore 完成，无需在此 reset。
-        // 因此此函数目前是 no-op，保留方法签名避免 caller 报错。
+        // 阶段3 改造：兼容模式下不再硬编码任何平台，
+        // 所有平台域名/代理管理在 RemoteWelfareSettingsView 中处理。
+        // 此函数保留 no-op，避免 caller 编译报错。
         _ = name
     }
 }

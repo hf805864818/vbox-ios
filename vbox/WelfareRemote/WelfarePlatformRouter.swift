@@ -71,10 +71,11 @@ struct WelfarePlatformRouter {
 
         // MARK: 远程可配置 CMS V10 福利源
         case .remoteCmsV10:
-            // RemoteCMSV10Service 已在阶段3清理中移除，
-            // 艾旦福利视频（aidan_video）复用 AidanVideoService
             return AnyView(
-                FuliPlatformMainView(platform: makeYBoxPlatform2(from: platform), service: AidanVideoService.shared)
+                FuliPlatformMainView(
+                    platform: makeYBoxPlatform2(from: platform),
+                    service: RemoteCMSV10Service.service(for: platform)
+                )
             )
 
         // MARK: 福利专区专用远程 Spider（JS）

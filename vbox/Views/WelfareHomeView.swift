@@ -189,18 +189,21 @@ struct WelfareHomeView: View {
             )
         }
 
-        // 2. 兼容模式（非福利入口 / 远程源未加载）：按名字分发
-        switch platform.name {
-        case "MissAV":
-            return AnyView(MissAVHomeView().environmentObject(settings))
-        case "One平台":
-            return AnyView(OnePlatformHomeView(platform: platform))
-        case "麻豆平台":
-            return AnyView(MDTVHomeView(platform: platform))
-        default:
-            // 兜底：XJSP 通用分类
-            return AnyView(YBoxXjspMainView(platform: platform))
-        }
+        // 2. 兼容模式：远程源未开启时不展示任何平台，提示用户开启远程源
+        // 所有福利平台均由远程源统一配置驱动，本地不再硬编码路由
+        return AnyView(
+            VStack(spacing: 16) {
+                Image(systemName: "giftcard")
+                    .font(.system(size: 48))
+                    .foregroundColor(.secondary)
+                Text("请开启福利远程源")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("福利平台已全部迁移到远程源配置")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        )
     }
 
     // MARK: - 平台数据过滤
