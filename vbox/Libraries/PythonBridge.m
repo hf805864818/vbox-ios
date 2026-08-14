@@ -22,10 +22,132 @@ static pthread_mutex_t _pyMutex = PTHREAD_MUTEX_INITIALIZER;
 static BOOL _pyInitialized = NO;
 static NSString *_pyHome = nil;
 // _cachedMainModule/_cachedGlobals 已移除: 每次调用创建独立 globals，支持并发
+// ★ 新增: 脚本执行环境缓存 —— 缓存 PyRun_File 后的 globals，避免重复解析
+
+@interface PyScriptEnv : NSObject
+@property (nonatomic, assign) PyObject *globals;        // 脚本执行后的 globals（含 Spider 类定义）
+@property (nonatomic, assign) NSTimeInterval fileMTime; // 文件修改时间（用于检测脚本更新）
+@end
+
+@implementation PyScriptEnv
+
+- (void)dealloc {
+    if (_globals) {
+        if (Py_IsInitialized()) {
+            PyGILState_STATE state = PyGILState_Ensure();
+            Py_DECREF(_globals);
+            PyGILState_Release(state);
+        }
+        _globals = NULL;
+    }
+}
+
+@end
+
+static NSCache<NSString *, PyScriptEnv *> *_scriptEnvCache = nil;
 
 @implementation PythonSpiderBridge
 
 #pragma mark - Lifecycle
+
++ (void)initialize {
+    [super initialize];
+    _scriptEnvCache = [[NSCache alloc] init];
+    _scriptEnvCache.countLimit = 50;
+    
+    // 内存警告时清空缓存
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(clearScriptCache)
+                                                 name:UIApplicationDidReceiveMemoryWarningNotification
+                                               object:nil];
+}
+
++ (void)clearScriptCache {
+    [_scriptEnvCache removeAllObjects];
+    PYBridgeLog(@"[PythonBridge] 🧹 脚本缓存已清空（内存警告）");
+}
+
+#pragma mark - Script Environment Cache
+
+/// 加载脚本 globals（带缓存）
+/// 首次调用时执行 PyRun_File，后续调用直接复制已缓存的 globals
+/// @param scriptPath 脚本文件绝对路径
+/// @return 包含脚本定义的独立 globals 字典（调用方需 Py_DECREF），失败返回 NULL
++ (PyObject *)loadScriptGlobals:(NSString *)scriptPath {
+    if (!scriptPath) return NULL;
+    
+    NSString *scriptName = [scriptPath lastPathComponent];
+    
+    // 获取文件修改时间
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:scriptPath error:nil];
+    NSDate *modDate = attrs[NSFileModificationDate];
+    NSTimeInterval mtime = modDate ? [modDate timeIntervalSince1970] : 0;
+    
+    // 检查缓存
+    PyScriptEnv *cached = [_scriptEnvCache objectForKey:scriptPath];
+    if (cached && fabs(cached.fileMTime - mtime) < 0.001) {
+        PyObject *copied = PyDict_Copy(cached.globals);
+        if (copied) {
+            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] 📦 缓存命中: %@", scriptName]);
+        }
+        return copied;
+    }
+    
+    // 缓存未命中：重新加载脚本
+    FILE *fp = fopen([scriptPath UTF8String], "r");
+    if (!fp) {
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 无法打开脚本: %@", scriptPath]);
+        return NULL;
+    }
+    
+    NSString *injectPath = [NSString stringWithFormat:
+        @"import sys; sys.path.insert(0, '%@')",
+        [[scriptPath stringByDeletingLastPathComponent] stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
+    PyRun_SimpleString([injectPath UTF8String]);
+    
+    PyObject *globals = PyDict_New();
+    if (!globals) { fclose(fp); return NULL; }
+    PyObject *builtins = PyEval_GetBuiltins();
+    if (builtins) {
+        PyDict_SetItemString(globals, "__builtins__", builtins);
+    }
+    
+    PyObject *runRet = PyRun_File(fp, [scriptName UTF8String],
+                                   Py_file_input, globals, globals);
+    fclose(fp);
+    if (!runRet) {
+        PyErr_Print();
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 脚本执行失败: %@", scriptName]);
+        Py_DECREF(globals);
+        return NULL;
+    }
+    Py_DECREF(runRet);
+    
+    // 验证 Spider 类存在
+    PyObject *spiderClass = PyDict_GetItemString(globals, "Spider");
+    if (!spiderClass || !PyCallable_Check(spiderClass)) {
+        PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 未找到 Spider 类: %@", scriptName]);
+        Py_DECREF(globals);
+        return NULL;
+    }
+    
+    // 缓存结果（缓存持有原始 globals 引用）
+    PyScriptEnv *env = [[PyScriptEnv alloc] init];
+    env.globals = globals;
+    env.fileMTime = mtime;
+    [_scriptEnvCache setObject:env forKey:scriptPath];
+    
+    PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] 📦 缓存新建: %@", scriptName]);
+    
+    // 返回副本给调用方（调用方独立使用，injectDict 注入到副本中不影响缓存）
+    PyObject *copied = PyDict_Copy(globals);
+    if (!copied) {
+        Py_DECREF(globals);
+        return NULL;
+    }
+    return copied;
+}
 
 + (void)initializePythonIfNeeded {
     // 锁: 保护 _pyInitialized 检查
@@ -146,18 +268,12 @@ static NSString *_pyHome = nil;
     NSString *result = nil;
     PyObject *globals = NULL;
     PyObject *spider = NULL;
-    FILE *fp = NULL;
 
     @try {
-        // === Phase 1: 为每次调用创建独立的全局字典 ===
-        // 不再共享 __main__ globals，避免并发 callSpider 时 Spider 类互相覆盖
-        // 新字典包含 __builtins__，脚本可正常使用内置函数
-        globals = PyDict_New();
+        // === Phase 1: 加载脚本环境（带缓存）===
+        // 首次调用执行 PyRun_File，后续直接复制已缓存的 globals
+        globals = [self loadScriptGlobals:scriptPath];
         if (!globals) goto cleanup;
-        PyObject *builtins = PyEval_GetBuiltins();
-        if (builtins) {
-            PyDict_SetItemString(globals, "__builtins__", builtins);
-        }
 
         // === Phase 1.5: 注入外部上下文（福利域名/代理等）===
         // injectDict 中的键值对被写入 globals，脚本的 base.spider.Spider
@@ -175,31 +291,7 @@ static NSString *_pyHome = nil;
             }
         }
         
-        // === Phase 2: 加载脚本文件 ===
-        fp = fopen([scriptPath UTF8String], "r");
-        if (!fp) {
-            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 无法打开脚本: %@", scriptPath]);
-            goto cleanup;
-        }
-        
-        // 注入脚本路径信息
-        NSString *injectPath = [NSString stringWithFormat:
-            @"import sys; sys.path.insert(0, '%@')",
-            [[scriptPath stringByDeletingLastPathComponent] stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
-        PyRun_SimpleString([injectPath UTF8String]);
-        
-        // 执行脚本（每次重新定义 Spider 类）
-        PyObject *runRet = PyRun_File(fp, [[scriptPath lastPathComponent] UTF8String],
-                                       Py_file_input, globals, globals);
-        if (!runRet) {
-            PyErr_Print();
-            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 脚本执行失败: %@", [scriptPath lastPathComponent]]);
-            goto cleanup;
-        }
-        Py_DECREF(runRet);
-        fclose(fp); fp = NULL;
-        
-        // === Phase 3: 实例化 Spider 类 ===
+        // === Phase 2: 获取 Spider 类 ===
         PyObject *spiderClass = PyDict_GetItemString(globals, "Spider");
         if (!spiderClass || !PyCallable_Check(spiderClass)) {
             PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 未找到 Spider 类: %@", [scriptPath lastPathComponent]]);
@@ -327,9 +419,8 @@ static NSString *_pyHome = nil;
     }
     
 cleanup:
-    if (fp) fclose(fp);
     Py_XDECREF(spider);
-    Py_XDECREF(globals);   // ★ 每次调用创建的独立 globals，用完释放
+    Py_XDECREF(globals);   // ★ 释放当前调用的 globals 副本（缓存的原始 globals 由 NSCache 管理）
 
     // ★ 释放 GIL — 允许其他线程获取 GIL 执行 Python 代码
     PyGILState_Release(gilState);
@@ -356,16 +447,11 @@ cleanup:
     NSDictionary *result = nil;
     PyObject *globals = NULL;
     PyObject *spider = NULL;
-    FILE *fp = NULL;
 
     @try {
-        // Phase 1: 创建独立 globals
-        globals = PyDict_New();
+        // Phase 1: 加载脚本环境（带缓存）
+        globals = [self loadScriptGlobals:scriptPath];
         if (!globals) goto proxyCleanup;
-        PyObject *builtins = PyEval_GetBuiltins();
-        if (builtins) {
-            PyDict_SetItemString(globals, "__builtins__", builtins);
-        }
 
         // Phase 1.5: 注入上下文
         if (injectDict != nil && injectDict.count > 0) {
@@ -379,28 +465,7 @@ cleanup:
             }
         }
 
-        // Phase 2: 加载脚本
-        fp = fopen([scriptPath UTF8String], "r");
-        if (!fp) {
-            PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ localProxy: 无法打开脚本: %@", scriptPath]);
-            goto proxyCleanup;
-        }
-
-        NSString *injectPath = [NSString stringWithFormat:
-            @"import sys; sys.path.insert(0, '%@')",
-            [[scriptPath stringByDeletingLastPathComponent] stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
-        PyRun_SimpleString([injectPath UTF8String]);
-
-        PyObject *runRet = PyRun_File(fp, [[scriptPath lastPathComponent] UTF8String],
-                                       Py_file_input, globals, globals);
-        if (!runRet) {
-            PyErr_Print();
-            goto proxyCleanup;
-        }
-        Py_DECREF(runRet);
-        fclose(fp); fp = NULL;
-
-        // Phase 3: 实例化 Spider
+        // Phase 2: 获取 Spider 类
         PyObject *spiderClass = PyDict_GetItemString(globals, "Spider");
         if (!spiderClass || !PyCallable_Check(spiderClass)) goto proxyCleanup;
 
@@ -532,7 +597,6 @@ cleanup:
     }
 
 proxyCleanup:
-    if (fp) fclose(fp);
     Py_XDECREF(spider);
     Py_XDECREF(globals);
     PyGILState_Release(gilState);
