@@ -258,38 +258,11 @@ class YBoxService2: ObservableObject {
             return
         }
 
-        // 兼容模式：仅保留少量被非福利入口引用的硬编码平台
-        // 阶段2 已移除 16 个福利 JS 平台，剩余非福利入口依赖：
-        // - MissAV：ProfileView 仍引用
-        // - 香蕉秀系列（幻想次元/午夜寻欢/绿帽淫妻/1080视频）：非福利入口使用
-        // - One平台/麻豆平台：非福利入口使用
-        // 其余 18 个福利平台（神秘电影/四虎视频/香肠派对/萝莉AV/麻豆免费/久久網/韩国色情电影/
-        //                   今日看料/黑料不打烊/通用吸瓜/熊猫视频/4H视频/FullHD/香蕉视频/色播聚合）
-        // 全部由远程源 WelfarePlatformConfigStore 加载，本地不再写死
-        let yboxVideo: [YBoxPlatform2] = [
-            YBoxPlatform2(name: "MissAV", icon: "star.fill", type: .video,
-                         baseURL: "https://missav.ws", desc: "高清无码"),
-            YBoxPlatform2(name: "香蕉秀", icon: "leaf.fill", type: .video,
-                         baseURL: bananaURL, desc: "短视频/长视频"),
-            YBoxPlatform2(name: "幻想次元", icon: "sparkles", type: .video,
-                         baseURL: bananaURL, desc: "二次元角色扮演"),
-            YBoxPlatform2(name: "午夜寻欢", icon: "moon.stars.fill", type: .video,
-                         baseURL: bananaURL, desc: "夜间精彩"),
-            YBoxPlatform2(name: "绿帽淫妻", icon: "heart.slash.fill", type: .video,
-                         baseURL: bananaURL, desc: "专题视频"),
-            YBoxPlatform2(name: "1080视频", icon: "play.rectangle.fill", type: .video,
-                         baseURL: "https://1080.hlkjsm.com", desc: "综合视频站"),
-            YBoxPlatform2(name: "One平台", icon: "sparkles.tv", type: .video,
-                         baseURL: "https://api.em1oifd0.com", desc: "AES加密视频站"),
-            YBoxPlatform2(name: "麻豆平台", icon: "tv.circle.fill", type: .video,
-                         baseURL: "https://api.nzp1ve.com", desc: "MDTV加密视频站"),
-        ]
-
-        let yboxLive: [YBoxPlatform2] = []
-
+        // 兼容模式：所有平台均由远程源提供，本地不再硬编码
+        // 用户需开启「使用福利远程源」才能看到福利平台列表
         categories = [
-            YBoxCategory2(name: "视频", platforms: yboxVideo),
-            YBoxCategory2(name: "直播", platforms: yboxLive),
+            YBoxCategory2(name: "视频", platforms: []),
+            YBoxCategory2(name: "直播", platforms: []),
             YBoxCategory2(name: "漫画", platforms: []),
         ]
     }
