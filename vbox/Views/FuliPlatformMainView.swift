@@ -1,10 +1,43 @@
 import SwiftUI
 
+// MARK: - 分类页面状态缓存
+/// 用于在 TabView 页面切换或从详情页返回时保持分类数据不丢失
+/// 因为 TabView(.page) 会卸载离屏页面，导致 @State 重置
+final class CategoryTabStateCache: ObservableObject {
+    struct State {
+        var videos: [FuliVideo] = []
+        var isLoading = true
+        var isLoadingMore = false
+        var currentPage = 1
+        var hasMore = true
+        var loadError: String? = nil
+        var hasLoaded = false
+        var selectedSubId: String? = nil
+    }
+
+    private var states: [String: State] = [:]
+
+    func state(for key: String) -> State {
+        if let s = states[key] { return s }
+        let s = State()
+        states[key] = s
+        return s
+    }
+
+    func update(_ key: String, _ mutate: (inout State) -> Void) {
+        var s = state(for: key)
+        mutate(&s)
+        states[key] = s
+        objectWillChange.send()
+    }
+}
+
 // MARK: - 通用福利平台主页面
 // 统一入口：动态分类 Tab（含二级子分类） + 搜索 Tab
 struct FuliPlatformMainView<Service: FuliPlatformService>: View {
     let platform: YBoxPlatform2
     @StateObject private var svc: Service
+    @StateObject private var tabStateCache = CategoryTabStateCache()
 
     init(platform: YBoxPlatform2, service: Service) {
         self.platform = platform
@@ -15,6 +48,7 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
     @State private var selectedTab = 0
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var hasLoadedHome = false  // 标记首页分类是否已加载，避免返回时重复刷新
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,8 +92,13 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
                 // Tab 内容
                 TabView(selection: $selectedTab) {
                     ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
-                        FuliCategoryTabView(svc: svc, category: cat)
-                            .tag(idx)
+                        FuliCategoryTabView(
+                            svc: svc,
+                            category: cat,
+                            stateCache: tabStateCache,
+                            cacheKey: cat.typeId
+                        )
+                        .tag(idx)
                     }
                     FuliSearchTabView(svc: svc)
                         .tag(categories.count)
@@ -69,7 +108,12 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadHome() }
+        .onAppear {
+            if !hasLoadedHome {
+                loadHome()
+                hasLoadedHome = true
+            }
+        }
     }
 
     private func tabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -109,17 +153,25 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
 // MARK: - 分类 Tab（含二级子分类）
 struct FuliCategoryTabView<Service: FuliPlatformService>: View {
     @ObservedObject var svc: Service
+    @ObservedObject var stateCache: CategoryTabStateCache
     let category: FuliCategory
+    let cacheKey: String
 
-    @State private var selectedSub: FuliCategory? = nil
-    @State private var videos: [FuliVideo] = []
-    @State private var isLoading = true
-    @State private var isLoadingMore = false
-    @State private var currentPage = 1
-    @State private var hasMore = true
-    @State private var loadError: String?
-    @State private var hasLoaded = false  // 标记是否已加载过，避免返回时重复刷新
-    @State private var isRefreshing = false  // 下拉刷新状态
+    init(svc: Service, category: FuliCategory, stateCache: CategoryTabStateCache, cacheKey: String) {
+        self.svc = svc
+        self.category = category
+        self.stateCache = stateCache
+        self.cacheKey = cacheKey
+    }
+
+    private var state: CategoryTabStateCache.State {
+        stateCache.state(for: cacheKey)
+    }
+
+    private var selectedSub: FuliCategory? {
+        guard let subId = state.selectedSubId else { return nil }
+        return category.subCategories?.first { $0.typeId == subId }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,11 +180,11 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         subButton(title: "全部", isSelected: selectedSub == nil) {
-                            selectedSub = nil; refresh(force: true)
+                            selectSub(nil)
                         }
                         ForEach(subs) { sub in
-                            subButton(title: sub.typeName, isSelected: selectedSub?.id == sub.id) {
-                                selectedSub = sub; refresh(force: true)
+                            subButton(title: sub.typeName, isSelected: selectedSub?.typeId == sub.typeId) {
+                                selectSub(sub)
                             }
                         }
                     }
@@ -142,9 +194,9 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
             }
 
             // 视频网格
-            if isLoading && videos.isEmpty {
+            if state.isLoading && state.videos.isEmpty {
                 Spacer(); ProgressView(); Spacer()
-            } else if let err = loadError, videos.isEmpty {
+            } else if let err = state.loadError, state.videos.isEmpty {
                 VStack(spacing: 12) {
                     Spacer()
                     Text(err).font(.system(size: 14)).foregroundColor(.secondary)
@@ -154,40 +206,42 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 }
             } else {
                 ScrollView {
-                    // 下拉刷新指示器
-                    PullToRefreshView(coordinateSpace: .named("categoryScroll"), isRefreshing: isRefreshing, onRefresh: {
-                        refresh(force: true)
-                    })
-
                     LazyVGrid(
                         columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                         spacing: 14
                     ) {
-                        ForEach(videos) { video in
+                        ForEach(state.videos) { video in
                             NavigationLink(destination: detailView(for: video)) {
                                 FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
                             }
                             .buttonStyle(.plain)
                             .onAppear {
-                                if video.id == videos[max(0, videos.count - 4)].id { loadMore() }
+                                if video.id == state.videos[max(0, state.videos.count - 4)].id { loadMore() }
                             }
                         }
                     }
                     .padding(12)
-                    if isLoadingMore { ProgressView().padding() }
-                    if !hasMore && !videos.isEmpty {
+                    if state.isLoadingMore { ProgressView().padding() }
+                    if !state.hasMore && !state.videos.isEmpty {
                         Text("已加载全部").font(.system(size: 12)).foregroundColor(.secondary).padding(.bottom, 20)
                     }
                 }
-                .coordinateSpace(name: "categoryScroll")
+                .refreshable {
+                    await refreshAsync()
+                }
             }
         }
         .onAppear {
-            if !hasLoaded {
+            if !state.hasLoaded {
                 refresh(force: false)
-                hasLoaded = true
+                stateCache.update(cacheKey) { $0.hasLoaded = true }
             }
         }
+    }
+
+    private func selectSub(_ sub: FuliCategory?) {
+        stateCache.update(cacheKey) { $0.selectedSubId = sub?.typeId }
+        refresh(force: true)
     }
 
     private func detailView(for video: FuliVideo) -> some View {
@@ -214,81 +268,47 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
 
     private func refresh(force: Bool) {
         // 非强制刷新且已有数据时，不重新加载
-        if !force && !videos.isEmpty { return }
-
-        currentPage = 1; hasMore = true; isLoading = true; loadError = nil
-        if force { isRefreshing = true }
-
+        if !force && !state.videos.isEmpty { return }
         Task {
-            await svc.ensureHostReady()
-            let result = await svc.fetchCategoryContent(category: category, subCategory: selectedSub, page: 1)
-            await MainActor.run {
-                videos = result.videos; isLoading = false; isRefreshing = false
-                hasMore = result.hasMore
-                if result.videos.isEmpty { loadError = "暂无内容" }
-            }
+            await refreshAsync()
+        }
+    }
+
+    private func refreshAsync() async {
+        stateCache.update(cacheKey) {
+            $0.currentPage = 1
+            $0.hasMore = true
+            $0.isLoading = true
+            $0.loadError = nil
+        }
+        await svc.ensureHostReady()
+        let result = await svc.fetchCategoryContent(category: category, subCategory: selectedSub, page: 1)
+        stateCache.update(cacheKey) {
+            $0.videos = result.videos
+            $0.isLoading = false
+            $0.hasMore = result.hasMore
+            if result.videos.isEmpty { $0.loadError = "暂无内容" }
         }
     }
 
     private func loadMore() {
-        guard !isLoadingMore, hasMore else { return }
-        isLoadingMore = true
-        let next = currentPage + 1
+        let s = state
+        guard !s.isLoadingMore, s.hasMore else { return }
+        stateCache.update(cacheKey) { $0.isLoadingMore = true }
+        let next = s.currentPage + 1
         Task {
             let result = await svc.fetchCategoryContent(category: category, subCategory: selectedSub, page: next)
-            await MainActor.run {
+            stateCache.update(cacheKey) {
                 if !result.videos.isEmpty {
-                    videos.append(contentsOf: result.videos)
-                    currentPage = next
-                    hasMore = result.hasMore
+                    $0.videos.append(contentsOf: result.videos)
+                    $0.currentPage = next
+                    $0.hasMore = result.hasMore
                 } else {
-                    hasMore = false
+                    $0.hasMore = false
                 }
-                isLoadingMore = false
+                $0.isLoadingMore = false
             }
         }
-    }
-}
-
-// MARK: - 下拉刷新控件
-/// 纯 SwiftUI 实现的下拉刷新，基于 ScrollView 偏移量检测
-struct PullToRefreshView: View {
-    let coordinateSpace: CoordinateSpace
-    let isRefreshing: Bool
-    let onRefresh: () -> Void
-
-    @State private var canTrigger = true
-    @State private var dragOffset: CGFloat = 0
-    private let triggerThreshold: CGFloat = 60
-
-    var body: some View {
-        GeometryReader { proxy -> Color in
-            let minY = proxy.frame(in: coordinateSpace).minY
-            DispatchQueue.main.async {
-                dragOffset = minY
-                if minY > triggerThreshold && canTrigger && !isRefreshing {
-                    canTrigger = false
-                    let impact = UIImpactFeedbackGenerator(style: .medium)
-                    impact.impactOccurred()
-                    onRefresh()
-                }
-                if minY <= 0 {
-                    canTrigger = true
-                }
-            }
-            return Color.clear
-        }
-        .frame(height: isRefreshing ? 50 : max(0, dragOffset))
-        .overlay(
-            VStack(spacing: 4) {
-                ProgressView()
-                    .scaleEffect(0.9)
-                Text(isRefreshing ? "正在刷新..." : (dragOffset > triggerThreshold ? "松开刷新" : "下拉刷新"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-            .opacity((isRefreshing || dragOffset > 10) ? 1 : 0)
-        )
     }
 }
 

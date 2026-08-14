@@ -116,7 +116,10 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showPlayer) {
                 if let playerVideo = playerVideo {
-                    VideoPlayerViewV2(video: playerVideo)
+                    VideoPlayerViewV2(
+                        video: playerVideo,
+                        preParsedEpisodes: detail?.episodes.map { ($0.name, $0.url) }
+                    )
                 }
             }
 
