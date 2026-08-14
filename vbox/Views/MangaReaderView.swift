@@ -175,7 +175,8 @@ struct MangaReaderView: View {
 }
 
 // MARK: - 单张漫画图片视图
-/// 复用 PlatformAsyncImage，支持 Referer、SSL 绕过、缓存、重试
+/// 直接使用 PlatformImageLoader 加载图片，支持 Referer、SSL 绕过、缓存、重试
+/// 确保加载中/失败状态都有合理高度，避免在 LazyVStack 中塌缩
 struct MangaImageView: View {
     let url: String
     let referer: String?
@@ -183,12 +184,33 @@ struct MangaImageView: View {
     var onAppear: () -> Void = {}
 
     @State private var scale: CGFloat = 1.0
-    @State private var showRetry = false
+    @State private var image: UIImage?
+    @State private var isLoading = true
+    @State private var loadFailed = false
+    @State private var retryKey = 0
 
     var body: some View {
         ZStack {
-            if showRetry {
-                // 加载失败：显示重试按钮
+            if let image = image {
+                // 加载成功：宽度撑满屏幕，高度按比例自适应
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .scaleEffect(scale)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring(response: 0.3, dampingRatio: 0.7)) {
+                            scale = scale > 1 ? 1.0 : 2.0
+                        }
+                    }
+                    .contextMenu {
+                        Button(action: { saveImage() }) {
+                            Label("保存图片", systemImage: "square.and.arrow.down")
+                        }
+                    }
+            } else if loadFailed {
+                // 加载失败：明确高度，避免塌缩
                 VStack(spacing: 8) {
                     Image(systemName: "photo.badge.exclamationmark")
                         .font(.system(size: 36))
@@ -196,7 +218,11 @@ struct MangaImageView: View {
                     Text("图片加载失败")
                         .font(.system(size: 13))
                         .foregroundColor(.white.opacity(0.6))
-                    Button(action: { showRetry = false }) {
+                    Button(action: {
+                        loadFailed = false
+                        isLoading = true
+                        retryKey += 1
+                    }) {
                         Text("点击重试")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.white)
@@ -210,39 +236,61 @@ struct MangaImageView: View {
                 .frame(height: 200)
                 .background(Color.gray.opacity(0.2))
             } else {
-                PlatformAsyncImage.sourceCover(
-                    url,
-                    referer: referer,
-                    sslBypass: sslBypass,
-                    contentMode: .fit
-                )
-                .frame(maxWidth: .infinity)
-                .scaleEffect(scale)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        scale = scale > 1 ? 1.0 : 2.0
-                    }
-                }
-                .contextMenu {
-                    Button(action: { saveImage() }) {
-                        Label("保存图片", systemImage: "square.and.arrow.down")
-                    }
-                }
+                // 加载中：明确最小高度，避免塌缩
+                ProgressView()
+                    .tint(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 200)
+                    .background(Color.gray.opacity(0.15))
             }
         }
         .frame(maxWidth: .infinity)
         .onAppear { onAppear() }
         .onChange(of: url) { _ in
-            showRetry = false
+            image = nil
+            isLoading = true
+            loadFailed = false
+            retryKey += 1
+        }
+        .task(id: retryKey) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        isLoading = true
+        loadFailed = false
+
+        // 构建带 @UA@Referer 后缀的 URL（与 sourceCover 逻辑一致）
+        let finalURL: String
+        if let ref = referer, !ref.isEmpty {
+            let ua = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/104.0.5112.97 Mobile Safari/537.36"
+            let normalizedRef = ref.hasSuffix("/") ? ref : "\(ref)/"
+            let sslFlag = sslBypass ? "@X-VBox-SSL-Bypass=1" : ""
+            finalURL = "\(url)@User-Agent=\(ua)@Referer=\(normalizedRef)\(sslFlag)"
+        } else {
+            finalURL = url
+        }
+
+        let loaded = await PlatformImageLoader.shared.loadImage(
+            urlString: finalURL,
+            mode: .mysteryMovie
+        )
+
+        await MainActor.run {
+            if let loaded = loaded {
+                self.image = loaded
+                self.isLoading = false
+            } else {
+                self.loadFailed = true
+                self.isLoading = false
+            }
         }
     }
 
     private func saveImage() {
-        // 从缓存中读取图片并保存
-        let cacheKey = PlatformImageLoader.makeCacheKey(url, mode: .mysteryMovie)
-        if let cached = PlatformImageCache.shared.get(cacheKey) {
-            UIImageWriteToSavedPhotosAlbum(cached, nil, nil, nil)
+        if let image = image {
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
         }
     }
 }
