@@ -10,6 +10,7 @@
 #import "PythonLogStore.h"
 #import "PythonWebViewBridge.h"
 #import <Python/Python.h>   // iOS framework 标准 include (对应 Python.framework/Headers/Python.h)
+#import <UIKit/UIKit.h>      // UIApplicationDidReceiveMemoryWarningNotification
 #include <pthread.h>
 
 // 便捷函数: 同时打 NSLog + 写入 PythonLogStore(开启时)
