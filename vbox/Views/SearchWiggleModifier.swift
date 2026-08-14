@@ -25,7 +25,7 @@ struct SearchWiggleModifier: ViewModifier {
     private let cycleDuration: Double = 1.0
 
     @State private var angle: Double = 0
-    @State private var animating = false
+    @State private var timer: Timer?
 
     func body(content: Content) -> some View {
         content
@@ -43,35 +43,28 @@ struct SearchWiggleModifier: ViewModifier {
                     stopAnimation()
                 }
             }
+            .onDisappear {
+                stopAnimation()
+            }
     }
 
     // MARK: - 动画控制
 
     private func startAnimation() {
-        guard !animating else { return }
-        animating = true
+        guard timer == nil else { return }
         angle = 0
-        runNextCycle()
+        // 每 1/60 秒更新一次，约 60fps
+        let step = (2 * .pi) / (cycleDuration * 60)
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0/60, repeats: true) { _ in
+            angle += step
+        }
     }
 
     private func stopAnimation() {
-        animating = false
+        timer?.invalidate()
+        timer = nil
         withAnimation(.easeOut(duration: 0.25)) {
             angle = 0
-        }
-    }
-
-    /// 圆周运动：每圈 360°，线性匀速
-    private func runNextCycle() {
-        guard animating else { return }
-
-        withAnimation(.linear(duration: cycleDuration)) {
-            angle += 2 * .pi  // 转一圈（弧度）
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + cycleDuration) {
-            guard self.animating else { return }
-            self.runNextCycle()
         }
     }
 }
