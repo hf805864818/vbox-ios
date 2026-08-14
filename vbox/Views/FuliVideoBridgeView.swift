@@ -253,7 +253,8 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                         vodPic: video.vodPic,
                         vodRemarks: "[福利]\(svc.platformName)",
                         vodPlayUrl: result.url,
-                        customHeaders: result.headers
+                        customHeaders: result.headers,
+                        engineKey: "__fuli_welfare__"
                     )
                     showPlayer = true
                     pendingEpisode = nil
