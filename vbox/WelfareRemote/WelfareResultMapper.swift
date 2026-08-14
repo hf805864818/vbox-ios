@@ -114,9 +114,57 @@ struct WelfareResultMapper {
     /// 格式：
     ///   vod_play_from: "线路1$$$线路2"  （多线路用 $$$ 分隔）
     ///   vod_play_url:  "第1集$url1#第2集$url2$$$第1集$url1#第2集$url2"
+    ///
+    /// 非标准格式（黄豆短剧等）：
+    ///   vod_play_url:  "第1集$url1$$$第2集$url2$$$第3集$url3"
+    ///   （$$$ 直接分隔每一集，而非分隔线路）
     private func parseEpisodes(playFrom: String, playUrl: String) -> [FuliEpisode] {
         guard !playUrl.isEmpty else { return [] }
 
+        // 1. 先按标准格式解析（$$$ 分隔线路，# 分隔集）
+        let standardEpisodes = parseStandardFormat(playFrom: playFrom, playUrl: playUrl)
+
+        // 2. 如果没有 $$$ 分隔符，直接用标准格式
+        if !playUrl.contains("$$$") {
+            return standardEpisodes
+        }
+
+        // 3. 尝试非标准格式（$$$ 直接分集）
+        let nonStandardEpisodes = parseNonStandardFormat(playUrl: playUrl)
+
+        // 4. 智能判断使用哪种格式
+        let urlGroups = playUrl.components(separatedBy: "$$$")
+        let allBlocksLikeEpisodes = urlGroups.allSatisfy { isEpisodeName($0.components(separatedBy: "$").first ?? "") }
+        let allBlocksLikeLines = urlGroups.allSatisfy { isLineName($0.components(separatedBy: "$").first ?? "") }
+
+        // 所有 $$$ 块都像集名 且 标准格式只能解析出很少的集 → 用非标准格式
+        if allBlocksLikeEpisodes && standardEpisodes.count <= 1 && nonStandardEpisodes.count > 1 {
+            return nonStandardEpisodes
+        }
+
+        // 所有 $$$ 块都像线路名 → 用标准格式
+        if allBlocksLikeLines {
+            return standardEpisodes
+        }
+
+        // 标准格式结果像线路名（集数少且名字像线路） → 尝试非标准格式
+        if standardEpisodes.count <= 5, let first = standardEpisodes.first, isLineName(first.name) {
+            if nonStandardEpisodes.count > standardEpisodes.count {
+                return nonStandardEpisodes
+            }
+        }
+
+        // 集数差距很大（>3倍）且非标准格式集数多时，选集数多的
+        if nonStandardEpisodes.count > standardEpisodes.count * 3 && nonStandardEpisodes.count > 5 {
+            return nonStandardEpisodes
+        }
+
+        // 默认使用标准格式
+        return standardEpisodes
+    }
+
+    /// 标准格式解析：$$$ 分隔线路，# 分隔集，$ 分隔集名和URL
+    private func parseStandardFormat(playFrom: String, playUrl: String) -> [FuliEpisode] {
         let lines = playFrom.components(separatedBy: "$$$")
         let urlGroups = playUrl.components(separatedBy: "$$$")
 
@@ -130,7 +178,7 @@ struct WelfareResultMapper {
             for item in items {
                 let parts = item.components(separatedBy: "$")
                 guard parts.count >= 2 else { continue }
-                let epName = parts[0]
+                let epName = parts[0].isEmpty ? "第\(episodes.count + 1)集" : parts[0]
                 let epUrl = parts[1]
 
                 let displayName = hasMultipleLines ? "[\(lineName)] \(epName)" : epName
@@ -139,5 +187,56 @@ struct WelfareResultMapper {
         }
 
         return episodes
+    }
+
+    /// 非标准格式解析：$$$ 直接分隔集，每集用 集名$URL 格式
+    private func parseNonStandardFormat(playUrl: String) -> [FuliEpisode] {
+        let items = playUrl.components(separatedBy: "$$$")
+        var episodes: [FuliEpisode] = []
+
+        for (index, item) in items.enumerated() {
+            let parts = item.components(separatedBy: "$")
+            guard parts.count >= 2 else { continue }
+            let epName = parts[0].isEmpty ? "第\(index + 1)集" : parts[0]
+            let epUrl = parts[1]
+            guard !epName.isEmpty && epUrl.hasPrefix("http") else { continue }
+            episodes.append(FuliEpisode(name: epName, url: epUrl))
+        }
+
+        return episodes
+    }
+
+    /// 判断名称是否像线路名（而非集数名）
+    private func isLineName(_ name: String) -> Bool {
+        let lineKeywords = ["线路", "高清", "超清", "蓝光", "标清", "备用", "极速", "流畅", "云播", "云视频",
+                           "m3u8", "mp4", "ckm3u8", "kuyun", "zuidazy", "ok资源", "永久", "腾讯", "爱奇艺",
+                           "优酷", "乐视", "pptv", "bilibili", "1080P", "720P", "4K", "专线"]
+        for keyword in lineKeywords {
+            if name.lowercased().contains(keyword.lowercased()) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// 判断名称是否像集数名
+    private func isEpisodeName(_ name: String) -> Bool {
+        // 第X集 / 第X话 / 第X章
+        if name.range(of: "^第\\d+[集话章期回篇]", options: .regularExpression) != nil {
+            return true
+        }
+        // 纯数字
+        if name.range(of: "^\\d+$", options: .regularExpression) != nil {
+            return true
+        }
+        // EP / E / S01E01 格式
+        if name.range(of: "^[Ee][Pp]?\\d+", options: .regularExpression) != nil {
+            return true
+        }
+        // 集 结尾
+        if name.hasSuffix("集") || name.hasSuffix("话") || name.hasSuffix("章") {
+            return true
+        }
+        return false
     }
 }
