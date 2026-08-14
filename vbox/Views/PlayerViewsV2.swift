@@ -4032,13 +4032,13 @@ class PlayerState: ObservableObject {
             episodeItems = preParsed.enumerated().map { idx, ep in
                 EpisodeItem(id: idx, name: ep.name, url: ep.url, engineKey: video.engineKey, sourceType: .normal)
             }
-            // 根据 vodName 自动定位到当前集
-            for (idx, item) in episodeItems.enumerated() {
-                if video.vodName.contains(item.name) {
-                    currentEpisodeIndex = idx
-                    log("[PlayerV2] 步骤0: 使用预解析集数(\(episodeItems.count)集)，定位到: \(item.name)")
-                    break
-                }
+            // 根据 vodName 自动定位到当前集（多级匹配策略）
+            currentEpisodeIndex = Self.matchEpisodeIndex(vodName: video.vodName, episodes: episodeItems)
+            if currentEpisodeIndex >= 0 {
+                log("[PlayerV2] 步骤0: 使用预解析集数(\(episodeItems.count)集)，定位到: \(episodeItems[currentEpisodeIndex].name)")
+            } else {
+                currentEpisodeIndex = 0
+                log("[PlayerV2] 步骤0: 使用预解析集数(\(episodeItems.count)集)，未匹配到当前集，默认第1集")
             }
             log("[PlayerV2] 步骤0: 预解析集数填充完成，共\(episodeItems.count)集")
         }
@@ -4808,17 +4808,63 @@ class PlayerState: ObservableObject {
         if items.count >= 1 {
             log("[PlayerV2] 解析到 \(items.count) 集普通资源: \(items.map { $0.name }.joined(separator: ", "))")
             episodeItems = items
-            // 根据 vodName 自动定位到当前集
+            // 根据 vodName 自动定位到当前集（智能匹配）
             if let target = targetEpisodeName {
-                for (idx, item) in items.enumerated() {
-                    if target.contains(item.name) {
-                        currentEpisodeIndex = idx
-                        log("[PlayerV2] 自动定位到集数: \(item.name) (index=\(idx))")
-                        break
-                    }
+                let matchedIdx = Self.matchEpisodeIndex(vodName: target, episodes: items)
+                if matchedIdx >= 0 {
+                    currentEpisodeIndex = matchedIdx
+                    log("[PlayerV2] 自动定位到集数: \(items[matchedIdx].name) (index=\(matchedIdx))")
                 }
             }
         }
+    }
+    
+    // MARK: - 集数智能匹配
+    
+    /// 根据 vodName 智能匹配当前集数的索引
+    /// 多级匹配策略：
+    /// 1. 精确匹配（集名与 vodName 末尾完全匹配）
+    /// 2. 包含匹配（vodName 包含集名）
+    /// 3. 数字提取匹配（从 vodName 和集名中提取数字进行匹配）
+    static func matchEpisodeIndex(vodName: String, episodes: [EpisodeItem]) -> Int {
+        guard !episodes.isEmpty else { return -1 }
+        
+        // 策略1: 精确后缀匹配（vodName 以 " 集名" 结尾）
+        for (idx, item) in episodes.enumerated() {
+            if vodName.hasSuffix(" \(item.name)") || vodName.hasSuffix("-\(item.name)") {
+                return idx
+            }
+        }
+        
+        // 策略2: 包含匹配（优先匹配较长的集名，避免 "1" 匹配到 "第10集"）
+        let sortedByLength = episodes.enumerated().sorted { $0.element.name.count > $1.element.name.count }
+        for (idx, item) in sortedByLength {
+            if vodName.contains(item.name), !item.name.isEmpty {
+                return idx
+            }
+        }
+        
+        // 策略3: 提取数字匹配
+        if let targetNum = extractNumber(from: vodName) {
+            for (idx, item) in episodes.enumerated() {
+                if let epNum = extractNumber(from: item.name), epNum == targetNum {
+                    return idx
+                }
+            }
+        }
+        
+        return -1
+    }
+    
+    /// 从字符串中提取第一个数字
+    private static func extractNumber(from text: String) -> Int? {
+        let pattern = #"\d+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range, in: text) else {
+            return nil
+        }
+        return Int(String(text[range]))
     }
     
     /// 通用切集方法（支持所有资源类型）

@@ -18,7 +18,6 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
                 // 封面图
                 FuliCoverImage(urlString: video.vodPic, referer: svc.imageReferer, sslBypass: svc.imageSSLBypass, contentMode: .fit)
                     .aspectRatio(16 / 9, contentMode: .fit)
-                    .background(Color.gray.opacity(0.2))
                     .cornerRadius(12)
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .center) {
@@ -28,9 +27,12 @@ struct ComicDetailBridgeView<Service: FuliPlatformService>: View {
                         EmptyView()
                     } else if let first = detail?.episodes.first, let images = first.images, !images.isEmpty {
                         Button(action: { showGallery = true }) {
-                            Image(systemName: "photo.stack.fill")
-                                .font(.system(size: 60)).foregroundColor(.white.opacity(0.9))
+                            Image(systemName: "photo.stack")
+                                .font(.system(size: 60))
+                                .foregroundColor(.white.opacity(0.95))
+                                .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 2)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
 

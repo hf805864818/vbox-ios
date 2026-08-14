@@ -74,22 +74,24 @@ struct MangaReaderView: View {
         HStack {
             Button(action: { dismiss() }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 32, height: 32)
             }
+            .buttonStyle(.plain)
 
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
 
             // 占位保持平衡
-            Color.clear.frame(width: 40, height: 40)
+            Color.clear.frame(width: 32, height: 32)
         }
         .padding(.horizontal, 8)
         .padding(.top, safeAreaTop)
+        .padding(.bottom, 8)
         .background(
             LinearGradient(
                 colors: [Color.black.opacity(0.85), Color.black.opacity(0)],
@@ -102,7 +104,7 @@ struct MangaReaderView: View {
     // MARK: - 底部栏
 
     private var bottomBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             // 进度条
             ProgressView(value: progress)
                 .progressViewStyle(LinearProgressViewStyle(tint: .accentColor))
@@ -118,19 +120,21 @@ struct MangaReaderView: View {
                 Button(action: { scrollToTop() }) {
                     Image(systemName: "arrow.up.to.line")
                         .foregroundColor(.white)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 32, height: 32)
                 }
+                .buttonStyle(.plain)
 
                 Button(action: { scrollToBottom() }) {
                     Image(systemName: "arrow.down.to.line")
                         .foregroundColor(.white)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 32, height: 32)
                 }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, safeAreaBottom)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(
             LinearGradient(
                 colors: [Color.black.opacity(0), Color.black.opacity(0.85)],
@@ -179,27 +183,58 @@ struct MangaImageView: View {
     var onAppear: () -> Void = {}
 
     @State private var scale: CGFloat = 1.0
+    @State private var showRetry = false
 
     var body: some View {
-        PlatformAsyncImage.sourceCover(
-            url,
-            referer: referer,
-            sslBypass: sslBypass,
-            contentMode: .fit
-        )
-        .frame(maxWidth: .infinity)
-        .scaleEffect(scale)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                scale = scale > 1 ? 1.0 : 2.0
+        ZStack {
+            if showRetry {
+                // 加载失败：显示重试按钮
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 36))
+                        .foregroundColor(.white.opacity(0.5))
+                    Text("图片加载失败")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.6))
+                    Button(action: { showRetry = false }) {
+                        Text("点击重试")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 6)
+                            .background(Color.white.opacity(0.2))
+                            .cornerRadius(14)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 200)
+                .background(Color.gray.opacity(0.2))
+            } else {
+                PlatformAsyncImage.sourceCover(
+                    url,
+                    referer: referer,
+                    sslBypass: sslBypass,
+                    contentMode: .fit
+                )
+                .frame(maxWidth: .infinity)
+                .scaleEffect(scale)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        scale = scale > 1 ? 1.0 : 2.0
+                    }
+                }
+                .contextMenu {
+                    Button(action: { saveImage() }) {
+                        Label("保存图片", systemImage: "square.and.arrow.down")
+                    }
+                }
             }
         }
+        .frame(maxWidth: .infinity)
         .onAppear { onAppear() }
-        .contextMenu {
-            Button(action: { saveImage() }) {
-                Label("保存图片", systemImage: "square.and.arrow.down")
-            }
+        .onChange(of: url) { _ in
+            showRetry = false
         }
     }
 
