@@ -196,7 +196,13 @@ $PY -m pip install --quiet setuptools wheel 2>&1 | tail -2 || {
 
 # 关键: 不使用 --embed（避免链接到 libpython 导致运行时 segfault）
 # iOS 扩展模块通过 Python.framework 的符号在运行时自动解析
+
+# 覆盖 Python distutils 的默认 SDK 路径
+# distutils 默认使用 MacOSX.sdk，但我们需要 iPhoneOS.sdk
+export SDKROOT="$SDK"
 export LDSHARED="$CC -dynamiclib"
+export LDFLAGS="$LDFLAGS_IOS -isysroot $SDK -L$WORK/opt/lib"
+export CFLAGS="$CFLAGS_IOS -I$WORK/opt/include/libxml2 -I$WORK/opt/include"
 
 echo "✅ Python 环境准备完成"
 echo ""
@@ -242,10 +248,8 @@ echo "   源码包大小: $(ls -lh "$LXML_TARBALL" | awk '{print $5}')"
 tar xzf "$LXML_TARBALL"
 cd "$LXML_SRC"
 
-# 设置 lxml 编译环境变量
-# 注意: xml2-config 在交叉编译时会返回 host 路径，需要手动覆盖
-export CFLAGS="$CFLAGS_IOS -I$WORK/opt/include/libxml2 -I$WORK/opt/include"
-export LDFLAGS="$LDFLAGS_IOS -L$WORK/opt/lib"
+# 环境变量已在 Step 3 中设置（CFLAGS/LDFLAGS/LDSHARED/SDKROOT）
+# 额外设置 LIBS 供 lxml 链接
 export LIBS="-lxml2 -lxslt -lexslt"
 
 # 关键: 覆盖 xml2-config 和 xslt-config 的输出（交叉编译 hack）
