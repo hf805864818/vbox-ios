@@ -96,6 +96,7 @@
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
 		A10003 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* AppSettings.swift */; };
 		A10004 /* SpiderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* SpiderModels.swift */; };
+		A1FMCA /* MediaURLChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FMCA /* MediaURLChecker.swift */; };
 		A10005 /* JSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* JSSpiderEngine.swift */; };
 		A10006 /* JSHTTPBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* JSHTTPBridge.swift */; };
 		A10007 /* SpiderRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* SpiderRepository.swift */; };
@@ -389,6 +390,7 @@
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		B10004 /* SpiderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderModels.swift; sourceTree = "<group>"; };
+		B1FMCA /* MediaURLChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaURLChecker.swift; sourceTree = "<group>"; };
 		B10005 /* JSSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSSpiderEngine.swift; sourceTree = "<group>"; };
 		B10006 /* JSHTTPBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSHTTPBridge.swift; sourceTree = "<group>"; };
 		B10007 /* SpiderRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderRepository.swift; sourceTree = "<group>"; };
@@ -733,6 +735,7 @@
 			isa = PBXGroup;
 			children = (
 				B10004 /* SpiderModels.swift */,
+				B1FMCA /* MediaURLChecker.swift */,
 				56395FB5B97A49719A76B89B /* FuliPlatformKit.swift */,
 				B11001 /* DBModels.swift */,
 				B12032 /* SangeModels.swift */,
@@ -1068,6 +1071,7 @@
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* AppSettings.swift in Sources */,
 				A10004 /* SpiderModels.swift in Sources */,
+				A1FMCA /* MediaURLChecker.swift in Sources */,
 				18B1B3504B90430DAE0FD79C /* FuliPlatformKit.swift in Sources */,
 				A10005 /* JSSpiderEngine.swift in Sources */,
 				A10006 /* JSHTTPBridge.swift in Sources */,
