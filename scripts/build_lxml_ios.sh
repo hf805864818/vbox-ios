@@ -185,6 +185,15 @@ done
 PY="${HOST_PY:-python3}"
 echo "   使用 host python: $PY ($($PY --version 2>&1))"
 
+# Python 3.12+ 移除了 distutils，3.14 不再自带 setuptools
+# lxml setup.py 需要这两个模块
+echo "   安装 setuptools（Python 3.14 不再自带）..."
+$PY -m pip install --quiet setuptools wheel 2>&1 | tail -2 || {
+  echo "   ⚠️ pip install setuptools 失败，尝试 ensurepip..."
+  $PY -m ensurepip --upgrade 2>&1 | tail -2
+  $PY -m pip install --quiet setuptools wheel 2>&1 | tail -2
+}
+
 # 关键: 不使用 --embed（避免链接到 libpython 导致运行时 segfault）
 # iOS 扩展模块通过 Python.framework 的符号在运行时自动解析
 export LDSHARED="$CC -dynamiclib"
