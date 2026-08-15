@@ -274,11 +274,13 @@ chmod +x "$WORK/bin/xml2-config" "$WORK/bin/xslt-config"
 export PATH="$WORK/bin:$PATH"
 
 # 用 release tarball 的预生成 C 代码编译（不需要 Cython）
-# --static-deps: 静态链接 libxml2/libxslt 到 lxml .so 中（自包含，不依赖外部 .dylib）
+# 不使用 --static-deps（那会让 lxml 自己下载编译 libxml2/libxslt/zlib/iconv，交叉编译会失败）
+# 改为直接指定预编译的库路径
 $PY setup.py build_ext --inplace \
+  --xml2-config="$WORK/bin/xml2-config" \
+  --xslt-config="$WORK/bin/xslt-config" \
   -I "$WORK/opt/include/libxml2:$WORK/opt/include" \
   -L "$WORK/opt/lib" \
-  --static-deps \
   || {
     echo "❌ lxml 编译失败！"
     echo "--- 可能的原因 ---"
