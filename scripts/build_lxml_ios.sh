@@ -52,17 +52,19 @@ cd "$WORK"
 # ============================================================
 echo "📦 [1/5] 下载并编译 libxml2..."
 
-LIBXML2_DIR="libxml2-v$LIBXML2_VERSION"
-LIBXML2_TARBALL="libxml2-v$LIBXML2_VERSION.tar.gz"
+LIBXML2_DIR="libxml2-$LIBXML2_VERSION"
+LIBXML2_TARBALL="libxml2-$LIBXML2_VERSION.tar.xz"
 
+# 使用 GNOME 官方 release tarball（包含预生成的 configure 脚本）
+# gitlab archive 不包含 configure，需要 autoreconf，太复杂
 if [ ! -f "$LIBXML2_TARBALL" ]; then
-  curl -sLO "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$LIBXML2_VERSION/$LIBXML2_TARBALL"
+  curl -sLO "https://download.gnome.org/sources/libxml2/$(echo $LIBXML2_VERSION | cut -d. -f1-2)/$LIBXML2_TARBALL"
 fi
-tar xzf "$LIBXML2_TARBALL"
+tar xf "$LIBXML2_TARBALL"
 cd "$LIBXML2_DIR"
 
-# Patch config.sub 以识别 iOS target triple
-# (libxml2 自带的 config.sub 可能不识别 aarch64-apple-darwin)
+# 官方 release tarball 自带 config.sub/config.guess，但可能不识别 aarch64-apple-darwin
+# 尝试用系统 automake 的 config.sub 替换
 CONFIG_SUB=""
 for cs in /usr/share/automake*/config.sub /usr/local/share/automake*/config.sub /opt/homebrew/share/automake*/config.sub; do
   if [ -f "$cs" ]; then
@@ -71,7 +73,8 @@ for cs in /usr/share/automake*/config.sub /usr/local/share/automake*/config.sub 
   fi
 done
 if [ -n "$CONFIG_SUB" ]; then
-  cp "$CONFIG_SUB" . 2>/dev/null || true
+  cp "$CONFIG_SUB" config.sub 2>/dev/null || true
+  cp "${CONFIG_SUB%config.sub}config.guess" config.guess 2>/dev/null || true
   echo "   使用 config.sub: $CONFIG_SUB"
 else
   echo "   ⚠️ 未找到 automake config.sub，使用自带版本"
@@ -113,18 +116,15 @@ echo ""
 # ============================================================
 echo "📦 [2/5] 下载并编译 libxslt..."
 
-LIBXSLT_DIR="libxslt-v$LIBXSLT_VERSION"
-LIBXSLT_TARBALL="libxslt-v$LIBXSLT_VERSION.tar.gz"
+LIBXSLT_DIR="libxslt-$LIBXSLT_VERSION"
+LIBXSLT_TARBALL="libxslt-$LIBXSLT_VERSION.tar.xz"
 
+# 使用 GNOME 官方 release tarball（包含预生成的 configure 脚本）
 if [ ! -f "$LIBXSLT_TARBALL" ]; then
-  curl -sLO "https://gitlab.gnome.org/GNOME/libxslt/-/archive/v$LIBXSLT_VERSION/$LIBXSLT_TARBALL"
+  curl -sLO "https://download.gnome.org/sources/libxslt/$(echo $LIBXSLT_VERSION | cut -d. -f1-2)/$LIBXSLT_TARBALL"
 fi
-tar xzf "$LIBXSLT_TARBALL"
+tar xf "$LIBXSLT_TARBALL"
 cd "$LIBXSLT_DIR"
-
-if [ -f /usr/share/automake*/config.sub ]; then
-  cp /usr/share/automake*/config.sub . 2>/dev/null || true
-fi
 
 # 使用与 libxml2 相同的 config.sub 搜索逻辑
 CONFIG_SUB=""
@@ -135,7 +135,8 @@ for cs in /usr/share/automake*/config.sub /usr/local/share/automake*/config.sub 
   fi
 done
 if [ -n "$CONFIG_SUB" ]; then
-  cp "$CONFIG_SUB" . 2>/dev/null || true
+  cp "$CONFIG_SUB" config.sub 2>/dev/null || true
+  cp "${CONFIG_SUB%config.sub}config.guess" config.guess 2>/dev/null || true
 fi
 
 ./configure \
