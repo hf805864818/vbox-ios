@@ -4475,10 +4475,12 @@ class PlayerState: ObservableObject {
             let videoExts = ["m3u8", "mp4", "flv", "m4v", "ts", "webm", "mkv", "avi", "mov"]
             if videoExts.contains(ext) { return true }
             if cleanPath.contains("/hls/") || cleanPath.contains("/video/") { return true }
-            // 兜底：只有福利平台（vodRemarks 含 [福利]）且是 http(s) 直链但无标准后缀时，才尝试直接播放
+            // 兜底：福利平台（vodRemarks 含 [福利]）且是 http(s) URL 时，
+            // 只有看起来像媒体直链（m3u8/mp4/hls 等）才直接播放，
+            // 否则落入解析器链路，避免把网页 URL 当直链播放导致 AVFoundation -11850
             if (video.vodRemarks?.contains("[福利]") == true) &&
                (urlString.hasPrefix("http://") || urlString.hasPrefix("https://")) {
-                return true
+                return isLikelyDirectMediaUrl(urlString)
             }
             return false
         }()

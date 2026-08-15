@@ -247,9 +247,25 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
         Task {
             await svc.ensureHostReady()
             let result = await svc.fetchPlayerURL(episode: episode)
+            
+            // 当 parse=1 时，URL 是网页地址而非直链，需要走解析器链路提取直链。
+            // 先在 Bridge 层尝试 SpiderManager.parsePlayUrl（含 extractDirectPlayURL + WKWebView 回退），
+            // 成功则用解析后的直链播放；失败则仍把原始 URL 传给播放器，播放器内部会再走一遍解析器。
+            var finalUrl = result.url
+            var finalHeaders = result.headers
+            if result.parse == 1 && !result.url.isEmpty {
+                if let parsedUrl = await SpiderManager.shared.parsePlayUrl(from: result.url) {
+                    print("[FuliBridge] ✅ parse=1 解析成功: \(parsedUrl.prefix(80))")
+                    finalUrl = parsedUrl
+                    finalHeaders = result.headers  // 保留原始 headers（Referer 等）
+                } else {
+                    print("[FuliBridge] ⚠️ parse=1 解析失败，传原始 URL 给播放器重试: \(result.url.prefix(60))")
+                }
+            }
+            
             await MainActor.run {
                 isResolvingURL = false
-                if result.url.isEmpty {
+                if finalUrl.isEmpty {
                     resolveError = "无法获取有效的播放地址"
                 } else {
                     playerVideo = VodItem(
@@ -257,8 +273,8 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                         vodName: "\(video.vodName) \(episode.name)",
                         vodPic: video.vodPic,
                         vodRemarks: "[福利]\(svc.platformName)",
-                        vodPlayUrl: result.url,
-                        customHeaders: result.headers,
+                        vodPlayUrl: finalUrl,
+                        customHeaders: finalHeaders,
                         engineKey: "__fuli_welfare__"
                     )
                     showPlayer = true
