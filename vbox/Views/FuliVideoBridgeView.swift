@@ -116,9 +116,17 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showPlayer) {
                 if let playerVideo = playerVideo {
+                    // 自动适配播放路链：
+                    // - 剧集URL本身是媒体直链（m3u8/mp4等）→ 传给播放器，显示集数列表
+                    // - 剧集URL是网页地址（如 /vodplay/xxx）→ 不传，播放器直接用 vodPlayUrl（playerContent已解析的直链）
+                    // 这样不同平台自动走对应路链，互不影响，新增脚本无需改播放器
+                    let shouldPassEpisodes: Bool = {
+                        guard let eps = detail?.episodes, let firstUrl = eps.first?.url else { return false }
+                        return MediaURLChecker.isLikelyDirectMediaUrl(firstUrl)
+                    }()
                     VideoPlayerViewV2(
                         video: playerVideo,
-                        preParsedEpisodes: detail?.episodes.map { ($0.name, $0.url) }
+                        preParsedEpisodes: shouldPassEpisodes ? detail?.episodes.map { ($0.name, $0.url) } : nil
                     )
                 }
             }
