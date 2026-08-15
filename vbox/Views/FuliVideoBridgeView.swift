@@ -1,5 +1,14 @@
 import SwiftUI
 
+// MARK: - 线路分组（UI 层概念）
+// 从扁平 episodes 数组中检测 [线路名] 前缀，自动分组为线路 + 集数两层。
+// WelfareResultMapper 在多线路时会给集名加 [线路名] 前缀，这里负责拆分还原。
+struct FuliLine: Identifiable {
+    var id: String { name }
+    let name: String
+    let episodes: [FuliEpisode]
+}
+
 // MARK: - 福利平台播放中转页
 // 点击视频卡片后直接进入此页，解析播放地址后调用项目现有播放器 VideoPlayerViewV2
 // 不经过 VideoDetailView，不影响网盘/切片/短剧等既有播放链路
@@ -13,13 +22,29 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     @State private var showPlayer = false
     @State private var playerVideo: VodItem?
     @State private var selectedEpisode: FuliEpisode?
-    @State private var showEpisodePanel = false
+
+    // 线路 / 选集
+    @State private var lines: [FuliLine] = []
+    @State private var selectedLineIndex: Int = 0
+    @State private var showLinePanel = false       // 线路选择面板
+    @State private var showSelectPanel = false      // 选集面板
 
     // 播放地址解析相关
     @State private var isResolvingURL = false
     @State private var resolveError: String? = nil
     @State private var pendingEpisode: FuliEpisode? = nil
 
+    // MARK: - 当前线路/集数（计算属性）
+    private var currentLine: FuliLine? {
+        guard selectedLineIndex < lines.count else { return nil }
+        return lines[selectedLineIndex]
+    }
+
+    private var currentEpisodes: [FuliEpisode] {
+        currentLine?.episodes ?? []
+    }
+
+    // MARK: - Body
     var body: some View {
         ZStack {
             VStack(spacing: 16) {
@@ -63,10 +88,32 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
 
                     if !detail.episodes.isEmpty {
                         HStack(spacing: 12) {
+                            // 左：选集按钮（当前线路有多集时才显示）
+                            if currentEpisodes.count > 1 {
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showSelectPanel.toggle()
+                                        showLinePanel = false
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: "list.bullet")
+                                        Text("选集(\(currentEpisodes.count))")
+                                    }
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(showSelectPanel ? Color(hex: "2196F3") : .accentColor)
+                                    .padding(.horizontal, 20).padding(.vertical, 10)
+                                    .background(showSelectPanel ? Color(hex: "2196F3").opacity(0.15) : Color.accentColor.opacity(0.1))
+                                    .cornerRadius(22)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            // 中：播放按钮
                             Button(action: { playFirst() }) {
                                 HStack {
                                     Image(systemName: "play.fill")
-                                    Text(detail.episodes.count == 1 ? "立即播放" : "播放\(selectedEpisode?.name ?? detail.episodes.first!.name)")
+                                    Text(currentEpisodes.count == 1 ? "立即播放" : "播放\(selectedEpisode?.name ?? currentEpisodes.first!.name)")
                                 }
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(.white)
@@ -75,20 +122,22 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                             }
                             .buttonStyle(.plain)
 
-                            if detail.episodes.count > 1 {
+                            // 右：线路按钮（多线路时才显示）
+                            if lines.count > 1 {
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.2)) {
-                                        showEpisodePanel.toggle()
+                                        showLinePanel.toggle()
+                                        showSelectPanel = false
                                     }
                                 }) {
                                     HStack {
                                         Image(systemName: "line.3.horizontal.decrease")
-                                        Text("线路(\(detail.episodes.count))")
+                                        Text("线路(\(lines.count))")
                                     }
                                     .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(showEpisodePanel ? Color(hex: "2196F3") : .accentColor)
+                                    .foregroundColor(showLinePanel ? Color(hex: "2196F3") : .accentColor)
                                     .padding(.horizontal, 20).padding(.vertical, 10)
-                                    .background(showEpisodePanel ? Color(hex: "2196F3").opacity(0.15) : Color.accentColor.opacity(0.1))
+                                    .background(showLinePanel ? Color(hex: "2196F3").opacity(0.15) : Color.accentColor.opacity(0.1))
                                     .cornerRadius(22)
                                 }
                                 .buttonStyle(.plain)
@@ -116,40 +165,78 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showPlayer) {
                 if let playerVideo = playerVideo {
-                    // 自动适配播放路链：
-                    // - 剧集URL本身是媒体直链（m3u8/mp4等）→ 传给播放器，显示集数列表
-                    // - 剧集URL是网页地址（如 /vodplay/xxx）→ 不传，播放器直接用 vodPlayUrl（playerContent已解析的直链）
-                    // 这样不同平台自动走对应路链，互不影响，新增脚本无需改播放器
-                    let shouldPassEpisodes: Bool = {
-                        guard let eps = detail?.episodes, let firstUrl = eps.first?.url else { return false }
-                        return MediaURLChecker.isLikelyDirectMediaUrl(firstUrl)
+                    // 传递当前线路的集数列表：
+                    // - 当前集 URL 替换为 playerContent 已解析的直链（m3u8 等）
+                    // - 其他集保持原始 URL（播放器内切集时由播放器处理）
+                    // - 单集时不传（播放器直接用 vodPlayUrl）
+                    let episodesToPass: [(name: String, url: String)]? = {
+                        guard currentEpisodes.count > 1 else { return nil }
+                        return currentEpisodes.map { ep in
+                            if ep.id == selectedEpisode?.id,
+                               let resolved = playerVideo.vodPlayUrl, !resolved.isEmpty {
+                                return (ep.name, resolved)
+                            }
+                            return (ep.name, ep.url)
+                        }
                     }()
+
                     VideoPlayerViewV2(
                         video: playerVideo,
-                        preParsedEpisodes: shouldPassEpisodes ? detail?.episodes.map { ($0.name, $0.url) } : nil
+                        preParsedEpisodes: episodesToPass
                     )
                 }
             }
 
-            // 线路悬浮弹窗（类似播放器倍速面板）
-            if showEpisodePanel, let detail = detail, detail.episodes.count > 1 {
-                // 半透明背景，点击关闭
+            // 线路选择悬浮面板
+            if showLinePanel, lines.count > 1 {
                 Color.black.opacity(0.3)
                     .ignoresSafeArea()
                     .onTapGesture {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            showEpisodePanel = false
+                            showLinePanel = false
                         }
                     }
 
-                // 悬浮面板
                 FuliEpisodeFloatingPanel(
-                    episodes: detail.episodes,
-                    selectedEpisode: selectedEpisode ?? detail.episodes.first,
+                    title: "选择线路",
+                    episodes: lines.map { FuliEpisode(name: $0.name, url: $0.name) },
+                    selectedEpisode: FuliEpisode(name: currentLine?.name ?? "", url: currentLine?.name ?? ""),
+                    onSelect: { ep in
+                        if let idx = lines.firstIndex(where: { $0.name == ep.name }) {
+                            selectedLineIndex = idx
+                            selectedEpisode = lines[idx].episodes.first
+                        }
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showLinePanel = false
+                        }
+                    }
+                )
+                .frame(maxWidth: 220)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                    removal: .opacity.combined(with: .scale(scale: 0.9))
+                ))
+                .zIndex(50)
+            }
+
+            // 选集悬浮面板
+            if showSelectPanel, currentEpisodes.count > 1 {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showSelectPanel = false
+                        }
+                    }
+
+                FuliEpisodeFloatingPanel(
+                    title: "选集",
+                    episodes: currentEpisodes,
+                    selectedEpisode: selectedEpisode ?? currentEpisodes.first,
                     onSelect: { ep in
                         selectedEpisode = ep
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            showEpisodePanel = false
+                            showSelectPanel = false
                         }
                         playEpisode(ep)
                     }
@@ -222,6 +309,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
         }
     }
 
+    // MARK: - 数据加载
     private func loadDetail() {
         isLoading = true; errorMsg = nil; detail = nil
         Task {
@@ -231,13 +319,19 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                 detail = result; isLoading = false
                 if result.episodes.isEmpty {
                     errorMsg = "未解析到播放地址"
+                } else {
+                    // 检测线路分组
+                    lines = detectLines(from: result.episodes)
+                    selectedLineIndex = 0
+                    selectedEpisode = lines.first?.episodes.first
                 }
             }
         }
     }
 
+    // MARK: - 播放控制
     private func playFirst() {
-        guard let first = detail?.episodes.first else { return }
+        guard let first = currentEpisodes.first else { return }
         selectedEpisode = first
         playEpisode(first)
     }
@@ -255,7 +349,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
         Task {
             await svc.ensureHostReady()
             let result = await svc.fetchPlayerURL(episode: episode)
-            
+
             // 当 parse=1 时，URL 是网页地址而非直链，需要走解析器链路提取直链。
             // 先在 Bridge 层尝试 SpiderManager.parsePlayUrl（含 extractDirectPlayURL + WKWebView 回退），
             // 成功则用解析后的直链播放；失败则仍把原始 URL 传给播放器，播放器内部会再走一遍解析器。
@@ -270,7 +364,7 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                     print("[FuliBridge] ⚠️ parse=1 解析失败，传原始 URL 给播放器重试: \(result.url.prefix(60))")
                 }
             }
-            
+
             await MainActor.run {
                 isResolvingURL = false
                 if finalUrl.isEmpty {
@@ -302,22 +396,72 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
         pendingEpisode = nil
         isResolvingURL = false
     }
+
+    // MARK: - 线路分组检测
+    /// 从扁平 episodes 数组中检测并分组线路。
+    /// WelfareResultMapper 在多线路时会给集名加 [线路名] 前缀，如 "[线路1] 第1集"。
+    /// 无前缀的视为单线路（"在线播放"）。
+    private func detectLines(from episodes: [FuliEpisode]) -> [FuliLine] {
+        var lineOrder: [String] = []
+        var lineMap: [String: [FuliEpisode]] = [:]
+
+        for ep in episodes {
+            if ep.name.hasPrefix("["),
+               let closeIdx = ep.name.firstIndex(of: "]") {
+                // 有 [线路名] 前缀 → 提取线路名和纯集名
+                let afterBracket = ep.name.index(after: ep.name.startIndex)
+                let lineName = String(ep.name[afterBracket..<closeIdx])
+                let epName = String(ep.name[ep.name.index(after: closeIdx)...])
+                    .trimmingCharacters(in: .whitespaces)
+
+                if !lineOrder.contains(lineName) {
+                    lineOrder.append(lineName)
+                    lineMap[lineName] = []
+                }
+                lineMap[lineName]?.append(FuliEpisode(name: epName, url: ep.url))
+            } else {
+                // 无前缀 → 单线路
+                let defaultLine = "在线播放"
+                if !lineOrder.contains(defaultLine) {
+                    lineOrder.append(defaultLine)
+                    lineMap[defaultLine] = []
+                }
+                lineMap[defaultLine]?.append(ep)
+            }
+        }
+
+        return lineOrder.map { name in
+            FuliLine(name: name, episodes: lineMap[name] ?? [])
+        }
+    }
 }
 
-// MARK: - 线路悬浮面板
+// MARK: - 线路/选集悬浮面板
 //
-// 仿照播放器倍速面板（PlayerSettingsPanelV2）设计的悬浮线路选择器。
+// 仿照播放器倍速面板（PlayerSettingsPanelV2）设计的悬浮选择器。
 // 显示为半透明背景上的垂直列表面板，点击外部区域自动关闭。
+// 通用于"线路选择"和"选集"两种场景，通过 title 参数区分标题。
 struct FuliEpisodeFloatingPanel: View {
+    let title: String
     let episodes: [FuliEpisode]
     let selectedEpisode: FuliEpisode?
     let onSelect: (FuliEpisode) -> Void
+
+    init(title: String = "选择线路",
+         episodes: [FuliEpisode],
+         selectedEpisode: FuliEpisode?,
+         onSelect: @escaping (FuliEpisode) -> Void) {
+        self.title = title
+        self.episodes = episodes
+        self.selectedEpisode = selectedEpisode
+        self.onSelect = onSelect
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 标题
             HStack {
-                Text("选择线路")
+                Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white.opacity(0.5))
                 Spacer()
@@ -326,7 +470,7 @@ struct FuliEpisodeFloatingPanel: View {
             .padding(.top, 10)
             .padding(.bottom, 6)
 
-            // 线路列表
+            // 列表
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(episodes) { ep in
