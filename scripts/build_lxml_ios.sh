@@ -81,6 +81,7 @@ else
 fi
 
 # 禁用不需要的功能，减小体积和编译复杂度
+# 注意: 不能用 --without-schemas，lxml 的 RelaxNG 代码依赖 schema 头文件
 ./configure \
   --host=aarch64-apple-darwin \
   --prefix="$WORK/opt" \
@@ -91,7 +92,6 @@ fi
   --without-http \
   --without-ftp \
   --without-legacy \
-  --without-schemas \
   CC="$CC" \
   CFLAGS="$CFLAGS_IOS" \
   LDFLAGS="$LDFLAGS_IOS" \
