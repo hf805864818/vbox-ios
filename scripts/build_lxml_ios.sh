@@ -307,11 +307,32 @@ echo "✅ lxml 编译完成"
 echo ""
 
 # ============================================================
+# Step 4.5: 重命名 .so 文件 (cpython-314-darwin → cpython-314-iphoneos)
+# ============================================================
+# 交叉编译时 host Python 标记 .so 为 darwin，但 iOS Python 需要 iphoneos 标记
+# 不重命名的话 import lxml.etree 会找不到模块
+echo "🏷️  [4.5/5] 重命名 .so 平台标记 (darwin → iphoneos)..."
+RENAMED=0
+find . -name "*.cpython-314-*.so" -type f | while read -r sofile; do
+  dir=$(dirname "$sofile")
+  base=$(basename "$sofile")
+  # 将 cpython-314-darwin 或 cpython-314-x86_64-apple-darwin 等替换为 cpython-314-iphoneos
+  newname=$(echo "$base" | sed 's/cpython-314-[a-z0-9_]*\.so/cpython-314-iphoneos.so/')
+  if [ "$base" != "$newname" ]; then
+    mv "$sofile" "$dir/$newname"
+    echo "   $base → $newname"
+    RENAMED=$((RENAMED + 1))
+  fi
+done
+echo "   重命名完成"
+echo ""
+
+# ============================================================
 # Step 5: 验证产物 + 打包
 # ============================================================
 echo "🔍 [5/5] 验证编译产物..."
 
-# 查找编译出的 .so 文件
+# 查找编译出的 .so 文件（重命名后应为 cpython-314-iphoneos.so）
 SO_FILE=$(find . -name "etree.*.so" -o -name "etree.cpython-*.so" | head -1)
 if [ -z "$SO_FILE" ]; then
   echo "❌ 未找到编译产物 etree.so"
@@ -371,18 +392,33 @@ for lib in libxml2.a libxslt.a libexslt.a; do
   fi
 done
 
-# 打包产物到 output 目录
+# 打包产物到 output 目录（保留完整目录结构）
 echo ""
 echo "📦 打包编译产物..."
+rm -rf "$OUTPUT_DIR/lxml"
 mkdir -p "$OUTPUT_DIR/lxml"
 
-# 复制 .so 文件
-cp "$SO_FILE" "$OUTPUT_DIR/lxml/" 2>/dev/null || true
-find . -name "*.cpython-*.so" -exec cp {} "$OUTPUT_DIR/lxml/" \; 2>/dev/null || true
+# 复制整个 lxml 包目录（含 .so + .py + 子目录 html/sax 等）
+# build_ext --inplace 将 .so 放在 src/lxml/ 下
+if [ -d "src/lxml" ]; then
+  cp -r src/lxml/* "$OUTPUT_DIR/lxml/"
+elif [ -d "lxml" ]; then
+  cp -r lxml/* "$OUTPUT_DIR/lxml/"
+fi
 
-# 复制纯 Python 文件
-cp -r src/lxml/*.py "$OUTPUT_DIR/lxml/" 2>/dev/null || cp -r lxml/*.py "$OUTPUT_DIR/lxml/" 2>/dev/null || true
-cp src/lxml/__init__.py "$OUTPUT_DIR/lxml/" 2>/dev/null || cp lxml/__init__.py "$OUTPUT_DIR/lxml/" 2>/dev/null || true
+# 确保有 __init__.py
+if [ ! -f "$OUTPUT_DIR/lxml/__init__.py" ]; then
+  find . -name "__init__.py" -path "*/lxml/*" -exec cp {} "$OUTPUT_DIR/lxml/__init__.py" \; 2>/dev/null || true
+fi
+
+# 清理不需要的构建产物
+find "$OUTPUT_DIR/lxml" -name "*.o" -delete 2>/dev/null || true
+find "$OUTPUT_DIR/lxml" -name "*.c" -delete 2>/dev/null || true
+find "$OUTPUT_DIR/lxml" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$OUTPUT_DIR/lxml" -name "*.pyc" -delete 2>/dev/null || true
+
+echo "   lxml 包文件列表:"
+find "$OUTPUT_DIR/lxml" -type f | sed 's|^|   |'
 
 # 复制静态库（备用）
 mkdir -p "$OUTPUT_DIR/lib"
