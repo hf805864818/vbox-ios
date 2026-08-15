@@ -201,23 +201,35 @@ LXML_SRC="lxml-$LXML_VERSION"
 LXML_TARBALL="lxml-$LXML_VERSION.tar.gz"
 
 if [ ! -f "$LXML_TARBALL" ]; then
-  # 用 pip download 下载 release tarball（含预生成 C 代码，不需要 Cython）
-  # 这比直接 curl PyPI URL 更可靠（URL 含 hash，pip 自动处理）
-  echo "   使用 pip 下载 lxml 源码包..."
-  $PY -m pip download "lxml==$LXML_VERSION" --no-binary :all: --no-deps -d "$WORK/" 2>&1 | tail -3
-fi
+  # 通过 PyPI JSON API 获取源码包下载 URL（避免 pip download 触发构建依赖）
+  echo "   通过 PyPI API 获取 lxml 源码包 URL..."
+  PYPI_JSON=$($PY -c "
+import urllib.request, json
+url = 'https://pypi.org/pypi/lxml/$LXML_VERSION/json'
+with urllib.request.urlopen(url) as r:
+    data = json.load(r)
+for ext in data['urls']:
+    if ext['packagetype'] == 'sdist':
+        print(ext['url'])
+        break
+" 2>/dev/null)
 
-# pip download 可能下载为 .tar.gz，确认文件存在
-if [ ! -f "$LXML_TARBALL" ]; then
-  # 尝试查找下载的文件
-  FOUND_TGZ=$(find "$WORK" -name "lxml-$LXML_VERSION*.tar.gz" -type f | head -1)
-  if [ -n "$FOUND_TGZ" ]; then
-    LXML_TARBALL="$FOUND_TGZ"
+  if [ -n "$PYPI_JSON" ]; then
+    echo "   下载: $PYPI_JSON"
+    curl -sL "$PYPI_JSON" -o "$LXML_TARBALL"
   else
-    echo "❌ lxml 源码包下载失败"
-    exit 1
+    # 后备: 直接用固定 URL 模式
+    echo "   后备: 使用固定 URL..."
+    curl -sL "https://files.pythonhosted.org/packages/source/l/lxml/$LXML_TARBALL" -o "$LXML_TARBALL"
   fi
 fi
+
+# 确认文件存在且非空
+if [ ! -s "$LXML_TARBALL" ]; then
+  echo "❌ lxml 源码包下载失败"
+  exit 1
+fi
+echo "   源码包大小: $(ls -lh "$LXML_TARBALL" | awk '{print $5}')"
 tar xzf "$LXML_TARBALL"
 cd "$LXML_SRC"
 
