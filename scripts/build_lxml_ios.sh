@@ -200,8 +200,10 @@ $PY -m pip install --quiet setuptools wheel 2>&1 | tail -2 || {
 # 覆盖 Python distutils 的默认 SDK 路径
 # distutils 默认使用 MacOSX.sdk，但我们需要 iPhoneOS.sdk
 export SDKROOT="$SDK"
-export LDSHARED="$CC -dynamiclib"
-export LDFLAGS="$LDFLAGS_IOS -isysroot $SDK -L$WORK/opt/lib"
+# -undefined dynamic_lookup: Python C API 符号在运行时由 Python.framework 提供
+# 不需要链接 libpython（避免 segfault）
+export LDSHARED="$CC -dynamiclib -undefined dynamic_lookup"
+export LDFLAGS="$LDFLAGS_IOS -isysroot $SDK -L$WORK/opt/lib -undefined dynamic_lookup"
 export CFLAGS="$CFLAGS_IOS -I$WORK/opt/include/libxml2 -I$WORK/opt/include"
 
 echo "✅ Python 环境准备完成"
