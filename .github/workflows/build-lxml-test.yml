@@ -20,7 +20,7 @@ name: lxml 编译测试 (实验性)
 on:
   workflow_dispatch:       # 手动触发
   push:
-    branches: [ main ]
+    branches: [ main, feature/lxml-test ]
     paths:
       - 'scripts/build_lxml_ios.sh'    # 仅在编译脚本变更时触发
       - '.github/workflows/build-lxml-test.yml'
