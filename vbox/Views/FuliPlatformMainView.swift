@@ -49,6 +49,12 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
     @State private var isLoading = true
     @State private var loadError: String?
     @State private var hasLoadedHome = false  // 标记首页分类是否已加载，避免返回时重复刷新
+    @State private var showCategoryNav = false // 分类导航弹窗开关
+
+    /// 是否使用底部 sheet 展示分类（分类 > 30 个时用 sheet + 搜索）
+    private var useSheetForNav: Bool {
+        categories.count > 30
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -108,12 +114,66 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // —— 新增：导航栏右上角分类导航按钮 ——
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showCategoryNav = true
+                } label: {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 16, weight: .medium))
+                }
+                .disabled(categories.isEmpty)
+                // 分类 ≤ 30 个：popover 下拉式
+                .popover(isPresented: Binding(
+                    get: { showCategoryNav && !useSheetForNav },
+                    set: { if $0 == false { showCategoryNav = false } }
+                )) {
+                    categoryNavigator
+                }
+                // 分类 > 30 个：底部 sheet + 搜索框
+                .sheet(isPresented: Binding(
+                    get: { showCategoryNav && useSheetForNav },
+                    set: { if $0 == false { showCategoryNav = false } }
+                )) {
+                    categoryNavigator
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
+                }
+            }
+        }
         .onAppear {
             if !hasLoadedHome {
                 loadHome()
                 hasLoadedHome = true
             }
         }
+    }
+
+    // MARK: - 分类导航弹窗内容
+    private var categoryNavigator: some View {
+        FuliCategoryNavigatorView(
+            categories: categories,
+            selectedIndex: $selectedTab,
+            onSelect: { idx in
+                withAnimation { selectedTab = idx }
+            },
+            onSelectSub: { parentIdx, sub in
+                // 选中二级分类：切换到对应 Tab + 设置子分类
+                let cat = categories[parentIdx]
+                let cacheKey = cat.typeId
+                tabStateCache.update(cacheKey) { $0.selectedSubId = sub.typeId }
+                // 触发刷新
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("FuliCategoryNavSubSelected"),
+                    object: nil,
+                    userInfo: ["cacheKey": cacheKey]
+                )
+            },
+            onDismiss: {
+                showCategoryNav = false
+            }
+        )
     }
 
     private func tabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -236,6 +296,13 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 refresh(force: false)
                 stateCache.update(cacheKey) { $0.hasLoaded = true }
             }
+        }
+        // —— 新增：监听从导航弹窗选中二级分类的通知 ——
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FuliCategoryNavSubSelected"))) { notif in
+            guard let key = notif.userInfo?["cacheKey"] as? String,
+                  key == cacheKey else { return }
+            // 子分类已在 onSelectSub 中设置，这里触发强制刷新
+            refresh(force: true)
         }
     }
 
