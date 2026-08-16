@@ -67,6 +67,7 @@ struct MangaReaderView: View {
         }
         .statusBar(hidden: !showBars)
         .navigationBarHidden(true)
+        .toolbar(.hidden, for: .tabBar)
     }
 
     // MARK: - 顶部栏
