@@ -17,9 +17,18 @@
 //        WelfareHomeView()  // 旧版
 //    }
 //
+//  修复记录：
+//  - 修复1：编辑模式下图标区域滑动不灵敏 —— LongPressGesture 增加 maximumDistance: 15，
+//    手指移动超过 15pt 则长按失败，ScrollView 滚动手势能正常接管
+//  - 修复2：拖动卡片到边缘不自动滚动 —— 新增 AutoScrollTarget + ScrollViewDetector +
+//    onEdgeProximity 回调，基于 CADisplayLink 实现平滑边缘自动滚动
+//  - 修复3：震动功能无效 —— 将 UIImpactFeedbackGenerator 改为属性持有（避免临时实例被释放），
+//    onAppear 时预先 prepare()，增加位置切换震动和结束震动
+//
 
 import SwiftUI
 import UIKit
+import Combine
 
 struct RemoteWelfareHomeView: View {
     @EnvironmentObject private var settings: AppSettings
@@ -29,6 +38,13 @@ struct RemoteWelfareHomeView: View {
     /// 排序后的平台列表（按 category 分别缓存）
     @State private var orderedPlatforms: [RemoteWelfareCategory: [WelfarePlatform]] = [:]
     @State private var navigatePlatformKey: String?
+
+    // ===== 拖动排序边缘自动滚动 =====
+    @State private var autoScrollDirection: CGFloat = 0 // -1 上 / 0 停 / 1 下
+    @State private var autoScrollTimer: CADisplayLink?
+    @State private var autoScrollTarget: AutoScrollTarget?
+    @State private var scrollViewRef: UIScrollView?
+    private let edgeThreshold: CGFloat = 100 // 距边缘多少 pt 触发自动滚动
 
     var body: some View {
         NavigationView {
@@ -136,7 +152,7 @@ struct RemoteWelfareHomeView: View {
 
     private var editModeBar: some View {
         HStack {
-            Text("长按拖动卡片进行排序").font(.system(size: 12)).foregroundColor(.secondary)
+            Text("长按卡片拖动排序，拖到边缘自动滚动").font(.system(size: 12)).foregroundColor(.secondary)
             Spacer()
             Button("完成") {
                 withAnimation { isEditMode = false; saveOrder() }
@@ -152,55 +168,131 @@ struct RemoteWelfareHomeView: View {
 
     private func platformGrid(for tab: RemoteWelfareCategory) -> some View {
         let platforms = currentOrderedPlatforms(for: tab)
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 4)
 
-        return ScrollView(showsIndicators: false) {
-            if platforms.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer().frame(height: 60)
-                    Image(systemName: "square.grid.3x3")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text("此分类下暂无平台")
-                        .font(.system(size: 15))
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(Array(platforms.enumerated()), id: \.element.platformKey) { index, platform in
-                        if isEditMode {
-                            RemotePlatformSortableCard(
-                                platform: platform,
-                                index: index,
-                                totalCount: platforms.count,
-                                gradient: platformGradient(platform.name),
-                                onMove: { fromIdx, toIdx in
-                                    movePlatform(from: fromIdx, to: toIdx, tab: tab)
-                                },
-                                onEnterEditMode: {
-                                    withAnimation { isEditMode = true }
-                                }
-                            )
-                        } else {
-                            RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    navigatePlatformKey = platform.platformKey
-                                }
-                                .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 12) {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    navigatePlatformKey = nil
-                                    withAnimation { isEditMode = true }
-                                }
+        return ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                if platforms.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer().frame(height: 60)
+                        Image(systemName: "square.grid.3x3")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text("此分类下暂无平台")
+                            .font(.system(size: 15))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
+                        spacing: 16
+                    ) {
+                        ForEach(Array(platforms.enumerated()), id: \.element.platformKey) { index, platform in
+                            if isEditMode {
+                                RemotePlatformSortableCard(
+                                    platform: platform,
+                                    index: index,
+                                    totalCount: platforms.count,
+                                    gradient: platformGradient(platform.name),
+                                    onMove: { fromIdx, toIdx in
+                                        movePlatform(from: fromIdx, to: toIdx, tab: tab)
+                                    },
+                                    onEdgeProximity: { direction in
+                                        handleEdgeProximity(
+                                            direction: direction,
+                                            proxy: proxy
+                                        )
+                                    }
+                                )
+                                .id(platform.platformKey)
+                            } else {
+                                RemotePlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        navigatePlatformKey = platform.platformKey
+                                    }
+                                    .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 12) {
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        navigatePlatformKey = nil
+                                        withAnimation { isEditMode = true }
+                                    }
+                            }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 100)
+                    .background(
+                        ScrollViewDetector { scrollView in
+                            scrollViewRef = scrollView
+                        }
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 100)
+            }
+            .onChange(of: isEditMode) { editing in
+                if !editing {
+                    stopAutoScroll()
+                }
             }
         }
+    }
+
+    // MARK: - 边缘自动滚动逻辑
+
+    private func handleEdgeProximity(
+        direction: CGFloat,
+        proxy: ScrollViewProxy
+    ) {
+        guard direction != 0 else {
+            stopAutoScroll()
+            return
+        }
+
+        // direction 同时表示方向和速度（-1.0 ~ 1.0，绝对值越大越快）
+        // 方向改变或速度变化较大时，更新自动滚动
+        let currentSpeed = abs(autoScrollDirection)
+        let newSpeed = abs(direction)
+        let directionChanged = (autoScrollDirection > 0) != (direction > 0)
+        let speedChanged = abs(currentSpeed - newSpeed) > 0.2
+
+        if directionChanged || autoScrollDirection == 0 {
+            autoScrollDirection = direction
+            startAutoScroll(direction: direction)
+        } else if speedChanged {
+            autoScrollDirection = direction
+            updateAutoScrollSpeed(direction: direction)
+        }
+    }
+
+    private func startAutoScroll(direction: CGFloat) {
+        stopAutoScroll()
+
+        // 基础速度 3pt/帧，乘以速度因子（0.3~1.0）
+        let baseSpeed: CGFloat = 3.0
+        let speedFactor = max(0.3, abs(direction))
+        let actualSpeed = baseSpeed * speedFactor
+        let actualDirection: CGFloat = direction > 0 ? 1 : -1
+
+        autoScrollTarget = AutoScrollTarget(
+            direction: actualDirection,
+            speed: actualSpeed,
+            scrollViewRef: scrollViewRef
+        )
+        autoScrollTimer = CADisplayLink(target: autoScrollTarget!, selector: #selector(AutoScrollTarget.tick(_:)))
+        autoScrollTimer?.add(to: .main, forMode: .common)
+    }
+
+    private func updateAutoScrollSpeed(direction: CGFloat) {
+        guard let target = autoScrollTarget else { return }
+        let baseSpeed: CGFloat = 3.0
+        let speedFactor = max(0.3, abs(direction))
+        target.speed = baseSpeed * speedFactor
+    }
+
+    private func stopAutoScroll() {
+        autoScrollTimer?.invalidate()
+        autoScrollTimer = nil
+        autoScrollDirection = 0
     }
 
     // MARK: - 排序与持久化
@@ -290,6 +382,79 @@ struct RemoteWelfareHomeView: View {
     }
 }
 
+// MARK: - 自动滚动 Target（用于 CADisplayLink）
+/// 基于 CADisplayLink 的平滑自动滚动引擎
+/// - 拖动卡片靠近屏幕边缘时触发，越靠近边缘滚动越快
+/// - 使用 contentOffset 直接设置，避免动画卡顿
+class AutoScrollTarget: NSObject {
+    let direction: CGFloat
+    var speed: CGFloat  // 可变，支持动态调整速度
+    weak var scrollViewRef: UIScrollView?
+
+    init(direction: CGFloat, speed: CGFloat, scrollViewRef: UIScrollView?) {
+        self.direction = direction
+        self.speed = speed
+        self.scrollViewRef = scrollViewRef
+        super.init()
+    }
+
+    @objc func tick(_ displayLink: CADisplayLink) {
+        guard let scrollView = scrollViewRef else {
+            displayLink.invalidate()
+            return
+        }
+
+        let offset = scrollView.contentOffset
+        let contentHeight = scrollView.contentSize.height
+        let viewHeight = scrollView.bounds.height
+
+        var newY = offset.y + direction * speed
+
+        // 边界检查
+        newY = max(0, min(newY, contentHeight - viewHeight + scrollView.contentInset.bottom))
+
+        if newY != offset.y {
+            scrollView.contentOffset = CGPoint(x: offset.x, y: newY)
+        }
+    }
+}
+
+// MARK: - ScrollView 探测器
+/// 通过在 ScrollView 内部插入一个透明 UIView，遍历 superview 找到底层 UIScrollView
+/// 用于获取 UIScrollView 引用，实现边缘自动滚动时直接修改 contentOffset
+struct ScrollViewDetector: UIViewRepresentable {
+    var onFound: (UIScrollView) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            if let scrollView = uiView.superview(ofType: UIScrollView.self) {
+                onFound(scrollView)
+            }
+        }
+    }
+}
+
+extension UIView {
+    /// 向上遍历 superview 层级，找到指定类型的视图
+    func superview<T>(ofType type: T.Type) -> T? {
+        var current = superview
+        while let view = current {
+            if let typed = view as? T {
+                return typed
+            }
+            current = view.superview
+        }
+        return nil
+    }
+}
+
 // MARK: - 子组件
 
 /// 远程平台卡片（普通态，可点击跳转）
@@ -318,19 +483,97 @@ struct RemotePlatformIconCard: View {
     }
 }
 
-/// 远程平台卡片（编辑态，可拖拽）
+/// 远程平台卡片（编辑态，可拖拽排序）
+///
+/// 修复要点：
+/// 1. LongPressGesture 设置 maximumDistance: 15 —— 手指移动超过 15pt 则长按手势失败，
+///    ScrollView 的滚动手势能正常响应，解决"图标区域滑动不灵敏"问题
+/// 2. 新增 onEdgeProximity 回调 —— 拖动到屏幕边缘时触发自动滚动
+/// 3. UIImpactFeedbackGenerator 改为属性持有 + onAppear 时 prepare() —— 解决震动无效问题
+/// 4. 三级震动反馈：拾取(light) → 位置切换(light intensity 0.6) → 结束(medium)
 struct RemotePlatformSortableCard: View {
     let platform: WelfarePlatform
     let index: Int
     let totalCount: Int
     let gradient: [Color]
     let onMove: (Int, Int) -> Void
-    let onEnterEditMode: () -> Void
+    var onEdgeProximity: ((CGFloat) -> Void)? = nil
 
-    @State private var offset: CGSize = .zero
-    @State private var isPickedUp = false
+    // 拖动状态
+    @State private var isDragging = false
+    @State private var dragOffset: CGSize = .zero
+    @State private var currentIndex: Int = 0
+    @State private var cardGlobalY: CGFloat = 0
+
+    // ===== 震动反馈 =====
+    // 必须作为属性持有，不能在手势闭包里临时创建
+    // 临时创建的 UIImpactFeedbackGenerator 实例会被立即释放，导致震动丢失
+    private let lightFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let mediumFeedback = UIImpactFeedbackGenerator(style: .medium)
+
+    // 布局常量
+    private let columns = 4
+    private let cardWidth: CGFloat = 88   // 72 + 16 spacing
+    private let cardHeight: CGFloat = 102 // 86 + 16 spacing
 
     var body: some View {
+        GeometryReader { geo in
+            cardContent
+                .frame(width: 72, height: 86)
+                .offset(dragOffset)
+                .scaleEffect(isDragging ? 1.15 : 1.0)
+                .shadow(color: isDragging ? .black.opacity(0.3) : .clear,
+                        radius: isDragging ? 10 : 0,
+                        y: isDragging ? 5 : 0)
+                .zIndex(isDragging ? 999 : 0)
+                .onAppear {
+                    cardGlobalY = geo.frame(in: .global).midY
+                    // 预先准备震动发生器，确保第一次触发时能及时响应
+                    // 这是震动能正常工作的关键 —— iOS 的 Taptic Engine 需要预热时间
+                    lightFeedback.prepare()
+                    mediumFeedback.prepare()
+                }
+                .gesture(
+                    // 长按进入拖动模式
+                    //
+                    // 【关键修复】maximumDistance: 15
+                    // 手指移动超过 15pt 则长按手势失败，ScrollView 的滚动手势能正常接管。
+                    // 原来没有设置 maximumDistance，导致手指在图标上滑动时，
+                    // 长按手势一直在"等待识别"，与 ScrollView 的滚动手势竞争，
+                    // 表现为"图标区域滑动不灵敏 / 滑动失效"。
+                    LongPressGesture(minimumDuration: 0.4, maximumDistance: 15)
+                        .onEnded { _ in
+                            // 再次 prepare，确保 Taptic Engine 处于激活状态
+                            lightFeedback.prepare()
+                            mediumFeedback.prepare()
+                            lightFeedback.impactOccurred()
+                            currentIndex = index
+                            cardGlobalY = geo.frame(in: .global).midY
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                isDragging = true
+                            }
+                        }
+                        .sequenced(before:
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    guard isDragging else { return }
+                                    dragOffset = value.translation
+                                    handleDragChange(
+                                        translation: value.translation,
+                                        currentGlobalY: cardGlobalY + value.translation.height
+                                    )
+                                }
+                                .onEnded { _ in
+                                    handleDragEnd()
+                                }
+                        )
+                )
+        }
+        .frame(width: 72, height: 86)
+        .animation(.easeInOut(duration: 0.2), value: isDragging)
+    }
+
+    private var cardContent: some View {
         VStack(spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -359,42 +602,67 @@ struct RemotePlatformSortableCard: View {
                 .foregroundColor(.primary)
                 .lineLimit(1)
         }
-        .frame(width: 72, height: 86)
-        .scaleEffect(isPickedUp ? 1.15 : 1.0)
-        .shadow(color: isPickedUp ? Color.black.opacity(0.3) : Color.clear, radius: 10, x: 0, y: 5)
-        .offset(offset)
-        .zIndex(isPickedUp ? 999 : 0)
-        .gesture(
-            LongPressGesture(minimumDuration: 0.3)
-                .onEnded { _ in
-                    isPickedUp = true
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-                .sequenced(before: DragGesture(minimumDistance: 0))
-                .onChanged { value in
-                    switch value {
-                    case .second(_, let drag?):
-                        offset = drag.translation
-                    default:
-                        break
-                    }
-                }
-                .onEnded { value in
-                    if case .second(_, let drag?) = value {
-                        let cols = 4
-                        let colW: CGFloat = 88
-                        let rowH: CGFloat = 102
-                        let colOffset = Int((drag.translation.width / colW).rounded())
-                        let rowOffset = Int((drag.translation.height / rowH).rounded())
-                        let totalOffset = colOffset + rowOffset * cols
-                        let target = max(0, min(index + totalOffset, max(totalCount - 1, 0)))
-                        if totalOffset != 0 {
-                            onMove(index, target)
-                        }
-                    }
-                    isPickedUp = false
-                    withAnimation(.spring()) { offset = .zero }
-                }
-        )
+    }
+
+    private func handleDragChange(translation: CGSize, currentGlobalY: CGFloat) {
+        let currentRow = currentIndex / columns
+        let currentCol = currentIndex % columns
+
+        let deltaRow = Int(round(translation.height / cardHeight))
+        let deltaCol = Int(round(translation.width / cardWidth))
+
+        var targetRow = currentRow + deltaRow
+        var targetCol = currentCol + deltaCol
+
+        targetCol = min(max(targetCol, 0), columns - 1)
+
+        let totalRows = (totalCount + columns - 1) / columns
+        targetRow = min(max(targetRow, 0), totalRows - 1)
+
+        var targetIndex = targetRow * columns + targetCol
+        targetIndex = min(max(targetIndex, 0), totalCount - 1)
+
+        // 位置变化时触发轻震动（碰到卡片的手感）
+        if targetIndex != currentIndex {
+            lightFeedback.impactOccurred(intensity: 0.6)
+            lightFeedback.prepare() // 每次触发后重新 prepare，保证下次及时响应
+            onMove(currentIndex, targetIndex)
+            currentIndex = targetIndex
+        }
+
+        // ===== 边缘自动滚动检测（基于屏幕坐标）=====
+        if let edgeProximity = onEdgeProximity, isDragging {
+            let screenHeight = UIScreen.main.bounds.height
+            let edgeMargin: CGFloat = 100  // 距屏幕边缘多少 pt 触发
+
+            let distanceFromTop = currentGlobalY
+            let distanceFromBottom = screenHeight - currentGlobalY
+
+            if distanceFromTop < edgeMargin {
+                // 越靠近顶部，滚动越快（速度因子 0.3~1.0）
+                let speedFactor = max(0.3, 1 - distanceFromTop / edgeMargin)
+                edgeProximity(-speedFactor)  // 负值 = 向上滚动
+            } else if distanceFromBottom < edgeMargin {
+                let speedFactor = max(0.3, 1 - distanceFromBottom / edgeMargin)
+                edgeProximity(speedFactor)   // 正值 = 向下滚动
+            } else {
+                edgeProximity(0) // 离开边缘区域，停止自动滚动
+            }
+        }
+    }
+
+    private func handleDragEnd() {
+        // 停止边缘自动滚动
+        onEdgeProximity?(0)
+
+        // 拖动结束，中震动（落位的手感）
+        mediumFeedback.impactOccurred()
+        mediumFeedback.prepare()
+        lightFeedback.prepare()
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            isDragging = false
+            dragOffset = .zero
+        }
     }
 }
