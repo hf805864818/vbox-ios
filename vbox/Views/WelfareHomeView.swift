@@ -437,6 +437,9 @@ struct PlatformSortableCard: View {
 
     @State private var offset = CGSize.zero
     @State private var isPickedUp = false
+    @State private var lastTargetRow: Int = -1
+    @State private var lastTargetCol: Int = -1
+    private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         VStack(spacing: 6) {
@@ -483,6 +486,25 @@ struct PlatformSortableCard: View {
                     switch value {
                     case .second(_, let drag?):
                         offset = drag.translation
+                        // 跨越卡片时震动反馈
+                        let cols = 4
+                        let currentRow = index / cols
+                        let currentCol = index % cols
+                        let targetRow = currentRow + Int(round(drag.translation.height / 102))
+                        let targetCol = min(max(currentCol + Int(round(drag.translation.width / 88)), 0), cols - 1)
+
+                        // 初始化上一次目标位置
+                        if lastTargetRow == -1 {
+                            lastTargetRow = currentRow
+                            lastTargetCol = currentCol
+                        }
+
+                        // 行或列发生变化时触发震动（即"碰到"了其他卡片）
+                        if targetRow != lastTargetRow || targetCol != lastTargetCol {
+                            feedbackGenerator.impactOccurred(intensity: 0.6)
+                            lastTargetRow = targetRow
+                            lastTargetCol = targetCol
+                        }
                     default:
                         break
                     }
@@ -490,6 +512,9 @@ struct PlatformSortableCard: View {
                 .onEnded { value in
                     // 停止自动滚动
                     onEdgeProximity?(0)
+                    // 重置位置追踪
+                    lastTargetRow = -1
+                    lastTargetCol = -1
 
                     if case .second(_, let drag?) = value {
                         let cols = 4
@@ -500,6 +525,8 @@ struct PlatformSortableCard: View {
                         let newIndex = newRow * cols + newCol
                         if newIndex >= 0, newIndex < 100, newIndex != index {
                             onMove(index, newIndex)
+                            // 松手落位时再来一次稍重的震动
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         }
                     }
                     isPickedUp = false
