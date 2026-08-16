@@ -68,8 +68,8 @@ struct FuliCategoryNavigatorView: View {
                     Button {
                         onDismiss()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 20))
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.secondary)
                     }
                 }
