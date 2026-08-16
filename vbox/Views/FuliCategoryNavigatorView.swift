@@ -2,32 +2,18 @@
 //  FuliCategoryNavigatorView.swift
 //  vbox
 //
-//  福利平台分类导航弹窗 — 三步合一：
-//  1. 基础版：Popover + 网格/列表自适应布局
-//  2. 二级分类：点击含子分类的项后展开/进入二级选择
-//  3. 智能切换：分类数量自动选择展示方式（≤12 列表 / 13-30 网格 / >30 Sheet+搜索）
+//  福利平台分类导航 — 悬浮弹窗样式
+//  - 半透明黑色背景 + 白色圆角卡片
+//  - 4 列网格布局，上下滑动查看更多
+//  - 点击分类自动关闭 + Tab 栏滚动定位
+//  - 支持二级分类展开
 //
-//  由 FuliPlatformMainView 通过 popover 或 sheet 调用，
-//  点击分类后通过 onSelect 回调通知父视图切换 Tab。
+//  使用方式：作为 .overlay 覆盖在页面上，通过 @Binding 控制显隐
 //
 
 import SwiftUI
 
-// MARK: - 展示模式
-enum FuliCategoryNavMode {
-    case list       // 单列列表（≤12 个分类）
-    case grid       // 三列网格（13-30 个分类）
-    case searchSheet // 底部 Sheet + 搜索框（>30 个分类）
-}
-
-// MARK: - 分类导航弹窗（主入口）
-/// 福利平台分类导航视图
-/// - Parameters:
-///   - categories: 全部分类（一级）
-///   - selectedIndex: 当前选中的一级分类索引（Binding）
-///   - onSelect: 选中一级分类后的回调（参数为索引）
-///   - onSelectSub: 选中二级分类后的回调（可选，参数为 一级索引 + 二级分类）
-///   - onDismiss: 关闭弹窗的回调
+// MARK: - 分类导航悬浮弹窗
 struct FuliCategoryNavigatorView: View {
     let categories: [FuliCategory]
     @Binding var selectedIndex: Int
@@ -35,24 +21,15 @@ struct FuliCategoryNavigatorView: View {
     var onSelectSub: ((Int, FuliCategory) -> Void)?
     var onDismiss: () -> Void = {}
 
-    // 二级分类展开状态
     @State private var expandedIndex: Int? = nil
-    // 搜索关键字（searchSheet 模式用）
     @State private var searchText: String = ""
 
-    /// 根据分类数量自动选择展示模式
-    private var mode: FuliCategoryNavMode {
-        let count = categories.count
-        if count <= 12 {
-            return .list
-        } else if count <= 30 {
-            return .grid
-        } else {
-            return .searchSheet
-        }
+    /// 是否需要搜索框（分类 > 30 个时显示）
+    private var showSearch: Bool {
+        categories.count > 30
     }
 
-    /// 过滤后的分类列表（搜索模式用）
+    /// 过滤后的分类
     private var filteredCategories: [FuliCategory] {
         if searchText.isEmpty {
             return categories
@@ -62,40 +39,72 @@ struct FuliCategoryNavigatorView: View {
         }
     }
 
+    /// 4 列网格布局
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
     var body: some View {
-        NavigationStack {
+        ZStack {
+            // 半透明背景
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    onDismiss()
+                }
+                .transition(.opacity)
+
+            // 弹窗卡片
             VStack(spacing: 0) {
-                // 搜索框（仅 searchSheet 模式显示）
-                if mode == .searchSheet {
+                // 标题栏
+                HStack {
+                    Text("全部分类")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+
+                // 搜索框（分类 > 30 个时显示）
+                if showSearch {
                     searchBar
                         .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .padding(.bottom, 6)
+                        .padding(.bottom, 10)
                 }
 
-                // 列表/网格内容
-                switch mode {
-                case .list, .searchSheet:
-                    listContent
-                case .grid:
-                    gridContent
-                }
-            }
-            .navigationTitle("全部分类")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("关闭") {
-                        onDismiss()
+                Divider()
+
+                // 分类网格
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(Array(filteredCategories.enumerated()), id: \.offset) { idx, cat in
+                            gridItem(cat, index: originalIndex(of: cat))
+                        }
                     }
-                    .font(.system(size: 15))
+                    .padding(14)
                 }
+                .frame(maxHeight: UIScreen.main.bounds.height * 0.55)
             }
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(UIColor.systemBackground))
+            )
+            .padding(.horizontal, 16)
+            .frame(maxWidth: 520)
+            .transition(.scale(scale: 0.9).combined(with: .opacity))
         }
-        .frame(
-            width: mode == .searchSheet ? nil : 320,
-            height: navigatorHeight
-        )
+        .animation(.easeInOut(duration: 0.2), value: true)
     }
 
     // MARK: - 搜索框
@@ -116,76 +125,43 @@ struct FuliCategoryNavigatorView: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(10)
     }
 
-    // MARK: - 列表内容（list + searchSheet 模式共用）
-    private var listContent: some View {
-        ScrollView {
-            LazyVStack(spacing: 4) {
-                ForEach(Array(filteredCategories.enumerated()), id: \.offset) { idx, cat in
-                    categoryRow(cat, index: idx, originalIndex: originalIndex(of: cat))
-                }
-                if filteredCategories.isEmpty {
-                    Text("未找到相关分类")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .padding(.top, 40)
-                }
-            }
-            .padding(12)
-        }
-    }
-
-    // MARK: - 网格内容（grid 模式）
-    private var gridContent: some View {
-        let columns = [
-            GridItem(.flexible(), spacing: 8),
-            GridItem(.flexible(), spacing: 8),
-            GridItem(.flexible(), spacing: 8)
-        ]
-        return ScrollView {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
-                    gridItem(cat, index: idx)
-                }
-            }
-            .padding(12)
-        }
-    }
-
+    // MARK: - 单个分类格子
     private func gridItem(_ category: FuliCategory, index: Int) -> some View {
         let hasSub = (category.subCategories?.count ?? 0) > 0
         let isSelected = selectedIndex == index
 
         return Button {
             if hasSub {
-                // 有二级分类：切换到列表模式展开（通过状态切换）
-                // 简化：有子分类的网格项点击直接选中一级，二级在下方 Tab 栏选择
-                onSelect(index)
-                onDismiss()
+                // 有二级分类：展开/收起（用动画）
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    expandedIndex = (expandedIndex == index) ? nil : index
+                }
             } else {
+                // 直接选中
                 onSelect(index)
                 onDismiss()
             }
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 4) {
                 Text(category.typeName)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
 
                 if hasSub {
-                    Text("\(category.subCategories!.count) 个子类")
+                    Text("\(category.subCategories!.count)子类")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -194,151 +170,74 @@ struct FuliCategoryNavigatorView: View {
                           : Color(UIColor.secondarySystemBackground))
             )
             .foregroundColor(isSelected ? .accentColor : .primary)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - 单行分类（列表模式）
-    private func categoryRow(_ category: FuliCategory, index: Int, originalIndex: Int) -> some View {
-        let hasSub = (category.subCategories?.count ?? 0) > 0
-        let isExpanded = expandedIndex == originalIndex
-        let isSelected = selectedIndex == originalIndex
-
-        return VStack(spacing: 0) {
-            Button {
-                if hasSub {
-                    // 有二级分类：展开/收起
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        expandedIndex = isExpanded ? nil : originalIndex
-                    }
-                } else {
-                    // 无二级分类：直接选中
-                    onSelect(originalIndex)
-                    onDismiss()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    // 选中指示器
-                    Circle()
-                        .fill(isSelected ? Color.accentColor : Color.clear)
-                        .frame(width: 6, height: 6)
-
-                    Text(category.typeName)
-                        .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
-                        .foregroundColor(isSelected ? .accentColor : .primary)
-                        .lineLimit(1)
-
-                    Spacer()
-
-                    // 子分类数量 / 展开箭头
-                    if hasSub {
-                        HStack(spacing: 4) {
-                            Text("\(category.subCategories!.count)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                    } else if isSelected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.accentColor)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-                )
-            }
-            .buttonStyle(.plain)
-
-            // 展开的二级分类
-            if hasSub && isExpanded {
-                subCategoryList(category, parentIndex: originalIndex)
-                    .padding(.leading, 20)
-                    .padding(.trailing, 8)
-                    .padding(.bottom, 4)
-            }
-        }
-    }
-
-    // MARK: - 二级分类列表
-    private func subCategoryList(_ parent: FuliCategory, parentIndex: Int) -> some View {
-        let subs = parent.subCategories ?? []
-        return VStack(spacing: 2) {
-            // "全部" 选项
-            Button {
-                onSelect(parentIndex)
-                onDismiss()
-            } label: {
-                HStack(spacing: 8) {
-                    Text("全部")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(UIColor.secondarySystemBackground))
-                )
-            }
-            .buttonStyle(.plain)
-
-            ForEach(subs) { sub in
-                Button {
-                    onSelect(parentIndex)
-                    onSelectSub?(parentIndex, sub)
-                    onDismiss()
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(sub.typeName)
-                            .font(.system(size: 13))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(UIColor.secondarySystemBackground))
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
     // MARK: - 辅助方法
-    /// 根据分类查找原始索引（搜索过滤后用）
     private func originalIndex(of category: FuliCategory) -> Int {
         categories.firstIndex(where: { $0.typeId == category.typeId }) ?? 0
     }
-
-    /// 弹窗高度自适应
-    private var navigatorHeight: CGFloat {
-        let count = categories.count
-        switch mode {
-        case .list:
-            return min(CGFloat(count) * 44 + 24 + 40, 400)
-        case .grid:
-            let rows = ceil(Double(count) / 3.0)
-            return min(rows * 50 + 60 + 24, 420)
-        case .searchSheet:
-            return 500 // searchSheet 模式由外部 sheet 的 detents 控制
-        }
-    }
 }
 
-// MARK: - 对外扩展：判断是否应该用 sheet 展示
-extension FuliCategory {
-    /// 分类数量是否超过 popover 适用范围
-    static func shouldUseSheet(for categories: [FuliCategory]) -> Bool {
-        categories.count > 30
+// MARK: - 横向分类 Tab 滚动定位辅助
+/// 包装分类 Tab 栏，支持 ScrollViewReader 自动滚动到选中项
+struct FuliCategoryTabBar: View {
+    let categories: [FuliCategory]
+    @Binding var selectedTab: Int
+    var onSelect: (Int) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
+                        tabButton(title: cat.typeName, isSelected: selectedTab == idx) {
+                            withAnimation {
+                                selectedTab = idx
+                                onSelect(idx)
+                            }
+                        }
+                        .id(idx)  // 用于 ScrollViewReader 定位
+                    }
+                    // 搜索 Tab
+                    tabButton(title: "搜索", isSelected: selectedTab == categories.count) {
+                        withAnimation {
+                            selectedTab = categories.count
+                            onSelect(categories.count)
+                        }
+                    }
+                    .id(categories.count)
+                }
+                .padding(.horizontal, 8)
+            }
+            .frame(height: 44)
+            .onChange(of: selectedTab) { newValue in
+                // 选中变化时自动滚动到对应位置
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func tabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(.system(size: 14, weight: isSelected ? .bold : .regular))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .padding(.horizontal, 12)
+                Capsule()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(width: 20, height: 3)
+            }
+            .frame(height: 40)
+        }
+        .buttonStyle(.plain)
     }
 }

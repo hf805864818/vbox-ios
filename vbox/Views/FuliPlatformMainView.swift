@@ -48,148 +48,106 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
     @State private var selectedTab = 0
     @State private var isLoading = true
     @State private var loadError: String?
-    @State private var hasLoadedHome = false  // 标记首页分类是否已加载，避免返回时重复刷新
-    @State private var showCategoryNav = false // 分类导航弹窗开关
-
-    /// 是否使用底部 sheet 展示分类（分类 > 30 个时用 sheet + 搜索）
-    private var useSheetForNav: Bool {
-        categories.count > 30
-    }
+    @State private var hasLoadedHome = false
+    @State private var showCategoryNav = false  // 分类导航悬浮弹窗开关
 
     var body: some View {
-        VStack(spacing: 0) {
-            if isLoading {
-                Spacer()
-                ProgressView().scaleEffect(1.5)
-                Spacer()
-            } else if let err = loadError, categories.isEmpty {
-                VStack(spacing: 16) {
+        ZStack {
+            VStack(spacing: 0) {
+                if isLoading {
                     Spacer()
-                    Image(systemName: "antenna.radiowaves.left.and.right.slash")
-                        .font(.system(size: 50)).foregroundColor(.secondary)
-                    Text(err).font(.system(size: 15)).multilineTextAlignment(.center)
-                    Button(action: { loadHome() }) {
-                        Label("重试", systemImage: "arrow.clockwise")
-                            .font(.system(size: 14))
-                            .padding(.horizontal, 20).padding(.vertical, 8)
-                            .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
+                    ProgressView().scaleEffect(1.5)
+                    Spacer()
+                } else if let err = loadError, categories.isEmpty {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                            .font(.system(size: 50)).foregroundColor(.secondary)
+                        Text(err).font(.system(size: 15)).multilineTextAlignment(.center)
+                        Button(action: { loadHome() }) {
+                            Label("重试", systemImage: "arrow.clockwise")
+                                .font(.system(size: 14))
+                                .padding(.horizontal, 20).padding(.vertical, 8)
+                                .background(Color.accentColor.opacity(0.1)).cornerRadius(8)
+                        }
+                        Spacer()
                     }
-                    Spacer()
-                }
-                .padding(20)
-            } else {
-                // 顶部 Tab 栏（分类 + 搜索）
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
+                    .padding(20)
+                } else {
+                    // 顶部 Tab 栏（分类 + 搜索）— 支持自动滚动定位
+                    FuliCategoryTabBar(categories: categories, selectedTab: $selectedTab) { idx in
+                        // Tab 切换时的回调（可选处理）
+                    }
+                    Divider()
+
+                    // Tab 内容
+                    TabView(selection: $selectedTab) {
                         ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
-                            tabButton(title: cat.typeName, isSelected: selectedTab == idx) {
-                                withAnimation { selectedTab = idx }
-                            }
+                            FuliCategoryTabView(
+                                svc: svc,
+                                category: cat,
+                                stateCache: tabStateCache,
+                                cacheKey: cat.typeId
+                            )
+                            .tag(idx)
                         }
-                        tabButton(title: "搜索", isSelected: selectedTab == categories.count) {
-                            withAnimation { selectedTab = categories.count }
-                        }
+                        FuliSearchTabView(svc: svc)
+                            .tag(categories.count)
                     }
-                    .padding(.horizontal, 8)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
                 }
-                .frame(height: 44)
-                Divider()
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            // 导航栏右上角分类导航按钮
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showCategoryNav = true
+                        }
+                    } label: {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .disabled(categories.isEmpty)
+                }
+            }
+            .onAppear {
+                if !hasLoadedHome {
+                    loadHome()
+                    hasLoadedHome = true
+                }
+            }
 
-                // Tab 内容
-                TabView(selection: $selectedTab) {
-                    ForEach(Array(categories.enumerated()), id: \.offset) { idx, cat in
-                        FuliCategoryTabView(
-                            svc: svc,
-                            category: cat,
-                            stateCache: tabStateCache,
-                            cacheKey: cat.typeId
+            // —— 分类导航悬浮弹窗 ——
+            if showCategoryNav && !categories.isEmpty {
+                FuliCategoryNavigatorView(
+                    categories: categories,
+                    selectedIndex: $selectedTab,
+                    onSelect: { idx in
+                        withAnimation {
+                            selectedTab = idx
+                        }
+                    },
+                    onSelectSub: { parentIdx, sub in
+                        let cat = categories[parentIdx]
+                        let cacheKey = cat.typeId
+                        tabStateCache.update(cacheKey) { $0.selectedSubId = sub.typeId }
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("FuliCategoryNavSubSelected"),
+                            object: nil,
+                            userInfo: ["cacheKey": cacheKey]
                         )
-                        .tag(idx)
+                    },
+                    onDismiss: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showCategoryNav = false
+                        }
                     }
-                    FuliSearchTabView(svc: svc)
-                        .tag(categories.count)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-            }
-        }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        // —— 新增：导航栏右上角分类导航按钮 ——
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showCategoryNav = true
-                } label: {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.system(size: 16, weight: .medium))
-                }
-                .disabled(categories.isEmpty)
-                // 分类 ≤ 30 个：popover 下拉式
-                .popover(isPresented: Binding(
-                    get: { showCategoryNav && !useSheetForNav },
-                    set: { if $0 == false { showCategoryNav = false } }
-                )) {
-                    categoryNavigator
-                }
-                // 分类 > 30 个：底部 sheet + 搜索框
-                .sheet(isPresented: Binding(
-                    get: { showCategoryNav && useSheetForNav },
-                    set: { if $0 == false { showCategoryNav = false } }
-                )) {
-                    categoryNavigator
-                        .presentationDetents([.medium, .large])
-                        .presentationDragIndicator(.visible)
-                }
-            }
-        }
-        .onAppear {
-            if !hasLoadedHome {
-                loadHome()
-                hasLoadedHome = true
-            }
-        }
-    }
-
-    // MARK: - 分类导航弹窗内容
-    private var categoryNavigator: some View {
-        FuliCategoryNavigatorView(
-            categories: categories,
-            selectedIndex: $selectedTab,
-            onSelect: { idx in
-                withAnimation { selectedTab = idx }
-            },
-            onSelectSub: { parentIdx, sub in
-                // 选中二级分类：切换到对应 Tab + 设置子分类
-                let cat = categories[parentIdx]
-                let cacheKey = cat.typeId
-                tabStateCache.update(cacheKey) { $0.selectedSubId = sub.typeId }
-                // 触发刷新
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("FuliCategoryNavSubSelected"),
-                    object: nil,
-                    userInfo: ["cacheKey": cacheKey]
                 )
-            },
-            onDismiss: {
-                showCategoryNav = false
             }
-        )
-    }
-
-    private func tabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(.system(size: 14, weight: isSelected ? .bold : .regular))
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-                    .padding(.horizontal, 12)
-                Capsule()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(width: 20, height: 3)
-            }
-            .frame(height: 40)
         }
-        .buttonStyle(.plain)
     }
 
     private func loadHome() {
@@ -297,11 +255,9 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                 stateCache.update(cacheKey) { $0.hasLoaded = true }
             }
         }
-        // —— 新增：监听从导航弹窗选中二级分类的通知 ——
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FuliCategoryNavSubSelected"))) { notif in
             guard let key = notif.userInfo?["cacheKey"] as? String,
                   key == cacheKey else { return }
-            // 子分类已在 onSelectSub 中设置，这里触发强制刷新
             refresh(force: true)
         }
     }
@@ -334,7 +290,6 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
     }
 
     private func refresh(force: Bool) {
-        // 非强制刷新且已有数据时，不重新加载
         if !force && !state.videos.isEmpty { return }
         Task {
             await refreshAsync()
