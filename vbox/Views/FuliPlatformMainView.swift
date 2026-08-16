@@ -269,7 +269,7 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
 
     private func detailView(for video: FuliVideo) -> some View {
         if svc.contentCategory == .comic {
-            return AnyView(ComicDetailBridgeView(svc: svc, video: video))
+            return AnyView(ComicDirectReaderView(video: video, svc: svc))
         } else {
             return AnyView(FuliVideoBridgeView(svc: svc, video: video))
         }
@@ -389,7 +389,7 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
 
     private func searchDetailView(for video: FuliVideo) -> some View {
         if svc.contentCategory == .comic {
-            return AnyView(ComicDetailBridgeView(svc: svc, video: video))
+            return AnyView(ComicDirectReaderView(video: video, svc: svc))
         } else {
             return AnyView(FuliVideoBridgeView(svc: svc, video: video))
         }

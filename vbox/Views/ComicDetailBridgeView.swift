@@ -177,3 +177,84 @@ private struct ScrollOffsetKey: PreferenceKey {
         value = nextValue()
     }
 }
+
+
+// MARK: - 漫画直接阅读器（跳过详情页）
+/// 分类页点击漫画后直接进入长卷浏览，自动加载详情和图片列表
+struct ComicDirectReaderView<Service: FuliPlatformService>: View {
+    let video: FuliVideo
+    let svc: Service
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var images: [String] = []
+    @State private var title: String = ""
+    @State private var isLoading = true
+    @State private var errorMsg: String?
+
+    var body: some View {
+        ZStack {
+            if !images.isEmpty {
+                MangaReaderView(
+                    images: images,
+                    title: title,
+                    referer: svc.imageReferer,
+                    sslBypass: svc.imageSSLBypass
+                )
+            } else if let err = errorMsg {
+                VStack(spacing: 16) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+                    Text(err)
+                        .font(.system(size: 14))
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                    Button(action: { loadImages() }) {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+            } else if isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                    Text("加载中...")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.ignoresSafeArea())
+            }
+        }
+        .navigationBarHidden(true)
+        .onAppear { loadImages() }
+    }
+
+    private func loadImages() {
+        isLoading = true
+        errorMsg = nil
+        images = []
+
+        Task {
+            await svc.ensureHostReady()
+            let detail = await svc.fetchDetail(vodId: video.vodId)
+            await MainActor.run {
+                isLoading = false
+                if let first = detail.episodes.first, let imgs = first.images, !imgs.isEmpty {
+                    self.title = detail.vodName
+                    self.images = imgs
+                } else {
+                    self.errorMsg = "未解析到套图图片"
+                }
+            }
+        }
+    }
+}
