@@ -8719,6 +8719,7 @@ class CloudDriveManager: ObservableObject {
 
     /// 获取迅雷云盘分享链接中的所有视频文件（递归遍历子文件夹）
     /// 用于文件夹类型的分享链接，返回所有可播放的视频文件列表
+    @MainActor
     func xunleiGetFileList(shareURL: String, cookie: String) async throws -> [XunleiShareFile] {
         print("[Xunlei] 📂 获取文件列表（递归）: \(shareURL.prefix(60))")
         self.log("[CloudDrive] [Xunlei] 获取文件列表...")
@@ -8961,6 +8962,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 解析迅雷云盘指定文件的播放地址（用于多文件选集播放）
+    @MainActor
     func resolveXunleiFilePlayURL(shareURL: String, cookie: String, fileId: String, fileName: String) async throws -> PlayResult {
         print("[Xunlei] 🎬 解析指定文件: fileId=\(fileId) name=\(fileName)")
         self.log("[CloudDrive] [Xunlei] 解析文件: \(fileName)")
