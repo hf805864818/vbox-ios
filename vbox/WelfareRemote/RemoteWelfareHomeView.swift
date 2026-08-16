@@ -382,80 +382,9 @@ struct RemoteWelfareHomeView: View {
     }
 }
 
-// MARK: - 自动滚动 Target（用于 CADisplayLink）
-/// 基于 CADisplayLink 的平滑自动滚动引擎
-/// - 拖动卡片靠近屏幕边缘时触发，越靠近边缘滚动越快
-/// - 使用 contentOffset 直接设置，避免动画卡顿
-class AutoScrollTarget: NSObject {
-    let direction: CGFloat
-    var speed: CGFloat  // 可变，支持动态调整速度
-    weak var scrollViewRef: UIScrollView?
-
-    init(direction: CGFloat, speed: CGFloat, scrollViewRef: UIScrollView?) {
-        self.direction = direction
-        self.speed = speed
-        self.scrollViewRef = scrollViewRef
-        super.init()
-    }
-
-    @objc func tick(_ displayLink: CADisplayLink) {
-        guard let scrollView = scrollViewRef else {
-            displayLink.invalidate()
-            return
-        }
-
-        let offset = scrollView.contentOffset
-        let contentHeight = scrollView.contentSize.height
-        let viewHeight = scrollView.bounds.height
-
-        var newY = offset.y + direction * speed
-
-        // 边界检查
-        newY = max(0, min(newY, contentHeight - viewHeight + scrollView.contentInset.bottom))
-
-        if newY != offset.y {
-            scrollView.contentOffset = CGPoint(x: offset.x, y: newY)
-        }
-    }
-}
-
-// MARK: - ScrollView 探测器
-/// 通过在 ScrollView 内部插入一个透明 UIView，遍历 superview 找到底层 UIScrollView
-/// 用于获取 UIScrollView 引用，实现边缘自动滚动时直接修改 contentOffset
-struct ScrollViewDetector: UIViewRepresentable {
-    var onFound: (UIScrollView) -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        DispatchQueue.main.async {
-            if let scrollView = uiView.superview(ofType: UIScrollView.self) {
-                onFound(scrollView)
-            }
-        }
-    }
-}
-
-extension UIView {
-    /// 向上遍历 superview 层级，找到指定类型的视图
-    func superview<T>(ofType type: T.Type) -> T? {
-        var current = superview
-        while let view = current {
-            if let typed = view as? T {
-                return typed
-            }
-            current = view.superview
-        }
-        return nil
-    }
-}
-
 // MARK: - 子组件
+// 注意：AutoScrollTarget / ScrollViewDetector / UIView.superview(ofType:)
+// 已在 WelfareHomeView.swift 中定义，同一 module 内共享，此处不重复定义
 
 /// 远程平台卡片（普通态，可点击跳转）
 struct RemotePlatformIconCard: View {
