@@ -275,6 +275,7 @@ struct HomeView: View {
     @State private var koreanTV: [DoubanSubject]                     // 热门韩剧
     @State private var japaneseTV: [DoubanSubject]                   // 热门日剧
     @State private var currentIndex = 0
+    @State private var loadTask: Task<Void, Never>? = nil
 
     init() {
         _isLoading = State(initialValue: !Self.hasHomeCache)
@@ -638,84 +639,157 @@ struct HomeView: View {
 
     @MainActor
     private func loadData(force: Bool) async {
-        if !force, Self.hasHomeCache {
-            restoreHomeCache()
-            return
+        // 取消上一次加载任务，防止重入导致数组越界闪退
+        loadTask?.cancel()
+
+        loadTask = Task {
+            if !force, Self.hasHomeCache {
+                restoreHomeCache()
+                return
+            }
+            isLoading = true
+
+            // 第一梯队：核心分类，优先展示
+            async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
+            async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
+            async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
+            async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
+
+            let showingResult = await showing
+            guard !Task.isCancelled else { return }
+            let moviesResult = await movies
+            guard !Task.isCancelled else { return }
+            let tvResult = await tv
+            guard !Task.isCancelled else { return }
+            let topResult = await top
+            guard !Task.isCancelled else { return }
+
+            // 第一梯队有数据就更新，保证首屏快速显示
+            if !showingResult.isEmpty {
+                showingMovies = showingResult
+                Self.cachedShowingMovies = showingResult
+            }
+            if !moviesResult.isEmpty {
+                hotMovies = moviesResult
+                Self.cachedHotMovies = moviesResult
+            }
+            if !tvResult.isEmpty {
+                hotTV = tvResult
+                Self.cachedHotTV = tvResult
+            }
+            if !topResult.isEmpty {
+                top250 = topResult
+                Self.cachedTop250 = topResult
+            }
+
+            // 第二梯队：其他分类，错峰请求避免限流
+            async let soon = fetchSafely { try await doubanService.fetchComingSoon(start: 0, count: 10) }
+            async let weekly = fetchSafely { try await doubanService.fetchMovieWeekly(start: 0, count: 10) }
+            async let latest = fetchSafely { try await doubanService.fetchLatestMovies(start: 0, count: 10) }
+            async let chi = fetchSafely { try await doubanService.fetchPopularChiTV(start: 0, count: 10) }
+            async let american = fetchSafely { try await doubanService.fetchAmericanTV(start: 0, count: 10) }
+            async let anim = fetchSafely { try await doubanService.fetchHotAnimation(start: 0, count: 10) }
+            async let korean = fetchSafely { try await doubanService.fetchKoreanTV(start: 0, count: 10) }
+            async let japanese = fetchSafely { try await doubanService.fetchJapaneseTV(start: 0, count: 10) }
+            async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
+
+            let soonResult = await soon
+            guard !Task.isCancelled else { return }
+            let weeklyResult = await weekly
+            guard !Task.isCancelled else { return }
+            let latestResult = await latest
+            guard !Task.isCancelled else { return }
+            let chiResult = await chi
+            guard !Task.isCancelled else { return }
+            let americanResult = await american
+            guard !Task.isCancelled else { return }
+            let animResult = await anim
+            guard !Task.isCancelled else { return }
+            let koreanResult = await korean
+            guard !Task.isCancelled else { return }
+            let japaneseResult = await japanese
+            guard !Task.isCancelled else { return }
+            let varietyResult = await variety
+            guard !Task.isCancelled else { return }
+
+            // 第二梯队：有数据才更新，空数据保留旧值（防止限流导致页面空白）
+            if !soonResult.isEmpty {
+                comingSoon = soonResult
+                Self.cachedComingSoon = soonResult
+            }
+            if !weeklyResult.isEmpty {
+                movieWeekly = weeklyResult
+                Self.cachedMovieWeekly = weeklyResult
+            }
+            if !latestResult.isEmpty {
+                latestMovies = latestResult
+                Self.cachedLatestMovies = latestResult
+            }
+            if !chiResult.isEmpty {
+                chiTV = chiResult
+                Self.cachedChiTV = chiResult
+            }
+            if !americanResult.isEmpty {
+                americanTV = americanResult
+                Self.cachedAmericanTV = americanResult
+            }
+            if !animResult.isEmpty {
+                hotAnimation = animResult
+                Self.cachedHotAnimation = animResult
+            }
+            if !koreanResult.isEmpty {
+                koreanTV = koreanResult
+                Self.cachedKoreanTV = koreanResult
+            }
+            if !japaneseResult.isEmpty {
+                japaneseTV = japaneseResult
+                Self.cachedJapaneseTV = japaneseResult
+            }
+            if !varietyResult.isEmpty {
+                hotVariety = varietyResult
+                Self.cachedHotVariety = varietyResult
+            }
+
+            // Banner 随机抽取：从所有已加载分类中汇总，随机选取 6~8 条
+            let allSubjects = (showingMovies + comingSoon + hotMovies + movieWeekly +
+                               latestMovies + top250 + hotTV + chiTV + americanTV +
+                               hotAnimation + koreanTV + japaneseTV + hotVariety)
+                .filter { $0.ratingValue > 0 }
+
+            guard !allSubjects.isEmpty else {
+                isLoading = false
+                return
+            }
+
+            let bannerCount = min(8, max(6, allSubjects.count))
+            let picked = Array(allSubjects.shuffled().prefix(bannerCount))
+
+            // 先用竖版封面创建 BannerItem（UI 立即可见），后续异步替换为横版海报
+            bannerItems = picked.map { BannerItem(from: $0) }
+            Self.cachedBannerItems = bannerItems
+
+            isLoading = false
+
+            // 异步获取横版海报 URL，逐条更新 + 预缓存前 3 张
+            await fetchBackdropURLs()
         }
-        isLoading = true
-
-        // 每个分类独立加载，一个失败不影响其他
-        async let showing = fetchSafely { try await doubanService.fetchUpcomingCN(start: 0, count: 10) }
-        async let soon = fetchSafely { try await doubanService.fetchComingSoon(start: 0, count: 10) }
-        async let movies = fetchSafely { try await doubanService.fetchHotMovies(start: 0, count: 10) }
-        async let weekly = fetchSafely { try await doubanService.fetchMovieWeekly(start: 0, count: 10) }
-        async let latest = fetchSafely { try await doubanService.fetchLatestMovies(start: 0, count: 10) }
-        async let top = fetchSafely { try await doubanService.fetchTop250(start: 0, count: 10) }
-        async let tv = fetchSafely { try await doubanService.fetchHotTV(start: 0, count: 10) }
-        async let chi = fetchSafely { try await doubanService.fetchPopularChiTV(start: 0, count: 10) }
-        async let american = fetchSafely { try await doubanService.fetchAmericanTV(start: 0, count: 10) }
-        async let anim = fetchSafely { try await doubanService.fetchHotAnimation(start: 0, count: 10) }
-        async let korean = fetchSafely { try await doubanService.fetchKoreanTV(start: 0, count: 10) }
-        async let japanese = fetchSafely { try await doubanService.fetchJapaneseTV(start: 0, count: 10) }
-        async let variety = fetchSafely { try await doubanService.fetchHotVariety(start: 0, count: 10) }
-
-        showingMovies = await showing
-        comingSoon = await soon
-        hotMovies = await movies
-        movieWeekly = await weekly
-        latestMovies = await latest
-        top250 = await top
-        hotTV = await tv
-        chiTV = await chi
-        americanTV = await american
-        hotAnimation = await anim
-        koreanTV = await korean
-        japaneseTV = await japanese
-        hotVariety = await variety
-
-        // ★ Banner 随机抽取：从所有已加载分类中汇总，随机选取 6~8 条
-        let allSubjects = (showingMovies + comingSoon + hotMovies + movieWeekly +
-                           latestMovies + top250 + hotTV + chiTV + americanTV +
-                           hotAnimation + koreanTV + japaneseTV + hotVariety)
-            .filter { $0.ratingValue > 0 }
-        let bannerCount = min(8, max(6, allSubjects.count))
-        let picked = Array(allSubjects.shuffled().prefix(bannerCount))
-
-        // 先用竖版封面创建 BannerItem（UI 立即可见），后续异步替换为横版海报
-        bannerItems = picked.map { BannerItem(from: $0) }
-        Self.cachedBannerItems = bannerItems
-
-        // 缓存
-        Self.cachedShowingMovies = showingMovies
-        Self.cachedComingSoon = comingSoon
-        Self.cachedHotMovies = hotMovies
-        Self.cachedMovieWeekly = movieWeekly
-        Self.cachedLatestMovies = latestMovies
-        Self.cachedTop250 = top250
-        Self.cachedHotTV = hotTV
-        Self.cachedChiTV = chiTV
-        Self.cachedAmericanTV = americanTV
-        Self.cachedHotAnimation = hotAnimation
-        Self.cachedKoreanTV = koreanTV
-        Self.cachedJapaneseTV = japaneseTV
-        Self.cachedHotVariety = hotVariety
-
-        isLoading = false
-
-        // ★ 异步获取横版海报 URL，逐条更新 + 预缓存前 3 张
-        await fetchBackdropURLs()
     }
 
     /// 逐条获取横版海报 URL 并更新 BannerItem，同时预缓存图片
     @MainActor
     private func fetchBackdropURLs() async {
-        for index in bannerItems.indices {
-            let backdropURL = await doubanService.fetchBackdropURL(subjectId: bannerItems[index].id)
-            if let backdropURL {
-                bannerItems[index] = bannerItems[index].withBackdropURL(backdropURL)
+        // 用快照循环，用 id 匹配更新，防止数组被替换后越界
+        let itemsSnapshot = bannerItems
+        for (_, item) in itemsSnapshot.enumerated() {
+            guard !Task.isCancelled else { return }
+            let backdropURL = await doubanService.fetchBackdropURL(subjectId: item.id)
+            guard !Task.isCancelled else { return }
+            if let backdropURL,
+               let realIndex = bannerItems.firstIndex(where: { $0.id == item.id }) {
+                bannerItems[realIndex] = item.withBackdropURL(backdropURL)
                 Self.cachedBannerItems = bannerItems
                 // 前 3 张预缓存到内存
-                if index < 3 {
+                if realIndex < 3 {
                     ImagePreloader.shared.preload(backdropURL)
                 }
             }

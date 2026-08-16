@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 
 // MARK: - 福利首页（仅保留 MissAV 和 香蕉秀）
 struct WelfareHomeView: View {
@@ -13,6 +14,11 @@ struct WelfareHomeView: View {
     /// - 兼容模式：元素为 YBoxPlatform2（由 ybox.categories 转换而来）
     @State private var orderedPlatforms: [WelfareTab: [YBoxPlatform2]] = [:]
     @State private var navigatePlatformID: String?
+
+    // 拖动排序边缘自动滚动
+    @State private var autoScrollDirection: CGFloat = 0 // -1 上 / 0 停 / 1 下
+    @State private var autoScrollTimer: Timer?
+    private let edgeThreshold: CGFloat = 100 // 距边缘多少 pt 触发自动滚动
 
     private enum WelfareTab: String, CaseIterable {
         case video = "视频"
@@ -131,50 +137,120 @@ struct WelfareHomeView: View {
     private func platformGrid(for tab: WelfareTab) -> some View {
         let platforms = currentOrderedPlatforms(for: tab)
 
-        return ScrollView(showsIndicators: false) {
-            if platforms.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer().frame(height: 60)
-                    Image(systemName: "square.grid.3x3")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    Text("暂无平台")
-                        .font(.system(size: 15))
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
-                    spacing: 16
-                ) {
-                    ForEach(Array(platforms.enumerated()), id: \.element.id) { index, platform in
-                        if isEditMode {
-                            PlatformSortableCard(
-                                platform: platform, index: index, gradient: platformGradient(platform.name),
-                                onMove: { fromIdx, toIdx in movePlatform(from: fromIdx, to: toIdx, tab: tab) },
-                                onEnterEditMode: { withAnimation { isEditMode = true } }
-                            )
-                        } else {
-                            PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    navigatePlatformID = platform.id
-                                }
-                                .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 12) {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    navigatePlatformID = nil
-                                    withAnimation { isEditMode = true }
-                                }
-                                .frame(width: 72, height: 86)
+        return ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                if platforms.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer().frame(height: 60)
+                        Image(systemName: "square.grid.3x3")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text("暂无平台")
+                            .font(.system(size: 15))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
+                        spacing: 16
+                    ) {
+                        ForEach(Array(platforms.enumerated()), id: \.element.id) { index, platform in
+                            if isEditMode {
+                                PlatformSortableCard(
+                                    platform: platform, index: index, gradient: platformGradient(platform.name),
+                                    onMove: { fromIdx, toIdx in movePlatform(from: fromIdx, to: toIdx, tab: tab) },
+                                    onEnterEditMode: { withAnimation { isEditMode = true } },
+                                    onEdgeProximity: { direction in
+                                        handleEdgeProximity(direction: direction, proxy: proxy, platforms: platforms, currentIndex: index)
+                                    }
+                                )
+                            } else {
+                                PlatformIconCard(platform: platform, gradient: platformGradient(platform.name))
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        navigatePlatformID = platform.id
+                                    }
+                                    .onLongPressGesture(minimumDuration: 0.5, maximumDistance: 12) {
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        navigatePlatformID = nil
+                                        withAnimation { isEditMode = true }
+                                    }
+                                    .frame(width: 72, height: 86)
+                            }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 100)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 100)
+            }
+            .onChange(of: isEditMode) { editing in
+                if !editing {
+                    stopAutoScroll()
+                }
             }
         }
+    }
+
+    // MARK: - 边缘自动滚动逻辑
+
+    private func handleEdgeProximity(direction: CGFloat, proxy: ScrollViewProxy, platforms: [YBoxPlatform2], currentIndex: Int) {
+        // direction: -1 靠近顶部 / 0 不靠近 / 1 靠近底部
+        guard direction != 0 else {
+            stopAutoScroll()
+            return
+        }
+
+        // 方向变化时重启定时器
+        if autoScrollDirection != direction {
+            autoScrollDirection = direction
+            startAutoScroll(direction: direction, proxy: proxy, platforms: platforms, currentIndex: currentIndex)
+        }
+    }
+
+    private func startAutoScroll(direction: CGFloat, proxy: ScrollViewProxy, platforms: [YBoxPlatform2], currentIndex: Int) {
+        stopAutoScroll()
+
+        let cols = 4
+        let scrollStep = 2 // 每次滚动2行
+
+        autoScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
+            Task { @MainActor in
+                // 用当前最新的排序数据查找实际位置（排序过程中 index 会变）
+                let currentPlatformId = platforms[currentIndex].id
+                let currentList = platforms
+                guard let realIdx = currentList.firstIndex(where: { $0.id == currentPlatformId }) else {
+                    stopAutoScroll()
+                    return
+                }
+
+                let targetIdx: Int
+                if direction < 0 {
+                    // 向上滚动
+                    targetIdx = max(0, realIdx - cols * scrollStep)
+                } else {
+                    // 向下滚动
+                    targetIdx = min(currentList.count - 1, realIdx + cols * scrollStep)
+                }
+
+                guard targetIdx >= 0, targetIdx < currentList.count, targetIdx != realIdx else {
+                    stopAutoScroll()
+                    return
+                }
+
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(currentList[targetIdx].id, anchor: direction < 0 ? .top : .bottom)
+                }
+            }
+        }
+        RunLoop.main.add(autoScrollTimer!, forMode: .common)
+    }
+
+    private func stopAutoScroll() {
+        autoScrollTimer?.invalidate()
+        autoScrollTimer = nil
+        autoScrollDirection = 0
     }
 
     private func destinationView(for platform: YBoxPlatform2) -> AnyView {
@@ -357,6 +433,7 @@ struct PlatformSortableCard: View {
     let gradient: [Color]
     let onMove: (Int, Int) -> Void
     let onEnterEditMode: () -> Void
+    var onEdgeProximity: ((CGFloat) -> Void)? = nil
 
     @State private var offset = CGSize.zero
     @State private var isPickedUp = false
@@ -377,12 +454,31 @@ struct PlatformSortableCard: View {
         .offset(offset)
         .zIndex(isPickedUp ? 999 : 0)
         .gesture(
-            LongPressGesture(minimumDuration: 0.3)
+            // maximumDistance: 长按等待期间手指移动超过 10pt 即判定为滚动，让 ScrollView 接管
+            LongPressGesture(minimumDuration: 0.4, maximumDistance: 10)
                 .onEnded { _ in
                     isPickedUp = true
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
-                .sequenced(before: DragGesture(minimumDistance: 0))
+                // minimumDistance: 长按成功后也需移动 15pt 才算拖动，避免误触
+                .sequenced(before: DragGesture(minimumDistance: 15, coordinateSpace: .global)
+                    .onChanged { value in
+                        // 检测边缘 proximity（全局坐标），通知父视图触发自动滚动
+                        let globalY = value.location.y
+                        let screenH = UIScreen.main.bounds.height
+                        let threshold: CGFloat = 100
+                        if globalY < threshold {
+                            // 靠近顶部
+                            onEdgeProximity?(-1)
+                        } else if globalY > screenH - threshold {
+                            // 靠近底部
+                            onEdgeProximity?(1)
+                        } else {
+                            // 不在边缘区域
+                            onEdgeProximity?(0)
+                        }
+                    }
+                )
                 .onChanged { value in
                     switch value {
                     case .second(_, let drag?):
@@ -392,6 +488,9 @@ struct PlatformSortableCard: View {
                     }
                 }
                 .onEnded { value in
+                    // 停止自动滚动
+                    onEdgeProximity?(0)
+
                     if case .second(_, let drag?) = value {
                         let cols = 4
                         let currentRow = index / cols
