@@ -308,7 +308,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
         }
     }
 
-    /// 加载漫画图片列表：对每个剧集调用 playerContent，解析 manga:// 协议为图片数组
+    /// 加载漫画图片列表
+    /// 优化：如果 episode URL 已经是 manga:// 或 pics:// 协议，直接解析，不再调用 playerContent
     private func loadComicImages(for episodes: [FuliEpisode], inject: [String: Any]) async -> [FuliEpisode] {
         guard let engine = engine else { return episodes }
 
@@ -316,6 +317,19 @@ final class WelfarePythonSpiderService: FuliBaseService {
             for (index, ep) in episodes.enumerated() {
                 group.addTask { [weak self] in
                     guard let self = self else { return (index, ep) }
+
+                    // 快速路径：URL 已经是 manga:// 或 pics:// 协议，直接解析
+                    if self.mapper.isMangaProtocol(ep.url) {
+                        let images = self.mapper.parseMangaURL(ep.url)
+                        if !images.isEmpty {
+                            var newEp = ep
+                            newEp.images = images
+                            return (index, newEp)
+                        }
+                        return (index, ep)
+                    }
+
+                    // 慢速路径：调用 playerContent 获取 manga:// 协议 URL
                     do {
                         let playerResult = try await engine.callPlayerContentAsync(
                             vodId: "",
