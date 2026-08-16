@@ -249,6 +249,7 @@
 		EB43DD29E9F5BC7D9B136A4B /* AliyunMediaDownloader.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */; settings = {ATTRIBUTES = (Required, ); }; };
 		ED466A8C3381025D33D7B279 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AB4AB6020CDCCB8ACDFA310B /* libc++.tbd */; };
 		EE85FEE2D9F84D5CB8FA5188 /* FuliPlatformMainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */; };
+			877D2B22A7BFDEE6213C50E3 /* FuliCategoryNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478C9E5D3EEDB8ED50184C3F /* FuliCategoryNavigatorView.swift */; };
 		EF0173E4D3D446DEEEA31BA8 /* PushPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17072B53D798B9CAC7FE2853 /* PushPlayView.swift */; };
 		EF43A68D1A60F34CDEFFE7BA /* Libplacebo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 415ACD68925E99AA066FD3EB /* Libplacebo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		EF66A1860129C0CCCB84E8A6 /* Libavcodec.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -499,6 +500,7 @@
 		B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliVideoBridgeView.swift; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
 		B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformMainView.swift; sourceTree = "<group>"; };
+			478C9E5D3EEDB8ED50184C3F /* FuliCategoryNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliCategoryNavigatorView.swift; sourceTree = "<group>"; };
 		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -840,6 +842,7 @@
 				99DA7DCE2A7043ABB95571FE518A8055 /* SearchWiggleModifier.swift */,
 				A1B2C3D4E5F67890ABCDEF12 /* MangaReaderView.swift */,
 				B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */,
+						478C9E5D3EEDB8ED50184C3F /* FuliCategoryNavigatorView.swift */,
 				B10160 /* ComicDetailBridgeView.swift */,
 				CDCEBC3E4EE94F1A9500D38E /* DailyBattleMainView.swift */,
 				B10127 /* ShortDramaView.swift */,
@@ -1132,6 +1135,7 @@
 				C3C049766F4C4425B96E349D8163966B /* SearchWiggleModifier.swift in Sources */,
 				D7A1B2C3E4F5A67890123456 /* MangaReaderView.swift in Sources */,
 				EE85FEE2D9F84D5CB8FA5188 /* FuliPlatformMainView.swift in Sources */,
+						877D2B22A7BFDEE6213C50E3 /* FuliCategoryNavigatorView.swift in Sources */,
 				C0MISSAV002 /* MissAVViews.swift in Sources */,
 				51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */,
 				A10126 /* ShortDramaService.swift in Sources */,
