@@ -11,7 +11,7 @@ struct RemoteSourceStatusBar: View {
         case .idle:
             return ("antenna.radiowaves.left.and.right", "远程源待同步", .white, Color.gray, Color.gray.opacity(0.6))
         case .loading:
-            return ("arrow.triangle.2.circlepath", "远程源同步中...", .white, Color.blue, Color.blue.opacity(0.6))
+            return ("arrow.triangle.2.circlepath", "远程源同步中...请同步完成后再使用", .white, Color.blue, Color.blue.opacity(0.6))
         case .loadedRemote(let version):
             return ("checkmark.icloud.fill", "远程源已更新 v\(version)", .white, Color.green, Color.green.opacity(0.6))
         case .loadedCache(let version):
@@ -72,7 +72,7 @@ struct RemoteSourceStatusBar: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { isVisible = false }
         case .loading:
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { isVisible = true }
-            scheduleAutoDismiss(after: 15.0)
+            // loading 状态不自动消失，一直显示到同步完成/失败
         case .loadedRemote, .loadedCache:
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { isVisible = true }
             scheduleAutoDismiss(after: 4.0)
