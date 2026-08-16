@@ -18,6 +18,7 @@ struct WelfareHomeView: View {
     // 拖动排序边缘自动滚动
     @State private var autoScrollDirection: CGFloat = 0 // -1 上 / 0 停 / 1 下
     @State private var autoScrollTimer: CADisplayLink?
+    @State private var autoScrollTarget: AutoScrollTarget?
     @State private var scrollViewRef: UIScrollView?
     private let edgeThreshold: CGFloat = 80 // 距边缘多少 pt 触发自动滚动
 
@@ -165,13 +166,10 @@ struct WelfareHomeView: View {
                                     onMove: { fromIdx, toIdx in
                                         movePlatform(from: fromIdx, to: toIdx, tab: tab)
                                     },
-                                    onEdgeProximity: { direction, scrollView in
+                                    onEdgeProximity: { direction in
                                         handleEdgeProximity(
                                             direction: direction,
-                                            scrollView: scrollView,
-                                            proxy: proxy,
-                                            platforms: platforms,
-                                            currentPlatformId: platform.id
+                                            proxy: proxy
                                         )
                                     }
                                 )
@@ -213,31 +211,52 @@ struct WelfareHomeView: View {
 
     private func handleEdgeProximity(
         direction: CGFloat,
-        scrollView: UIScrollView?,
-        proxy: ScrollViewProxy,
-        platforms: [YBoxPlatform2],
-        currentPlatformId: String
+        proxy: ScrollViewProxy
     ) {
         guard direction != 0 else {
             stopAutoScroll()
             return
         }
 
-        if autoScrollDirection != direction {
+        // direction 同时表示方向和速度（-1.0 ~ 1.0，绝对值越大越快）
+        // 方向改变或速度变化较大时，更新自动滚动
+        let currentSpeed = abs(autoScrollDirection)
+        let newSpeed = abs(direction)
+        let directionChanged = (autoScrollDirection > 0) != (direction > 0)
+        let speedChanged = abs(currentSpeed - newSpeed) > 0.2
+
+        if directionChanged || autoScrollDirection == 0 {
             autoScrollDirection = direction
-            startAutoScroll(direction: direction, scrollView: scrollView)
+            startAutoScroll(direction: direction)
+        } else if speedChanged {
+            autoScrollDirection = direction
+            updateAutoScrollSpeed(direction: direction)
         }
     }
 
-    private func startAutoScroll(direction: CGFloat, scrollView: UIScrollView?) {
+    private func startAutoScroll(direction: CGFloat) {
         stopAutoScroll()
 
-        guard let scrollView = scrollView else { return }
+        // 基础速度 3pt/帧，乘以速度因子（0.3~1.0）
+        let baseSpeed: CGFloat = 3.0
+        let speedFactor = max(0.3, abs(direction))
+        let actualSpeed = baseSpeed * speedFactor
+        let actualDirection: CGFloat = direction > 0 ? 1 : -1
 
-        let speed: CGFloat = 4.0 // 每帧滚动的点数
-
-        autoScrollTimer = CADisplayLink(target: AutoScrollTarget(scrollView: scrollView, direction: direction, speed: speed), selector: #selector(AutoScrollTarget.tick(_:)))
+        autoScrollTarget = AutoScrollTarget(
+            direction: actualDirection,
+            speed: actualSpeed,
+            scrollViewRef: scrollViewRef
+        )
+        autoScrollTimer = CADisplayLink(target: autoScrollTarget!, selector: #selector(AutoScrollTarget.tick(_:)))
         autoScrollTimer?.add(to: .main, forMode: .common)
+    }
+
+    private func updateAutoScrollSpeed(direction: CGFloat) {
+        guard let target = autoScrollTarget else { return }
+        let baseSpeed: CGFloat = 3.0
+        let speedFactor = max(0.3, abs(direction))
+        target.speed = baseSpeed * speedFactor
     }
 
     private func stopAutoScroll() {
@@ -396,19 +415,19 @@ struct WelfareHomeView: View {
 
 // MARK: - 自动滚动 Target（用于 CADisplayLink）
 class AutoScrollTarget: NSObject {
-    weak var scrollView: UIScrollView?
     let direction: CGFloat
-    let speed: CGFloat
+    var speed: CGFloat  // 可变，支持动态调整速度
+    weak var scrollViewRef: UIScrollView?
 
-    init(scrollView: UIScrollView, direction: CGFloat, speed: CGFloat) {
-        self.scrollView = scrollView
+    init(direction: CGFloat, speed: CGFloat, scrollViewRef: UIScrollView?) {
         self.direction = direction
         self.speed = speed
+        self.scrollViewRef = scrollViewRef
         super.init()
     }
 
     @objc func tick(_ displayLink: CADisplayLink) {
-        guard let scrollView = scrollView else {
+        guard let scrollView = scrollViewRef else {
             displayLink.invalidate()
             return
         }
@@ -480,299 +499,136 @@ struct PlatformIconCard: View {
     }
 }
 
-// MARK: - 可拖动排序卡片（UIKit 手势实现）
-struct PlatformSortableCard: UIViewRepresentable {
+// MARK: - 可拖动排序卡片（纯 SwiftUI 实现）
+struct PlatformSortableCard: View {
     let platform: YBoxPlatform2
     let index: Int
     let totalCount: Int
     let gradient: [Color]
     let onMove: (Int, Int) -> Void
-    var onEdgeProximity: ((CGFloat, UIScrollView?) -> Void)? = nil
+    var onEdgeProximity: ((CGFloat) -> Void)? = nil
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
+    // 拖动状态
+    @State private var isDragging = false
+    @State private var dragOffset: CGSize = .zero
+    @State private var currentIndex: Int = 0
+    @State private var cardGlobalY: CGFloat = 0
 
-    func makeUIView(context: Context) -> UIView {
-        let cardView = UIView()
-        cardView.backgroundColor = .clear
+    // 震动反馈
+    private let lightFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let mediumFeedback = UIImpactFeedbackGenerator(style: .medium)
 
-        // 嵌入 SwiftUI 内容
-        let content = UIHostingController(rootView: CardContent(gradient: gradient, icon: platform.icon, name: platform.name))
-        content.view.backgroundColor = .clear
-        content.view.translatesAutoresizingMaskIntoConstraints = false
-        content.view.isUserInteractionEnabled = false
-        cardView.addSubview(content.view)
+    // 布局常量
+    private let columns = 4
+    private let cardWidth: CGFloat = 88   // 72 + 16 spacing
+    private let cardHeight: CGFloat = 102 // 86 + 16 spacing
 
-        NSLayoutConstraint.activate([
-            content.view.topAnchor.constraint(equalTo: cardView.topAnchor),
-            content.view.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
-            content.view.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
-            content.view.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
-        ])
-
-        // 长按手势
-        let longPress = UILongPressGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handleLongPress(_:))
-        )
-        longPress.minimumPressDuration = 0.4
-        longPress.allowableMovement = 30 // 增大允许移动距离，提升滚动手感
-        longPress.delegate = context.coordinator
-        longPress.cancelsTouchesInView = false
-        cardView.addGestureRecognizer(longPress)
-
-        // 拖动手势（默认禁用，长按成功后启用）
-        let pan = UIPanGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handlePan(_:))
-        )
-        pan.delegate = context.coordinator
-        pan.isEnabled = false
-        pan.cancelsTouchesInView = false
-        cardView.addGestureRecognizer(pan)
-
-        context.coordinator.longPressGesture = longPress
-        context.coordinator.panGesture = pan
-        context.coordinator.hostingView = content.view
-        context.coordinator.cardView = cardView
-
-        return cardView
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.parent = self
-        // 更新 hosting view 的内容
-        if let hostingView = context.coordinator.hostingView {
-            // 移除旧的
-            hostingView.subviews.forEach { $0.removeFromSuperview() }
-            // 重新添加（SwiftUI UIHostingController 不太好动态更新，这里用 workaround）
-        }
-    }
-
-    // MARK: - Coordinator
-    class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var parent: PlatformSortableCard
-        weak var longPressGesture: UILongPressGestureRecognizer?
-        weak var panGesture: UIPanGestureRecognizer?
-        weak var hostingView: UIView?
-        weak var cardView: UIView?
-
-        var isDragging = false
-        var originalCenter: CGPoint = .zero
-        var lastTargetRow: Int = -1
-        var lastTargetCol: Int = -1
-        var initialIndex: Int = 0
-
-        let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
-        let mediumFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
-
-        init(_ parent: PlatformSortableCard) {
-            self.parent = parent
-            super.init()
-            feedbackGenerator.prepare()
-            mediumFeedbackGenerator.prepare()
-        }
-
-        // MARK: - UIGestureRecognizerDelegate
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            // 长按手势未触发拖动时，允许与 ScrollView 同时识别（保证滚动流畅）
-            if gestureRecognizer is UILongPressGestureRecognizer {
-                return true
-            }
-            // 拖动模式下，阻止与 ScrollView 同时识别
-            if gestureRecognizer is UIPanGestureRecognizer, isDragging {
-                return false
-            }
-            return true
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            // 我们的手势不要求其他手势失败（让 ScrollView 优先判断）
-            return false
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            // 我们的长按手势不需要等其他手势失败
-            return false
-        }
-
-        // MARK: - 长按手势
-
-        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            guard let cardView = cardView else { return }
-
-            switch gesture.state {
-            case .began:
-                // 长按成功，进入拖动模式
-                isDragging = true
-                initialIndex = parent.index
-                originalCenter = cardView.center
-
-                // 启用拖动手势
-                panGesture?.isEnabled = true
-
-                // 抬起效果
-                UIView.animate(withDuration: 0.15) {
-                    cardView.transform = CGAffineTransform(scaleX: 1.15, y: 1.15)
-                    cardView.layer.shadowColor = UIColor.black.cgColor
-                    cardView.layer.shadowOpacity = 0.3
-                    cardView.layer.shadowOffset = CGSize(width: 0, height: 5)
-                    cardView.layer.shadowRadius = 10
+    var body: some View {
+        GeometryReader { geo in
+            CardContent(gradient: gradient, icon: platform.icon, name: platform.name)
+                .frame(width: 72, height: 86)
+                .offset(dragOffset)
+                .scaleEffect(isDragging ? 1.15 : 1.0)
+                .shadow(color: isDragging ? .black.opacity(0.3) : .clear,
+                        radius: isDragging ? 10 : 0,
+                        y: isDragging ? 5 : 0)
+                .zIndex(isDragging ? 100 : 0)
+                .onAppear {
+                    cardGlobalY = geo.frame(in: .global).midY
                 }
-
-                // 震动反馈
-                feedbackGenerator.impactOccurred()
-
-                // 重置目标位置追踪
-                lastTargetRow = -1
-                lastTargetCol = -1
-
-            case .ended, .cancelled, .failed:
-                // 如果长按结束但还没开始拖动，也结束
-                if !isDragging { return }
-                // 拖动手势会处理结束逻辑
-
-            default:
-                break
-            }
-        }
-
-        // MARK: - 拖动手势
-
-        @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-            guard let cardView = cardView, isDragging else { return }
-
-            let translation = gesture.translation(in: cardView.superview)
-
-            switch gesture.state {
-            case .began, .changed:
-                // 移动卡片
-                cardView.center = CGPoint(
-                    x: originalCenter.x + translation.x,
-                    y: originalCenter.y + translation.y
+                .gesture(
+                    // 长按进入拖动模式
+                    LongPressGesture(minimumDuration: 0.4, maximumDistance: 30)
+                        .onEnded { _ in
+                            lightFeedback.prepare()
+                            mediumFeedback.prepare()
+                            lightFeedback.impactOccurred()
+                            currentIndex = index
+                            cardGlobalY = geo.frame(in: .global).midY
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                isDragging = true
+                            }
+                        }
+                        .sequenced(before:
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    guard isDragging else { return }
+                                    dragOffset = value.translation
+                                    handleDragChange(
+                                        translation: value.translation,
+                                        currentGlobalY: cardGlobalY + value.translation.height
+                                    )
+                                }
+                                .onEnded { _ in
+                                    handleDragEnd()
+                                }
+                        )
                 )
+        }
+        .frame(width: 72, height: 86)
+        .animation(.easeInOut(duration: 0.2), value: isDragging)
+    }
 
-                // 计算目标位置
-                let cols = 4
-                let cardWidth: CGFloat = 88 // 72 + 16 spacing
-                let cardHeight: CGFloat = 102 // 86 + 16 spacing
-                let currentRow = initialIndex / cols
-                let currentCol = initialIndex % cols
+    private func handleDragChange(translation: CGSize, currentGlobalY: CGFloat) {
+        let currentRow = currentIndex / columns
+        let currentCol = currentIndex % columns
 
-                let deltaRow = Int(round(translation.y / cardHeight))
-                let deltaCol = Int(round(translation.x / cardWidth))
+        let deltaRow = Int(round(translation.height / cardHeight))
+        let deltaCol = Int(round(translation.width / cardWidth))
 
-                var targetRow = currentRow + deltaRow
-                var targetCol = currentCol + deltaCol
+        var targetRow = currentRow + deltaRow
+        var targetCol = currentCol + deltaCol
 
-                // 限制列范围
-                targetCol = min(max(targetCol, 0), cols - 1)
+        targetCol = min(max(targetCol, 0), columns - 1)
 
-                // 计算总行数
-                let totalRows = (parent.totalCount + cols - 1) / cols
-                targetRow = min(max(targetRow, 0), totalRows - 1)
+        let totalRows = (totalCount + columns - 1) / columns
+        targetRow = min(max(targetRow, 0), totalRows - 1)
 
-                // 计算目标 index
-                var targetIndex = targetRow * cols + targetCol
-                targetIndex = min(max(targetIndex, 0), parent.totalCount - 1)
+        var targetIndex = targetRow * columns + targetCol
+        targetIndex = min(max(targetIndex, 0), totalCount - 1)
 
-                // 初始化上次位置
-                if lastTargetRow == -1 {
-                    lastTargetRow = currentRow
-                    lastTargetCol = currentCol
-                }
+        // 位置变化时触发轻震动（碰到卡片的手感）
+        if targetIndex != currentIndex {
+            lightFeedback.impactOccurred(intensity: 0.6)
+            lightFeedback.prepare()
+            onMove(currentIndex, targetIndex)
+            currentIndex = targetIndex
+        }
 
-                // 行或列变化时触发震动（"碰到"其他卡片的手感）
-                if targetRow != lastTargetRow || targetCol != lastTargetCol {
-                    feedbackGenerator.impactOccurred(intensity: 0.6)
-                    lastTargetRow = targetRow
-                    lastTargetCol = targetCol
+        // 边缘自动滚动检测（基于屏幕坐标）
+        if let edgeProximity = onEdgeProximity, isDragging {
+            let screenHeight = UIScreen.main.bounds.height
+            let edgeMargin: CGFloat = 100  // 距屏幕边缘多少 pt 触发
 
-                    // 触发位置交换
-                    if targetIndex != initialIndex {
-                        parent.onMove(initialIndex, targetIndex)
-                        // 更新初始 index 为新位置，确保后续计算正确
-                        initialIndex = targetIndex
-                    }
-                }
+            let distanceFromTop = currentGlobalY
+            let distanceFromBottom = screenHeight - currentGlobalY
 
-                // 检测边缘 proximity
-                if let superview = cardView.superview {
-                    let locationInSuper = gesture.location(in: superview)
-                    let viewHeight = superview.bounds.height
-                    let threshold: CGFloat = 80
-
-                    // 向上查找 ScrollView
-                    var scrollView: UIScrollView? = nil
-                    var current: UIView? = superview
-                    while let v = current {
-                        if let sv = v as? UIScrollView {
-                            scrollView = sv
-                            break
-                        }
-                        current = v.superview
-                    }
-
-                    if let scrollView = scrollView {
-                        let locationInScroll = gesture.location(in: scrollView)
-                        let contentOffset = scrollView.contentOffset
-                        let visibleHeight = scrollView.bounds.height
-
-                        if locationInScroll.y - contentOffset.y < threshold {
-                            // 靠近顶部
-                            parent.onEdgeProximity?(-1, scrollView)
-                        } else if contentOffset.y + visibleHeight - locationInScroll.y < threshold {
-                            // 靠近底部
-                            parent.onEdgeProximity?(1, scrollView)
-                        } else {
-                            parent.onEdgeProximity?(0, scrollView)
-                        }
-                    }
-                }
-
-            case .ended, .cancelled, .failed:
-                // 停止边缘检测
-                parent.onEdgeProximity?(0, nil)
-
-                // 重置位置追踪
-                lastTargetRow = -1
-                lastTargetCol = -1
-
-                // 落位动画
-                UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
-                    cardView.transform = .identity
-                    cardView.center = self.originalCenter
-                    cardView.layer.shadowOpacity = 0
-                } completion: { _ in
-                    // 清理
-                    self.isDragging = false
-                    self.panGesture?.isEnabled = false
-                }
-
-                // 落位震动反馈
-                mediumFeedbackGenerator.impactOccurred()
-                // 重新 prepare 以便下次使用
-                mediumFeedbackGenerator.prepare()
-                feedbackGenerator.prepare()
-
-            default:
-                break
+            if distanceFromTop < edgeMargin {
+                // 越靠近顶部，滚动越快
+                let speedFactor = max(0.3, 1 - distanceFromTop / edgeMargin)
+                edgeProximity(-speedFactor)
+            } else if distanceFromBottom < edgeMargin {
+                let speedFactor = max(0.3, 1 - distanceFromBottom / edgeMargin)
+                edgeProximity(speedFactor)
+            } else {
+                edgeProximity(0)
             }
         }
     }
 
-    // MARK: - 卡片内容（纯 SwiftUI）
+    private func handleDragEnd() {
+        onEdgeProximity?(0)
+        mediumFeedback.impactOccurred()
+        mediumFeedback.prepare()
+        lightFeedback.prepare()
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            isDragging = false
+            dragOffset = .zero
+        }
+    }
+
+    // MARK: - 卡片内容
     struct CardContent: View {
         let gradient: [Color]
         let icon: String
