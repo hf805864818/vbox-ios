@@ -165,12 +165,19 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
             .onAppear { loadDetail() }
             .fullScreenCover(isPresented: $showPlayer) {
                 if let playerVideo = playerVideo {
-                    // 传递当前线路的集数列表：
-                    // - 当前集 URL 替换为 playerContent 已解析的直链（m3u8 等）
-                    // - 其他集保持原始 URL（播放器内切集时由播放器处理）
-                    // - 单集时不传（播放器直接用 vodPlayUrl）
+                    // 自动播放路链适配（v13.0 分流逻辑）：
+                    // - 当前线路剧集 URL 本身是媒体直链（m3u8/mp4 等）且集数 >1 →
+                    //   传 preParsedEpisodes，当前集用已解析直链，其他集保持原始直链，
+                    //   播放器显示集数列表并支持内部切集/自动下一集。
+                    // - 当前线路剧集 URL 是网页地址/需二次解析，或只有单集 → 传 nil，
+                    //   播放器直接用 vodPlayUrl 播放当前集，避免把网页 URL 带入播放器
+                    //   导致切集/自动下一集走解析器链路失败或播错资源。
                     let episodesToPass: [(name: String, url: String)]? = {
-                        guard currentEpisodes.count > 1 else { return nil }
+                        guard currentEpisodes.count > 1,
+                              let firstUrl = currentEpisodes.first?.url,
+                              MediaURLChecker.isLikelyDirectMediaUrl(firstUrl) else {
+                            return nil
+                        }
                         return currentEpisodes.map { ep in
                             if ep.id == selectedEpisode?.id,
                                let resolved = playerVideo.vodPlayUrl, !resolved.isEmpty {
