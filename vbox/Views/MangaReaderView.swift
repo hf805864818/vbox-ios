@@ -267,21 +267,32 @@ struct MangaImageView: View {
         // 构建带 @UA@Referer 后缀的 URL
         // 使用桌面浏览器 UA，因为网站（桌面浏览器）能正常显示图片
         let finalURL: String
+        let mode: PlatformImageMode
         if let ref = referer, !ref.isEmpty {
             let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
             let normalizedRef = ref.hasSuffix("/") ? ref : "\(ref)/"
             let sslFlag = sslBypass ? "@X-VBox-SSL-Bypass=1" : ""
             finalURL = "\(url)@User-Agent=\(ua)@Referer=\(normalizedRef)\(sslFlag)"
+            mode = .mysteryMovie
         } else {
-            finalURL = url
+            // 无 Referer 时使用裸 URL + .plain 模式
+            // 避免错误使用 .mysteryMovie 模式的硬编码默认 Referer（https://h4ivs.sm431.vip/）
+            // 该默认 Referer 对漫画平台是错误的，会导致图片服务器返回 403 防盗链拒绝
+            let sslFlag = sslBypass ? "@X-VBox-SSL-Bypass=1" : ""
+            if sslBypass {
+                finalURL = "\(url)\(sslFlag)"
+            } else {
+                finalURL = url
+            }
+            mode = .plain
         }
 
         print("[MangaImageView] 加载图片: \(url.prefix(80))...")
-        print("[MangaImageView] Referer: \(referer ?? "无")")
+        print("[MangaImageView] Referer: \(referer ?? "无"), mode: \(mode)")
 
         let loaded = await PlatformImageLoader.shared.loadImageWithDetail(
             urlString: finalURL,
-            mode: .mysteryMovie
+            mode: mode
         )
 
         await MainActor.run {
