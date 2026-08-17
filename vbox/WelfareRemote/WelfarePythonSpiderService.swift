@@ -97,7 +97,8 @@ final class WelfarePythonSpiderService: FuliBaseService {
         self.platform = platform
         super.init(
             platformName: platform.name,
-            defaultHosts: platform.defaultHosts
+            defaultHosts: platform.defaultHosts,
+            platformKey: platform.platformKey
         )
     }
 

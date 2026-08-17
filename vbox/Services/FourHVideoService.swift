@@ -15,7 +15,8 @@ class FourHVideoService: FuliBaseService {
                 "https://4h05.cc",
                 "https://4h04.cc",
                 "https://4h03.cc"
-            ]
+            ],
+            platformKey: "four_h_video"
         )
     }
 

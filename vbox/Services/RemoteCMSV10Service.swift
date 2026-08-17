@@ -20,7 +20,7 @@ final class RemoteCMSV10Service: FuliBaseService {
 
     init(platform: WelfarePlatform) {
         self.platform = platform
-        super.init(platformName: platform.name, defaultHosts: platform.defaultHosts)
+        super.init(platformName: platform.name, defaultHosts: platform.defaultHosts, platformKey: platform.platformKey)
     }
 
     override var contentCategory: FuliContentCategory {

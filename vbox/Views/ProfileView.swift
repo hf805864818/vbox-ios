@@ -1,6 +1,56 @@
 import SwiftUI
 import PhotosUI
 
+// MARK: - 福利观看记录播放桥接
+
+/// 用于从观看记录/收藏点击播放福利视频时，携带平台定位信息
+struct WelfareHistoryItem: Identifiable {
+    let id = UUID()
+    let platformKey: String
+    let vodId: String
+    let vodName: String
+    let vodPic: String
+}
+
+/// 福利视频播放桥接包装视图，添加关闭按钮
+struct WelfareBridgeContainer: View {
+    let platformKey: String
+    let vodId: String
+    let vodName: String
+    let vodPic: String
+    @Binding var item: WelfareHistoryItem?
+
+    var body: some View {
+        Group {
+            if let bridgeView = WelfarePlatformRouter.shared.makeVideoBridgeView(
+                platformKey: platformKey,
+                vodId: vodId,
+                vodName: vodName,
+                vodPic: vodPic
+            ) {
+                bridgeView
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.orange)
+                    Text("该福利平台已下线或不可用")
+                        .font(.system(size: 15))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { item = nil }) {
+                    Image(systemName: "xmark")
+                        .foregroundColor(.accentColor)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - ProfileView
 
 struct ProfileView: View {
@@ -18,6 +68,7 @@ struct ProfileView: View {
     @State private var showDownloads: Bool = false
     @State private var showSettingsSheet: Bool = false
     @State private var selectedVideoItem: VodItem? = nil
+    @State private var welfareHistoryItem: WelfareHistoryItem? = nil
     @State private var showWelfareSheet: Bool = false
     @State private var showWelfareSettings: Bool = false
     @State private var welfarePasswordInput: String = ""
@@ -132,6 +183,18 @@ struct ProfileView: View {
         .fullScreenCover(item: $selectedVideoItem) { video in
             VideoDetailView(video: video)
         }
+        .fullScreenCover(item: $welfareHistoryItem) { item in
+            NavigationView {
+                WelfareBridgeContainer(
+                    platformKey: item.platformKey,
+                    vodId: item.vodId,
+                    vodName: item.vodName,
+                    vodPic: item.vodPic,
+                    item: $welfareHistoryItem
+                )
+            }
+            .navigationViewStyle(.stack)
+        }
         .sheet(isPresented: $showFeedbackSheet) {
             feedbackSheet
         }
@@ -243,7 +306,18 @@ struct ProfileView: View {
                                     .lineLimit(1)
                                     .frame(width: 100, alignment: .leading)
                             }
-                            .onTapGesture { selectedVideoItem = makeVodItem(from: record) }
+                            .onTapGesture {
+                                if record.laiyuan.hasPrefix("[福利]"), !record.detailua.isEmpty {
+                                    welfareHistoryItem = WelfareHistoryItem(
+                                        platformKey: record.detailua,
+                                        vodId: record.detailurl,
+                                        vodName: record.name,
+                                        vodPic: record.imgurl
+                                    )
+                                } else {
+                                    selectedVideoItem = makeVodItem(from: record)
+                                }
+                            }
                         }
                     }
                 }
@@ -922,6 +996,7 @@ struct WatchHistoryView: View {
     @Environment(\.presentationMode) private var presentationMode
     @State private var historyRecords: [HistoryRecord] = []
     @State private var selectedVideo: VodItem? = nil
+    @State private var welfareHistoryItem: WelfareHistoryItem? = nil
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -975,7 +1050,16 @@ struct WatchHistoryView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                        if record.laiyuan.hasPrefix("[福利]"), !record.detailua.isEmpty {
+                            welfareHistoryItem = WelfareHistoryItem(
+                                platformKey: record.detailua,
+                                vodId: record.detailurl,
+                                vodName: record.name,
+                                vodPic: record.imgurl
+                            )
+                        } else {
+                            selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                        }
                     }
                     .padding(.vertical, 4)
                     .listRowBackground(Color.clear)
@@ -1039,6 +1123,18 @@ struct WatchHistoryView: View {
         .fullScreenCover(item: $selectedVideo) { video in
             VideoDetailView(video: video)
         }
+        .fullScreenCover(item: $welfareHistoryItem) { item in
+            NavigationView {
+                WelfareBridgeContainer(
+                    platformKey: item.platformKey,
+                    vodId: item.vodId,
+                    vodName: item.vodName,
+                    vodPic: item.vodPic,
+                    item: $welfareHistoryItem
+                )
+            }
+            .navigationViewStyle(.stack)
+        }
     }
 
     private func coverThumbnail(urlString: String) -> some View {
@@ -1080,6 +1176,7 @@ struct FavoriteView: View {
     @Environment(\.presentationMode) private var presentationMode
     @State private var favorites: [FavoriteRecord] = []
     @State private var selectedVideo: VodItem? = nil
+    @State private var welfareHistoryItem: WelfareHistoryItem? = nil
 
     var accentColor: Color {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
@@ -1129,7 +1226,16 @@ struct FavoriteView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                        if record.laiyuan.hasPrefix("[福利]"), !record.detailua.isEmpty {
+                            welfareHistoryItem = WelfareHistoryItem(
+                                platformKey: record.detailua,
+                                vodId: record.detailurl,
+                                vodName: record.name,
+                                vodPic: record.imgurl
+                            )
+                        } else {
+                            selectedVideo = VodItem(vodId: record.detailurl, vodName: record.name, vodPic: record.imgurl, vodRemarks: record.laiyuan)
+                        }
                     }
                     .padding(.vertical, 4)
                     .listRowBackground(Color.clear)
@@ -1185,6 +1291,18 @@ struct FavoriteView: View {
         }
         .fullScreenCover(item: $selectedVideo) { video in
             VideoDetailView(video: video)
+        }
+        .fullScreenCover(item: $welfareHistoryItem) { item in
+            NavigationView {
+                WelfareBridgeContainer(
+                    platformKey: item.platformKey,
+                    vodId: item.vodId,
+                    vodName: item.vodName,
+                    vodPic: item.vodPic,
+                    item: $welfareHistoryItem
+                )
+            }
+            .navigationViewStyle(.stack)
         }
     }
 

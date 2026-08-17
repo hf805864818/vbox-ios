@@ -88,7 +88,15 @@ struct DailyBattleHomeTab: View {
                     Image(systemName: "antenna.radiowaves.left.and.right.slash")
                         .font(.system(size: 50)).foregroundColor(.secondary)
                     Text(err).font(.system(size: 15, weight: .medium)).multilineTextAlignment(.center)
-                    Button(action: { loadError = nil; refreshVideos() }) {
+                    Button(action: {
+                        loadError = nil; isLoading = true
+                        if categories.isEmpty {
+                            svc.isReady = false
+                            loadCategories()
+                        } else {
+                            refreshVideos()
+                        }
+                    }) {
                         Label("重试", systemImage: "arrow.clockwise")
                             .font(.system(size: 14))
                             .padding(.horizontal, 20).padding(.vertical, 8)
@@ -157,8 +165,8 @@ struct DailyBattleHomeTab: View {
             }
         }
         .onAppear {
-            // 等待 probeHost 完成后再加载数据
-            if svc.isReady && categories.isEmpty {
+            // 首次进入时加载数据（loadCategories 内部会处理探测）
+            if categories.isEmpty {
                 loadCategories()
             }
         }
@@ -175,6 +183,14 @@ struct DailyBattleHomeTab: View {
             // 确保 probeHost 已完成
             if !svc.isReady {
                 _ = await svc.probeHost()
+            }
+            // 探测后仍未就绪，说明所有域名不可达
+            if !svc.isReady {
+                await MainActor.run {
+                    isLoading = false
+                    loadError = "未能连接到服务器，请检查域名或网络"
+                }
+                return
             }
             let result = await svc.fetchHome()
             await MainActor.run {

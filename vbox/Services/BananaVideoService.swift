@@ -21,7 +21,8 @@ class BananaVideoService: FuliBaseService {
                 "https://618011.xyz",
                 "https://618010.xyz",
                 "https://618009.xyz"
-            ]
+            ],
+            platformKey: "banana_video"
         )
     }
 

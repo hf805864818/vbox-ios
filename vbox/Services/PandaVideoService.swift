@@ -14,7 +14,8 @@ class PandaVideoService: FuliBaseService {
             defaultHosts: [
                 "https://spiderscloudcn2.51111666.com",
                 "https://spiderscloudcn1.51111666.com"
-            ]
+            ],
+            platformKey: "panda_video"
         )
     }
 

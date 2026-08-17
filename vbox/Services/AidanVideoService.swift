@@ -12,7 +12,8 @@ class AidanVideoService: FuliBaseService {
     init() {
         super.init(
             platformName: "艾旦福利视频",
-            defaultHosts: ["https://www.lovedan.net"]
+            defaultHosts: ["https://www.lovedan.net"],
+            platformKey: "aidan_video"
         )
     }
 
