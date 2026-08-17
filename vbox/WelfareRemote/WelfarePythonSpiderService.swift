@@ -232,11 +232,18 @@ final class WelfarePythonSpiderService: FuliBaseService {
             let mapped = mapper.mapHome(result)
 
             // 如果 homeContent 没有返回 list，尝试调用 homeVideoContent
+            // 部分脚本（如 fuli74p.py）不实现 homeVideoContent，需容错处理
             if mapped.videos.isEmpty {
-                let videoResult = try await engine.callHomeVideoContentAsync(injectDict: inject)
-                if let list = videoResult.list, !list.isEmpty {
-                    let videos = list.compactMap { mapVideo($0) }
-                    return FuliHomeResult(categories: mapped.categories, videos: videos)
+                do {
+                    let videoResult = try await engine.callHomeVideoContentAsync(injectDict: inject)
+                    if let list = videoResult.list, !list.isEmpty {
+                        let videos = list.compactMap { mapVideo($0) }
+                        return FuliHomeResult(categories: mapped.categories, videos: videos)
+                    }
+                } catch {
+                    // homeVideoContent 不存在或执行失败时，仍然返回已获取的分类
+                    // 避免因 homeVideoContent 缺失导致整个首页"未能解析到分类"
+                    pyLog("⚠️ homeVideoContent 不可用，仅返回分类: \(error.localizedDescription)")
                 }
             }
 
