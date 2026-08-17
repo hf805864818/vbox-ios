@@ -136,18 +136,25 @@ def _spider_method_wrap(func):
 
 
 def _patch_requests():
-    """一次性 patch requests 模块，自动应用域名替换和代理
+    """一次性 patch requests 模块，自动应用域名替换、代理和 SSL 绕过
 
     当脚本直接使用 requests.get/post 而非 self.fetch/post 时，
     通过 _active_spider 获取当前 Spider 实例的注入配置，
     自动替换 URL 中的原始域名并应用代理。
+
+    SSL 绕过（v8 新增）:
+    - iOS CPython 无系统 CA 证书包，requests 库默认 verify=True 会导致
+      所有 HTTPS 请求因证书验证失败而抛出 SSLError
+    - patch 后自动注入 verify=False，确保不继承 base.spider 的脚本
+      （如 tuiimg.py / fuli74p.py）也能正常发起 HTTPS 请求
+    - 同时 patch Session.request 以覆盖 Session.get/post 内部调用
 
     安全性：
     - 普通资源（非福利）不注入 _vbox_effective_hosts，
       _apply() 返回原始 URL 和 None proxies，行为不变
     - 有 threading 时用 threading.local（并发安全）
     - 无 threading 时用全局变量（单线程安全，iOS CPython 默认单线程）
-    - 仅 patch get/post/Session.get/Session.post，不改变其他行为
+    - 仅 patch get/post/Session.get/Session.post/Session.request，不改变其他行为
     """
     try:
         import requests as _req
@@ -162,6 +169,7 @@ def _patch_requests():
     _orig_post = _req.post
     _orig_s_get = _req.Session.get
     _orig_s_post = _req.Session.post
+    _orig_s_request = _req.Session.request
 
     def _apply(url):
         """返回 (修正后的url, proxies字典)"""
@@ -186,34 +194,58 @@ def _patch_requests():
 
         return url, proxies
 
+    def _inject_ssl_bypass(kw):
+        """注入 verify=False，绕过 iOS CPython 无 CA 证书的问题"""
+        kw.setdefault('verify', False)
+
     def _patched_get(url, **kw):
         url, proxies = _apply(url)
         if proxies:
             kw.setdefault('proxies', proxies)
+        _inject_ssl_bypass(kw)
         return _orig_get(url, **kw)
 
     def _patched_post(url, **kw):
         url, proxies = _apply(url)
         if proxies:
             kw.setdefault('proxies', proxies)
+        _inject_ssl_bypass(kw)
         return _orig_post(url, **kw)
 
     def _patched_s_get(self_s, url, **kw):
         url, proxies = _apply(url)
         if proxies:
             kw.setdefault('proxies', proxies)
+        _inject_ssl_bypass(kw)
         return _orig_s_get(self_s, url, **kw)
 
     def _patched_s_post(self_s, url, **kw):
         url, proxies = _apply(url)
         if proxies:
             kw.setdefault('proxies', proxies)
+        _inject_ssl_bypass(kw)
         return _orig_s_post(self_s, url, **kw)
+
+    def _patched_s_request(self_s, method, url, **kw):
+        """patch Session.request 以覆盖 Session.get/post 内部调用链"""
+        url, proxies = _apply(url)
+        if proxies:
+            kw.setdefault('proxies', proxies)
+        _inject_ssl_bypass(kw)
+        return _orig_s_request(self_s, method, url, **kw)
 
     _req.get = _patched_get
     _req.post = _patched_post
     _req.Session.get = _patched_s_get
     _req.Session.post = _patched_s_post
+    _req.Session.request = _patched_s_request
+
+    # 全局禁用 SSL 警告（verify=False 会产生大量 InsecureRequestWarning）
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    except Exception:
+        pass
 
 
 class Response:

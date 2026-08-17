@@ -214,6 +214,18 @@ static NSCache<NSString *, PyScriptEnv *> *_scriptEnvCache = nil;
         // 让 Python 脚本可以调用 WKWebView 绕过反爬验证 (如 TAC 验证码)
         [PythonWebViewBridgeOC registerWebViewFetch];
         
+        // ★ 预加载 base.spider 模块，确保 _patch_requests() 在所有脚本执行前生效
+        // 不继承 base.spider 的脚本（如 tuiimg.py / fuli74p.py）直接用 requests，
+        // 需要全局 patch requests 以注入 verify=False（绕过 iOS 无 CA 证书问题）
+        // 和域名替换/代理注入。
+        // base.spider 模块加载时会在末尾执行 _patch_requests()，幂等安全。
+        PyRun_SimpleString(
+            "try:\n"
+            "    import base.spider\n"
+            "except Exception as _e:\n"
+            "    pass\n"
+        );
+        
         // ★ 关键: 释放 GIL，允许后台线程通过 PyGILState_Ensure() 获取
         // Py_Initialize 后主线程持有 GIL，不释放的话后台线程无法安全调用 Python C API
         PyEval_SaveThread();
