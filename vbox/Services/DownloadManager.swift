@@ -491,19 +491,34 @@ final class DownloadManager: ObservableObject {
     }
 
     private func decryptTS(data: Data, key: Data, iv: Data) -> Data {
-        // AES-128-CBC 解密
-        guard var cryptor = try? Cryptor(operation: .decrypt, algorithm: .aes,
-                                          options: .pkcs7Padding, key: key, iv: iv) else {
-            return data
+        // AES-128-CBC 一次性解密（每个 TS 分片独立解密）
+        let bufferSize = data.count + kCCBlockSizeAES128
+        var buffer = Data(count: bufferSize)
+        var bytesWritten = 0
+
+        let status = buffer.withUnsafeMutableBytes { bufferPtr -> CCCryptorStatus in
+            data.withUnsafeBytes { dataPtr -> CCCryptorStatus in
+                key.withUnsafeBytes { keyPtr -> CCCryptorStatus in
+                    iv.withUnsafeBytes { ivPtr -> CCCryptorStatus in
+                        CCCrypt(
+                            CCOperation(kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding),
+                            keyPtr.baseAddress!, key.count,
+                            ivPtr.baseAddress,
+                            dataPtr.baseAddress!, data.count,
+                            bufferPtr.baseAddress!, bufferSize,
+                            &bytesWritten
+                        )
+                    }
+                }
+            }
         }
-        var output = Data()
-        var updateOutput = Data()
-        try? cryptor.update(with: data, output: &updateOutput)
-        output.append(updateOutput)
-        var finalOutput = Data()
-        try? cryptor.final(output: &finalOutput)
-        output.append(finalOutput)
-        return output
+
+        if status == kCCSuccess && bytesWritten > 0 {
+            return buffer.prefix(bytesWritten)
+        }
+        return data
     }
 
     private func mergeTSSegments(in tempDir: URL, to outputURL: URL) {
@@ -534,84 +549,5 @@ final class DownloadManager: ObservableObject {
             }
         }
         return size
-    }
-}
-
-// MARK: - Crypto 兼容层（使用 CommonCrypto）
-
-/// 轻量级 AES-CBC 封装，用于 M3U8 加密分片解密
-/// 仅在下载时使用，不影响播放链路
-private struct Cryptor {
-    enum Operation {
-        case encrypt
-        case decrypt
-    }
-    enum Algorithm {
-        case aes
-    }
-    enum Options {
-        case pkcs7Padding
-    }
-
-    private let operation: CCOperation
-    private let algorithm: CCAlgorithm
-    private let options: CCOptions
-    private let key: Data
-    private let iv: Data
-    private var cryptorRef: CCCryptorRef?
-
-    init(operation: Operation, algorithm: Algorithm, options: Options, key: Data, iv: Data) throws {
-        self.operation = operation == .encrypt ? CCOperation(kCCEncrypt) : CCOperation(kCCDecrypt)
-        self.algorithm = CCAlgorithm(kCCAlgorithmAES)
-        self.options = CCOptions(kCCOptionPKCS7Padding)
-        self.key = key
-        self.iv = iv
-
-        let keyBytes = [UInt8](key)
-        let ivBytes = [UInt8](iv)
-
-        var ref: CCCryptorRef?
-        let status = keyBytes.withUnsafeBufferPointer { keyPtr in
-            ivBytes.withUnsafeBufferPointer { ivPtr in
-                CCCryptorCreate(self.operation, self.algorithm, self.options,
-                                keyPtr.baseAddress, keyPtr.count,
-                                ivPtr.baseAddress, &ref)
-            }
-        }
-        guard status == kCCSuccess, let cryptor = ref else {
-            throw NSError(domain: "Cryptor", code: Int(status))
-        }
-        self.cryptorRef = cryptor
-    }
-
-    mutating func update(with data: Data, output: inout Data) throws {
-        guard let cryptor = cryptorRef else { return }
-        let inputBytes = [UInt8](data)
-        let outputSize = inputBytes.count + kCCBlockSizeAES128
-        var outputBuffer = [UInt8](repeating: 0, count: outputSize)
-        var bytesWritten = 0
-
-        let status = inputBytes.withUnsafeBufferPointer { inputPtr in
-            CCCryptorUpdate(cryptor, inputPtr.baseAddress, inputPtr.count,
-                            outputBuffer, outputSize, &bytesWritten)
-        }
-        guard status == kCCSuccess else {
-            throw NSError(domain: "Cryptor", code: Int(status))
-        }
-        output.append(contentsOf: outputBuffer[0..<bytesWritten])
-    }
-
-    mutating func final(output: inout Data) throws {
-        guard let cryptor = cryptorRef else { return }
-        let outputSize = kCCBlockSizeAES128
-        var outputBuffer = [UInt8](repeating: 0, count: outputSize)
-        var bytesWritten = 0
-
-        let status = CCCryptorFinal(cryptor, outputBuffer, outputSize, &bytesWritten)
-        if status == kCCSuccess {
-            output.append(contentsOf: outputBuffer[0..<bytesWritten])
-        }
-        CCCryptorRelease(cryptor)
-        cryptorRef = nil
     }
 }
