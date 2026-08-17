@@ -4474,6 +4474,8 @@ class PlayerState: ObservableObject {
         // 检查是否是直链（官方平台URL永不视为直链）
         let isDirectLink: Bool = {
             if isOfficialPlatform { return false }
+            // file:// 本地文件始终视为直链
+            if urlString.hasPrefix("file://") { return true }
             guard urlString.hasPrefix("http") else { return false }
             let cleanPath: String
             if let url = URL(string: urlString) {

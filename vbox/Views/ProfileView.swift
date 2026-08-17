@@ -1471,7 +1471,11 @@ struct DownloadView: View {
             }
         }
         .fullScreenCover(item: $playingRecord) { record in
-            LocalVideoPlayerView(filePath: record.filePath, title: record.name)
+            if let vodItem = createLocalVodItem(from: record) {
+                VideoPlayerViewV2(video: vodItem, preParsedEpisodes: [(name: record.name, url: "file://\(record.filePath)")])
+            } else {
+                LocalVideoPlayerView(filePath: record.filePath, title: record.name)
+            }
         }
         .overlay {
             if showSaveTip {
