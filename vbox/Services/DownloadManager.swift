@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import CommonCrypto
+import AVFoundation
 
 // MARK: - 下载类型枚举
 
@@ -20,6 +21,7 @@ final class DownloadManager: ObservableObject {
 
     @Published var activeDownloads: [DownloadRecord] = []
     @Published var capsuleMessage: DownloadCapsuleMessage?  // 胶囊通知消息
+    @Published var isFloatingButtonManuallyHidden: Bool = false  // 用户手动隐藏悬浮按键
 
     private var downloadTasks: [Int: Task<Void, Never>] = [:]  // recordId → Task
     private let maxConcurrent = 2  // 最大并发下载数
@@ -47,6 +49,9 @@ final class DownloadManager: ObservableObject {
             icon: "arrow.down.circle.fill",
             type: .info
         )
+
+        // 新任务入队时恢复悬浮按键显示
+        isFloatingButtonManuallyHidden = false
 
         if downloadTasks.count < maxConcurrent {
             startDownload(record: savedRecord)
@@ -372,18 +377,37 @@ final class DownloadManager: ObservableObject {
             await MainActor.run { reloadActiveDownloads() }
         }
 
-        // 8. 合并 TS → 单个文件
+        // 8. 合并 TS → 临时文件
         let downloadsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
         let safeName = record.name.replacingOccurrences(of: "[/\\:*?\"<>|]", with: "_", options: .regularExpression)
-        let outputURL = downloadsDir.appendingPathComponent("\(safeName).ts")
+        let tempTSURL = downloadsDir.appendingPathComponent("\(safeName)_temp.ts")
+        let outputURL = downloadsDir.appendingPathComponent("\(safeName).mp4")
 
-        mergeTSSegments(in: tempDir, to: outputURL)
+        mergeTSSegments(in: tempDir, to: tempTSURL)
 
-        // 9. 清理临时文件 + 标记完成
+        // 9. TS → MP4 转码
+        let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: outputURL)
+
+        // 清理临时文件
         try? FileManager.default.removeItem(at: tempDir)
+        if conversionSuccess {
+            try? FileManager.default.removeItem(at: tempTSURL)
+        } else {
+            // 转码失败，用 TS 文件兜底
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.moveItem(at: tempTSURL, to: downloadsDir.appendingPathComponent("\(safeName).ts"))
+            let tsOutput = downloadsDir.appendingPathComponent("\(safeName).ts")
+            let fileSize = (try? FileManager.default.attributesOfItem(
+                atPath: tsOutput.path)[.size] as? Int64) ?? 0
+            DatabaseManager.shared.updateDownloadPath(
+                id: recordId, path: tsOutput.path,
+                fileSize: fileSize, status: "completed")
+            await MainActor.run { reloadActiveDownloads() }
+            return
+        }
 
         let fileSize = (try? FileManager.default.attributesOfItem(
             atPath: outputURL.path)[.size] as? Int64) ?? 0
@@ -604,6 +628,32 @@ final class DownloadManager: ObservableObject {
             }
         }
         try? fileHandle.close()
+    }
+
+    /// 将合并后的 TS 文件转换为 MP4 格式
+    private func convertTSToMP4(from tsURL: URL, to mp4URL: URL) async -> Bool {
+        let asset = AVAsset(url: tsURL)
+
+        // 尝试用最高质量视频导出
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+            return false
+        }
+
+        // 如果目标文件已存在，先删除
+        try? FileManager.default.removeItem(at: mp4URL)
+
+        exporter.outputURL = mp4URL
+        exporter.outputFileType = .mp4
+
+        return await withCheckedContinuation { continuation in
+            exporter.exportAsynchronously {
+                let success = exporter.status == .completed
+                if !success {
+                    print("[DownloadManager] TS→MP4 转码失败: \(exporter.error?.localizedDescription ?? "unknown")")
+                }
+                continuation.resume(returning: success)
+            }
+        }
     }
 
     private func dirSize(_ url: URL) -> Int64 {
