@@ -177,9 +177,9 @@ struct ContentView: View {
                     .zIndex(20)
             }
         }
-        // 悬浮下载按键（不在弹窗显示时显示）
+        // 悬浮下载按键（不在弹窗显示时、未被手动隐藏时显示）
         .overlay {
-            if !showDownloadPopup && !showUpdateSheet {
+            if !showDownloadPopup && !showUpdateSheet && !downloadManager.isFloatingButtonManuallyHidden {
                 FloatingVideoDownloadButton(onTap: {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         showDownloadPopup = true
@@ -188,17 +188,11 @@ struct ContentView: View {
                 .zIndex(5)
             }
         }
-        // 胶囊通知
-        .overlay(alignment: .top) {
-            if let capsule = downloadManager.capsuleMessage {
-                DownloadCapsuleView(message: capsule)
-                    .padding(.top, 60)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(30)
-                    .id(capsule.id)
-            }
+        // 胶囊通知（放在最顶层，确保所有页面可见）
+        .overlay {
+            DownloadCapsuleNotification()
+                .zIndex(50)
         }
-        .onChange(of: downloadManager.capsuleMessage) { _ in }
         .onChange(of: UpdateManager.shared.isMinimized) { _ in
             // 下载完成时自动弹出
             if UpdateManager.shared.isMinimized && !UpdateManager.shared.isDownloading {
