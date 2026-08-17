@@ -1355,44 +1355,68 @@ struct DownloadView: View {
                 }
                 .listRowBackground(Color.clear)
             } else {
-                ForEach(downloadRecords) { record in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(record.name)
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(textColor)
-                                .lineLimit(1)
-                            Text(record.laiyuan)
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                            if record.status == "downloading" {
-                                ProgressView(value: record.progress)
-                                    .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-                                    .frame(height: 3)
+                // 正在下载
+                let downloading = downloadRecords.filter { $0.status == "downloading" || $0.status == "pending" }
+                if !downloading.isEmpty {
+                    Section("下载中 (\(downloading.count))") {
+                        ForEach(downloading) { record in
+                            DownloadProgressRow(record: record, textColor: textColor)
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let record = downloading[index]
+                                if record.status == "downloading" {
+                                    DownloadManager.shared.cancelDownload(id: record.id ?? 0)
+                                }
+                                DatabaseManager.shared.deleteDownload(id: record.id ?? 0)
                             }
-                            Text(statusText(record.status))
-                                .font(.system(size: 10))
-                                .foregroundColor(statusColor(record.status))
-                        }
-                        Spacer()
-                        if record.status == "completed" {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                                .font(.system(size: 20))
+                            reloadDownloads()
                         }
                     }
-                    .padding(.vertical, 4)
                 }
-                .onDelete { indexSet in
-                    for index in indexSet {
-                        let record = downloadRecords[index]
-                        DatabaseManager.shared.deleteDownload(id: record.id ?? 0)
+
+                // 已完成
+                let completed = downloadRecords.filter { $0.status == "completed" }
+                if !completed.isEmpty {
+                    Section("已完成 (\(completed.count))") {
+                        ForEach(completed) { record in
+                            DownloadCompletedRow(record: record, textColor: textColor)
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let record = completed[index]
+                                if !record.filePath.isEmpty {
+                                    try? FileManager.default.removeItem(atPath: record.filePath)
+                                }
+                                DatabaseManager.shared.deleteDownload(id: record.id ?? 0)
+                            }
+                            reloadDownloads()
+                        }
                     }
-                    reloadDownloads()
+                }
+
+                // 失败
+                let failed = downloadRecords.filter { $0.status == "failed" }
+                if !failed.isEmpty {
+                    Section("下载失败 (\(failed.count))") {
+                        ForEach(failed) { record in
+                            DownloadFailedRow(record: record, textColor: textColor) {
+                                DownloadManager.shared.retryDownload(id: record.id ?? 0)
+                                reloadDownloads()
+                            }
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let record = failed[index]
+                                DatabaseManager.shared.deleteDownload(id: record.id ?? 0)
+                            }
+                            reloadDownloads()
+                        }
+                    }
                 }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .navigationTitle("下载管理")
@@ -1410,42 +1434,152 @@ struct DownloadView: View {
             }
             if !downloadRecords.isEmpty {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("清空") {
-                        DatabaseManager.shared.clearDownloads()
-                        reloadDownloads()
+                    Menu {
+                        Button("清空已完成", role: .destructive) {
+                            DownloadManager.shared.clearCompleted()
+                            reloadDownloads()
+                        }
+                        Button("清空全部", role: .destructive) {
+                            DatabaseManager.shared.clearDownloads()
+                            reloadDownloads()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundColor(textColor)
                     }
-                    .font(.system(size: 14))
-                    .foregroundColor(.red)
-                    .buttonStyle(.plain)
                 }
             }
         }
         .onAppear {
             reloadDownloads()
         }
+        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
+            // 正在下载时每秒刷新进度
+            if downloadRecords.contains(where: { $0.status == "downloading" || $0.status == "pending" }) {
+                reloadDownloads()
+            }
+        }
     }
 
     private func reloadDownloads() {
         downloadRecords = DatabaseManager.shared.queryDownloads()
     }
+}
 
-    private func statusText(_ status: String) -> String {
-        switch status {
-        case "pending": return "等待下载"
-        case "downloading": return "下载中..."
-        case "completed": return "已完成"
-        case "failed": return "下载失败"
-        default: return status
-        }
-    }
+// MARK: - 下载行视图
 
-    private func statusColor(_ status: String) -> Color {
-        switch status {
-        case "pending": return .gray
-        case "downloading": return .blue
-        case "completed": return .green
-        case "failed": return .red
-        default: return .gray
+private struct DownloadProgressRow: View {
+    let record: DownloadRecord
+    let textColor: Color
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.name)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(record.laiyuan)
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                    if let st = record.sourceType, !st.isEmpty {
+                        Text(st == "cloud" ? "网盘" : "普通")
+                            .font(.system(size: 10))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(3)
+                    }
+                }
+                if record.status == "downloading" {
+                    ProgressView(value: record.progress)
+                        .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                        .frame(height: 3)
+                    HStack(spacing: 4) {
+                        Text("\(Int(record.progress * 100))%")
+                        if record.downloadedSize > 0 {
+                            Text("· \(formatSize(record.downloadedSize))")
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.blue)
+                } else {
+                    Text("等待下载")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+            }
+            Spacer()
         }
+        .padding(.vertical, 4)
     }
+}
+
+private struct DownloadCompletedRow: View {
+    let record: DownloadRecord
+    let textColor: Color
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.name)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                Text(record.laiyuan)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                if record.fileSize > 0 {
+                    Text(formatSize(record.fileSize))
+                        .font(.system(size: 10))
+                        .foregroundColor(.green)
+                }
+            }
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+                .font(.system(size: 20))
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct DownloadFailedRow: View {
+    let record: DownloadRecord
+    let textColor: Color
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.name)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(textColor)
+                    .lineLimit(1)
+                Text(record.laiyuan)
+                    .font(.system(size: 11))
+                    .foregroundColor(.gray)
+                Text("下载失败")
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+            }
+            Spacer()
+            Button(action: onRetry) {
+                Image(systemName: "arrow.clockwise.circle")
+                    .font(.system(size: 18))
+                    .foregroundColor(.blue)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private func formatSize(_ bytes: Int64) -> String {
+    if bytes < 1024 { return "\(bytes) B" }
+    if bytes < 1024 * 1024 { return String(format: "%.1f KB", Double(bytes) / 1024) }
+    if bytes < 1024 * 1024 * 1024 { return String(format: "%.1f MB", Double(bytes) / (1024 * 1024)) }
+    return String(format: "%.2f GB", Double(bytes) / (1024 * 1024 * 1024))
 }

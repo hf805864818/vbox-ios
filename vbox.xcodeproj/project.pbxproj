@@ -134,6 +134,7 @@
 		A10038 /* LibmpvMoltenVKDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10038 /* LibmpvMoltenVKDebugView.swift */; };
 		A10044 /* DBModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11001 /* DBModels.swift */; };
 		A10045 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11002 /* DatabaseManager.swift */; };
+		A11050 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11050 /* DownloadManager.swift */; };
 		A10046 /* ZhanyuanSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11003 /* ZhanyuanSearchService.swift */; };
 		A10047 /* BaiduWebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10135 /* BaiduWebViewBridge.swift */; };
 		A10126 /* ShortDramaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10126 /* ShortDramaService.swift */; };
@@ -459,6 +460,7 @@
 		B11000 /* BaiduProxyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduProxyClient.swift; sourceTree = "<group>"; };
 		B11001 /* DBModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DBModels.swift; sourceTree = "<group>"; };
 		B11002 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
+		B11050 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		B11003 /* ZhanyuanSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhanyuanSearchService.swift; sourceTree = "<group>"; };
 		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
 		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
@@ -774,6 +776,7 @@
 				B10140 /* WKWebViewParser.swift */,
 				B10143 /* LiveTVService.swift */,
 				B11002 /* DatabaseManager.swift */,
+				B11050 /* DownloadManager.swift */,
 				B12035 /* SecureCredentialStore.swift */,
 				B11003 /* ZhanyuanSearchService.swift */,
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
@@ -1121,6 +1124,7 @@
 				A10143 /* LiveTVService.swift in Sources */,
 				A10044 /* DBModels.swift in Sources */,
 				A10045 /* DatabaseManager.swift in Sources */,
+				A11050 /* DownloadManager.swift in Sources */,
 				A10046 /* ZhanyuanSearchService.swift in Sources */,
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 				A10047 /* BaiduWebViewBridge.swift in Sources */,
