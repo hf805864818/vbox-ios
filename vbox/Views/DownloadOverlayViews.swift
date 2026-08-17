@@ -487,7 +487,11 @@ struct DownloadManagementPopup: View {
             }
         }
         .fullScreenCover(item: $playingRecord) { record in
-            LocalVideoPlayerView(filePath: record.filePath, title: record.name)
+            if let vodItem = createLocalVodItem(from: record) {
+                VideoPlayerViewV2(video: vodItem, preParsedEpisodes: [(name: record.name, url: "file://\(record.filePath)")])
+            } else {
+                LocalVideoPlayerView(filePath: record.filePath, title: record.name)
+            }
         }
         .overlay {
             if showSaveSuccess {
@@ -881,6 +885,23 @@ extension DownloadRecord {
 }
 
 // MARK: - 辅助函数
+
+/// 从下载记录创建 VodItem，用于调用原播放器播放本地文件
+func createLocalVodItem(from record: DownloadRecord) -> VodItem? {
+    guard !record.filePath.isEmpty,
+          FileManager.default.fileExists(atPath: record.filePath) else {
+        return nil
+    }
+    return VodItem(
+        vodId: "local_\(record.id ?? 0)",
+        vodName: record.name,
+        vodPic: record.imgurl,
+        vodRemarks: "本地文件",
+        vodPlayFrom: "local",
+        vodPlayUrl: "file://\(record.filePath)",
+        engineKey: record.engineKey
+    )
+}
 
 private func formatBytes(_ bytes: Int64) -> String {
     if bytes < 1024 { return "\(bytes) B" }
