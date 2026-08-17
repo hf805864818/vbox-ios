@@ -301,6 +301,11 @@ struct DownloadRecord: Codable, Identifiable, FetchableRecord, PersistableRecord
     var fileSize: Int64
     var downloadedSize: Int64
     var addedAt: Int64
+    // v4 新增字段
+    var sourceType: String?    // "normal" / "cloud" — 下载时按类型选择解析策略
+    var engineKey: String?     // 蜘蛛引擎 key（normal 资源需 playerContent 解析时使用）
+    var vodId: String?         // 视频 ID（playerContent 参数）
+    var headers: String?       // JSON 编码的自定义请求头
 
     init(id: Int? = nil,
          name: String,
@@ -314,7 +319,11 @@ struct DownloadRecord: Codable, Identifiable, FetchableRecord, PersistableRecord
          filePath: String = "",
          fileSize: Int64 = 0,
          downloadedSize: Int64 = 0,
-         addedAt: Int64 = Int64(Date().timeIntervalSince1970))
+         addedAt: Int64 = Int64(Date().timeIntervalSince1970),
+         sourceType: String? = nil,
+         engineKey: String? = nil,
+         vodId: String? = nil,
+         headers: String? = nil)
     {
         self.id = id
         self.name = name
@@ -329,6 +338,10 @@ struct DownloadRecord: Codable, Identifiable, FetchableRecord, PersistableRecord
         self.fileSize = fileSize
         self.downloadedSize = downloadedSize
         self.addedAt = addedAt
+        self.sourceType = sourceType
+        self.engineKey = engineKey
+        self.vodId = vodId
+        self.headers = headers
     }
 
     enum Columns {
@@ -345,6 +358,10 @@ struct DownloadRecord: Codable, Identifiable, FetchableRecord, PersistableRecord
         static let fileSize = Column(CodingKeys.fileSize)
         static let downloadedSize = Column(CodingKeys.downloadedSize)
         static let addedAt = Column(CodingKeys.addedAt)
+        static let sourceType = Column(CodingKeys.sourceType)
+        static let engineKey = Column(CodingKeys.engineKey)
+        static let vodId = Column(CodingKeys.vodId)
+        static let headers = Column(CodingKeys.headers)
     }
 
     mutating func didInsert(with rowID: Int64, for column: String?) {

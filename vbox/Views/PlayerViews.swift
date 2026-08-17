@@ -660,6 +660,41 @@ struct VideoDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
     }
 
+    // MARK: - 批量下载（从剧集弹窗选择后触发）
+    private func handleBatchDownload(indices: [Int]) {
+        let eps = computeEpisodes()
+        guard !eps.isEmpty, !indices.isEmpty else { return }
+
+        // 判断资源类型：网盘资源标记为 cloud，其他标记为 normal
+        let sourceType = isCloudVideo ? "cloud" : "normal"
+        let sourceName = allSources.first?.name ?? ""
+        let engineKey = displayVideo.engineKey
+
+        for index in indices {
+            guard index < eps.count else { continue }
+            let episode = eps[index]
+
+            let record = DownloadRecord(
+                name: "\(displayVideo.vodName) \(episode.name)",
+                laiyuan: sourceName,
+                imgurl: displayVideo.vodPic ?? "",
+                detailurl: video.vodId,
+                playurl: episode.url,
+                jishu: index + 1,
+                progress: 0,
+                status: "pending",
+                addedAt: Int64(Date().timeIntervalSince1970),
+                sourceType: sourceType,
+                engineKey: engineKey,
+                vodId: video.vodId
+            )
+            DownloadManager.shared.enqueueDownload(record: record)
+        }
+
+        showDownloadTip = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
+    }
+
     // MARK: - 选集
     private func handleEpisodeSelect(_ episode: (name: String, url: String)) {
         // 传递完整 vodPlayUrl 和详情页已解析好的集数列表。
@@ -777,6 +812,9 @@ struct VideoDetailView: View {
                     },
                     onClose: {
                         showExpandedEpisodePopup = false
+                    },
+                    onDownload: { indices in
+                        handleBatchDownload(indices: indices)
                     }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -1412,6 +1450,10 @@ private struct EpisodeExpandPopup: View {
     @Binding var isReversed: Bool
     let onSelect: (Int) -> Void
     let onClose: () -> Void
+    let onDownload: ([Int]) -> Void
+
+    @State private var isDownloadMode = false
+    @State private var selectedIndices: Set<Int> = []
 
     private var useTwoColumns: Bool {
         guard !items.isEmpty else { return false }
@@ -1437,7 +1479,9 @@ private struct EpisodeExpandPopup: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
-                            Text("共 \(items.count) 集")
+                            Text(isDownloadMode
+                                 ? "已选 \(selectedIndices.count) 集"
+                                 : "共 \(items.count) 集")
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
                         }
@@ -1448,6 +1492,28 @@ private struct EpisodeExpandPopup: View {
                             Image(systemName: "arrow.up.arrow.down")
                                 .font(.system(size: 14))
                                 .foregroundColor(isReversed ? Color(hex: "E11D48") : .secondary)
+                        }
+                        .buttonStyle(.plain)
+
+                        // 下载按钮：三态（未激活 → 选择中 → 待确认打勾）
+                        Button(action: {
+                            if isDownloadMode && !selectedIndices.isEmpty {
+                                // 打勾状态 → 提交下载
+                                let sorted = selectedIndices.sorted()
+                                onDownload(sorted)
+                                onClose()
+                            } else {
+                                isDownloadMode.toggle()
+                                if !isDownloadMode { selectedIndices.removeAll() }
+                            }
+                        }) {
+                            Image(systemName: isDownloadMode
+                                  ? "checkmark.circle.fill"
+                                  : "arrow.down.circle")
+                                .font(.system(size: 15))
+                                .foregroundColor(isDownloadMode
+                                                 ? (selectedIndices.isEmpty ? .secondary : .blue)
+                                                 : .secondary)
                         }
                         .buttonStyle(.plain)
 
@@ -1462,19 +1528,40 @@ private struct EpisodeExpandPopup: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVGrid(columns: columns, spacing: 8) {
                             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                                Button(action: { onSelect(index) }) {
-                                    Text(item.title)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(.primary)
-                                        .lineLimit(useTwoColumns ? 2 : 1)
-                                        .multilineTextAlignment(.center)
-                                        .frame(maxWidth: .infinity)
-                                        .frame(minHeight: useTwoColumns ? 46 : 36)
-                                        .padding(.horizontal, 8)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .fill(Color(uiColor: .secondarySystemBackground))
-                                        )
+                                Button(action: {
+                                    if isDownloadMode {
+                                        if selectedIndices.contains(index) {
+                                            selectedIndices.remove(index)
+                                        } else {
+                                            selectedIndices.insert(index)
+                                        }
+                                    } else {
+                                        onSelect(index)
+                                    }
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Text(item.title)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .lineLimit(useTwoColumns ? 2 : 1)
+                                        if isDownloadMode {
+                                            Image(systemName: selectedIndices.contains(index)
+                                                  ? "checkmark.circle.fill"
+                                                  : "circle")
+                                                .font(.system(size: 12))
+                                        }
+                                    }
+                                    .foregroundColor(isDownloadMode && selectedIndices.contains(index)
+                                                     ? .blue : .primary)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(minHeight: useTwoColumns ? 46 : 36)
+                                    .padding(.horizontal, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(isDownloadMode && selectedIndices.contains(index)
+                                                  ? Color.blue.opacity(0.15)
+                                                  : Color(uiColor: .secondarySystemBackground))
+                                    )
                                 }
                                 .buttonStyle(.plain)
                             }

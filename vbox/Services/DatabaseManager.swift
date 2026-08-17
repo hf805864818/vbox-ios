@@ -201,6 +201,16 @@ class DatabaseManager {
             print("[DatabaseManager] v3 迁移完成：创建 download 表")
         }
 
+        migrator.registerMigration("v4_add_download_columns") { db in
+            try db.alter(table: "download") { t in
+                t.add(.sourceType, ColumnType.text)
+                t.add(.engineKey, ColumnType.text)
+                t.add(.vodId, ColumnType.text)
+                t.add(.headers, ColumnType.text)
+            }
+            print("[DatabaseManager] v4 迁移完成：download 表新增 sourceType/engineKey/vodId/headers 字段")
+        }
+
         return migrator
     }
 
@@ -774,6 +784,30 @@ class DatabaseManager {
             }
         } catch {
             print("[DatabaseManager] 更新下载进度失败: \(error)")
+        }
+    }
+
+    func updateDownloadPath(id: Int, path: String, fileSize: Int64 = 0, status: String) {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: """
+                    UPDATE download SET filePath = ?, fileSize = ?, status = ?, progress = 1.0 WHERE id = ?
+                """, arguments: [path, fileSize, status, id])
+            }
+        } catch {
+            print("[DatabaseManager] 更新下载路径失败: \(error)")
+        }
+    }
+
+    func updateDownloadStatus(id: Int, status: String) {
+        do {
+            try dbPool.write { db in
+                try db.execute(sql: """
+                    UPDATE download SET status = ? WHERE id = ?
+                """, arguments: [status, id])
+            }
+        } catch {
+            print("[DatabaseManager] 更新下载状态失败: \(error)")
         }
     }
 
