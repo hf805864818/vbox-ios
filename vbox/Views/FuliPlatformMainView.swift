@@ -202,67 +202,8 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 二级子分类
-            if let subs = category.subCategories, !subs.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        subButton(title: "全部", isSelected: selectedSub == nil) {
-                            selectSub(nil)
-                        }
-                        ForEach(subs) { sub in
-                            subButton(title: sub.typeName, isSelected: selectedSub?.typeId == sub.typeId) {
-                                selectSub(sub)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                }
-                Divider()
-            }
-
-            // 视频网格
-            if state.isLoading && state.videos.isEmpty {
-                Spacer(); ProgressView(); Spacer()
-            } else if let err = state.loadError, state.videos.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Text(err).font(.system(size: 14)).foregroundColor(.secondary)
-                    Button("重试") { refresh(force: true) }
-                        .font(.system(size: 14))
-                    Spacer()
-                }
-            } else {
-                ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                        spacing: 14
-                    ) {
-                        ForEach(state.videos) { video in
-                            if svc.contentCategory == .comic {
-                                // 漫画：用 fullScreenCover 呈现，物理覆盖底栏
-                                FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
-                                    .onTapGesture { selectedComicVideo = video }
-                            } else {
-                                NavigationLink(destination: detailView(for: video)) {
-                                    FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .onAppear {
-                                if video.id == state.videos[max(0, state.videos.count - 4)].id { loadMore() }
-                            }
-                        }
-                    }
-                    .padding(12)
-                    if state.isLoadingMore { ProgressView().padding() }
-                    if !state.hasMore && !state.videos.isEmpty {
-                        Text("已加载全部").font(.system(size: 12)).foregroundColor(.secondary).padding(.bottom, 20)
-                    }
-                }
-                .refreshable {
-                    await refreshAsync()
-                }
-            }
+            subCategoryBar
+            contentArea
         }
         .onAppear {
             if !state.hasLoaded {
@@ -277,6 +218,80 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
         }
         .fullScreenCover(item: $selectedComicVideo) { video in
             ComicDirectReaderView(video: video, svc: svc)
+        }
+    }
+
+    @ViewBuilder
+    private var subCategoryBar: some View {
+        if let subs = category.subCategories, !subs.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    subButton(title: "全部", isSelected: selectedSub == nil) {
+                        selectSub(nil)
+                    }
+                    ForEach(subs) { sub in
+                        subButton(title: sub.typeName, isSelected: selectedSub?.typeId == sub.typeId) {
+                            selectSub(sub)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private var contentArea: some View {
+        if state.isLoading && state.videos.isEmpty {
+            Spacer(); ProgressView(); Spacer()
+        } else if let err = state.loadError, state.videos.isEmpty {
+            VStack(spacing: 12) {
+                Spacer()
+                Text(err).font(.system(size: 14)).foregroundColor(.secondary)
+                Button("重试") { refresh(force: true) }
+                    .font(.system(size: 14))
+                Spacer()
+            }
+        } else {
+            videoGrid
+        }
+    }
+
+    private var videoGrid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                spacing: 14
+            ) {
+                ForEach(state.videos) { video in
+                    videoCard(for: video)
+                }
+            }
+            .padding(12)
+            if state.isLoadingMore { ProgressView().padding() }
+            if !state.hasMore && !state.videos.isEmpty {
+                Text("已加载全部").font(.system(size: 12)).foregroundColor(.secondary).padding(.bottom, 20)
+            }
+        }
+        .refreshable {
+            await refreshAsync()
+        }
+    }
+
+    @ViewBuilder
+    private func videoCard(for video: FuliVideo) -> some View {
+        if svc.contentCategory == .comic {
+            FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                .onTapGesture { selectedComicVideo = video }
+        } else {
+            NavigationLink(destination: detailView(for: video)) {
+                FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+            }
+            .buttonStyle(.plain)
+        }
+        .onAppear {
+            if video.id == state.videos[max(0, state.videos.count - 4)].id { loadMore() }
         }
     }
 
@@ -365,54 +380,70 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundColor(.secondary)
-                TextField("搜索视频", text: $keyword)
-                    .submitLabel(.search)
-                    .onSubmit { search() }
-                if !keyword.isEmpty {
-                    Button(action: { keyword = "" }) {
-                        Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
-                    }
-                }
-                Button("搜索") { search() }
-                    .disabled(keyword.isEmpty || isLoading)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .cornerRadius(10)
-            .padding(12)
-
-            if isLoading && videos.isEmpty {
-                Spacer(); ProgressView(); Spacer()
-            } else {
-                ScrollView {
-                    LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                        spacing: 14
-                    ) {
-                        ForEach(videos) { video in
-                            if svc.contentCategory == .comic {
-                                // 漫画搜索结果：用 fullScreenCover 呈现
-                                FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
-                                    .onTapGesture { selectedComicVideo = video }
-                            } else {
-                                NavigationLink(destination: searchDetailView(for: video)) {
-                                    FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .onAppear {
-                                if video.id == videos[max(0, videos.count - 4)].id { loadMore() }
-                            }
-                        }
-                    }
-                    .padding(12)
-                }
-            }
+            searchBar
+            searchContentArea
         }
         .fullScreenCover(item: $selectedComicVideo) { video in
             ComicDirectReaderView(video: video, svc: svc)
+        }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+            TextField("搜索视频", text: $keyword)
+                .submitLabel(.search)
+                .onSubmit { search() }
+            if !keyword.isEmpty {
+                Button(action: { keyword = "" }) {
+                    Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                }
+            }
+            Button("搜索") { search() }
+                .disabled(keyword.isEmpty || isLoading)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .cornerRadius(10)
+        .padding(12)
+    }
+
+    @ViewBuilder
+    private var searchContentArea: some View {
+        if isLoading && videos.isEmpty {
+            Spacer(); ProgressView(); Spacer()
+        } else {
+            searchResultGrid
+        }
+    }
+
+    private var searchResultGrid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                spacing: 14
+            ) {
+                ForEach(videos) { video in
+                    searchResultCard(for: video)
+                }
+            }
+            .padding(12)
+        }
+    }
+
+    @ViewBuilder
+    private func searchResultCard(for video: FuliVideo) -> some View {
+        if svc.contentCategory == .comic {
+            FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                .onTapGesture { selectedComicVideo = video }
+        } else {
+            NavigationLink(destination: searchDetailView(for: video)) {
+                FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+            }
+            .buttonStyle(.plain)
+        }
+        .onAppear {
+            if video.id == videos[max(0, videos.count - 4)].id { loadMore() }
         }
     }
 
