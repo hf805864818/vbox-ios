@@ -1,5 +1,7 @@
 import SwiftUI
 import PhotosUI
+import AVKit
+import Photos
 
 // MARK: - 福利观看记录播放桥接
 
@@ -1337,6 +1339,9 @@ struct DownloadView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.presentationMode) private var presentationMode
     @State private var downloadRecords: [DownloadRecord] = []
+    @State private var playingRecord: DownloadRecord?
+    @State private var showSaveTip = false
+    @State private var saveTipMessage = ""
 
     var textColor: Color {
         if settings.usesVisualSkin { return .white }
@@ -1380,7 +1385,13 @@ struct DownloadView: View {
                 if !completed.isEmpty {
                     Section("已完成 (\(completed.count))") {
                         ForEach(completed) { record in
-                            DownloadCompletedRow(record: record, textColor: textColor)
+                            DownloadCompletedRow(
+                                record: record,
+                                textColor: textColor,
+                                onPlay: { playingRecord = record },
+                                onSaveToFiles: { saveToFiles(record: record) },
+                                onSaveToPhotos: { saveToPhotos(record: record) }
+                            )
                         }
                         .onDelete { indexSet in
                             for index in indexSet {
@@ -1459,10 +1470,139 @@ struct DownloadView: View {
                 reloadDownloads()
             }
         }
+        .fullScreenCover(item: $playingRecord) { record in
+            LocalVideoPlayerView(filePath: record.filePath, title: record.name)
+        }
+        .overlay {
+            if showSaveTip {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(saveTipMessage)
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.black.opacity(0.8)))
+                    .padding(.bottom, 30)
+                }
+                .transition(.opacity)
+                .animation(.easeInOut, value: showSaveTip)
+            }
+        }
     }
 
     private func reloadDownloads() {
         downloadRecords = DatabaseManager.shared.queryDownloads()
+    }
+
+    // MARK: - 保存到文件 App
+
+    private func saveToFiles(record: DownloadRecord) {
+        guard !record.filePath.isEmpty,
+              FileManager.default.fileExists(atPath: record.filePath) else {
+            showSaveTipMessage("文件不存在，无法保存")
+            return
+        }
+
+        let fileURL = URL(fileURLWithPath: record.filePath)
+        let documentPicker = UIDocumentPickerViewController(forExporting: [fileURL], asCopy: true)
+        documentPicker.shouldShowFileExtensions = true
+
+        if let topVC = topMostViewController() {
+            topVC.present(documentPicker, animated: true)
+        }
+    }
+
+    // MARK: - 保存到相册
+
+    private func saveToPhotos(record: DownloadRecord) {
+        guard !record.filePath.isEmpty,
+              FileManager.default.fileExists(atPath: record.filePath) else {
+            showSaveTipMessage("文件不存在，无法保存")
+            return
+        }
+
+        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        if status == .authorized || status == .limited {
+            performSaveToPhotos(record: record)
+        } else {
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
+                DispatchQueue.main.async {
+                    if newStatus == .authorized || newStatus == .limited {
+                        performSaveToPhotos(record: record)
+                    } else {
+                        showSaveTipMessage("相册权限被拒绝，无法保存")
+                    }
+                }
+            }
+        }
+    }
+
+    private func performSaveToPhotos(record: DownloadRecord) {
+        let videoPath = record.filePath
+        let ext = (videoPath as NSString).pathExtension.lowercased()
+
+        if ext == "mp4" || ext == "mov" || ext == "m4v" {
+            UISaveVideoAtPathToSavedPhotosAlbum(videoPath, nil, nil, nil)
+            showSaveTipMessage("已保存到相册")
+        } else {
+            convertAndSaveToPhotos(filePath: videoPath)
+        }
+    }
+
+    private func convertAndSaveToPhotos(filePath: String) {
+        let asset = AVAsset(url: URL(fileURLWithPath: filePath))
+        guard asset.tracks(withMediaType: .video).first != nil else {
+            showSaveTipMessage("该格式不支持保存到相册，请使用保存到文件")
+            return
+        }
+
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+            showSaveTipMessage("视频转换失败")
+            return
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vbox_export_\(UUID().uuidString).mp4")
+        exporter.outputURL = tempURL
+        exporter.outputFileType = .mp4
+
+        exporter.exportAsynchronously {
+            DispatchQueue.main.async {
+                switch exporter.status {
+                case .completed:
+                    UISaveVideoAtPathToSavedPhotosAlbum(tempURL.path, nil, nil, nil)
+                    try? FileManager.default.removeItem(at: tempURL)
+                    showSaveTipMessage("已转换并保存到相册")
+                default:
+                    showSaveTipMessage("视频转换失败")
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+            }
+        }
+    }
+
+    private func showSaveTipMessage(_ message: String) {
+        saveTipMessage = message
+        withAnimation(.easeInOut(duration: 0.25)) { showSaveTip = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation(.easeInOut(duration: 0.25)) { showSaveTip = false }
+        }
+    }
+
+    private func topMostViewController() -> UIViewController? {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = scene.windows.first(where: { $0.isKeyWindow }),
+              let rootVC = window.rootViewController else { return nil }
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+        return topVC
     }
 }
 
@@ -1520,9 +1660,20 @@ private struct DownloadProgressRow: View {
 private struct DownloadCompletedRow: View {
     let record: DownloadRecord
     let textColor: Color
+    let onPlay: () -> Void
+    let onSaveToFiles: () -> Void
+    let onSaveToPhotos: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
+            // 播放按钮
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(.blue)
+            }
+            .buttonStyle(.plain)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(record.name)
                     .font(.system(size: 14, weight: .medium))
@@ -1538,9 +1689,24 @@ private struct DownloadCompletedRow: View {
                 }
             }
             Spacer()
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.system(size: 20))
+
+            // 操作菜单
+            Menu {
+                Button(action: onPlay) {
+                    Label("播放", systemImage: "play.fill")
+                }
+                Button(action: onSaveToFiles) {
+                    Label("保存到文件", systemImage: "folder.badge.plus")
+                }
+                Button(action: onSaveToPhotos) {
+                    Label("保存到相册", systemImage: "photo.badge.arrow.down")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 20))
+                    .foregroundColor(.gray)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 4)
     }

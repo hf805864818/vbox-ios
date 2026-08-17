@@ -5,6 +5,8 @@ struct ContentView: View {
     @StateObject private var settings = AppSettings()
     @State private var selectedTab: Tab = .home
     @State private var showUpdateSheet: Bool = false
+    @State private var showDownloadPopup: Bool = false
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     enum Tab: String, CaseIterable {
         case home = "首页"
@@ -153,7 +155,7 @@ struct ContentView: View {
             if showUpdateSheet {
                 UpdateSheet(isPresented: $showUpdateSheet)
                     .transition(.opacity)
-                    .zIndex(1)
+                    .zIndex(10)
             } else if UpdateManager.shared.isMinimized {
                 FloatingDownloadBubble(onTap: {
                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -164,9 +166,39 @@ struct ContentView: View {
                     }
                 })
                 .transition(.scale.combined(with: .opacity))
-                .zIndex(2)
+                .zIndex(9)
             }
         }
+        // 下载管理悬浮弹窗
+        .overlay {
+            if showDownloadPopup {
+                DownloadManagementPopup(isPresented: $showDownloadPopup)
+                    .transition(.opacity)
+                    .zIndex(20)
+            }
+        }
+        // 悬浮下载按键（不在弹窗显示时显示）
+        .overlay {
+            if !showDownloadPopup && !showUpdateSheet {
+                FloatingVideoDownloadButton(onTap: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showDownloadPopup = true
+                    }
+                })
+                .zIndex(5)
+            }
+        }
+        // 胶囊通知
+        .overlay(alignment: .top) {
+            if let capsule = downloadManager.capsuleMessage {
+                DownloadCapsuleView(message: capsule)
+                    .padding(.top, 60)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(30)
+                    .id(capsule.id)
+            }
+        }
+        .onChange(of: downloadManager.capsuleMessage) { _ in }
         .onChange(of: UpdateManager.shared.isMinimized) { _ in
             // 下载完成时自动弹出
             if UpdateManager.shared.isMinimized && !UpdateManager.shared.isDownloading {

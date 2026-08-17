@@ -161,6 +161,7 @@
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A11050 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11050 /* DownloadManager.swift */; };
+		A11051 /* DownloadOverlayViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11051 /* DownloadOverlayViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
 		A12003 /* PlayerEngineState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12003 /* PlayerEngineState.swift */; };
@@ -462,6 +463,7 @@
 		B11002 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
 		B11003 /* ZhanyuanSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhanyuanSearchService.swift; sourceTree = "<group>"; };
 		B11050 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		B11051 /* DownloadOverlayViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadOverlayViews.swift; sourceTree = "<group>"; };
 		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
 		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
 		B12003 /* PlayerEngineState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineState.swift; sourceTree = "<group>"; };
@@ -816,6 +818,7 @@
 			children = (
 				B10008 /* MainViews.swift */,
 				B10009 /* PlayerViews.swift */,
+				B11051 /* DownloadOverlayViews.swift */,
 				4CBD4AE667D94F1CDEDFD62A /* AliPlayerRepresentable.swift */,
 				B10010 /* SettingsViews.swift */,
 				CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */,
@@ -1084,6 +1087,7 @@
 				A10007 /* SpiderRepository.swift in Sources */,
 				A10008 /* MainViews.swift in Sources */,
 				A10009 /* PlayerViews.swift in Sources */,
+				A11051 /* DownloadOverlayViews.swift in Sources */,
 				A10010 /* SettingsViews.swift in Sources */,
 				A10011 /* QJSSpiderEngine.swift in Sources */,
 				A10012 /* QuickJSBridge.m in Sources */,
