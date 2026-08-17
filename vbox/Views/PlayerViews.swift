@@ -802,6 +802,11 @@ struct VideoDetailView: View {
                 contentLayer(geometry: safeGeometry)
             }
 
+            // 下载胶囊通知 — 底部显示，不影响详情页交互
+            DownloadCapsuleNotification()
+                .allowsHitTesting(false)
+                .zIndex(50)
+
             if showExpandedEpisodePopup {
                 EpisodeExpandPopup(
                     title: expandedEpisodeTitle,

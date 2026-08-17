@@ -61,7 +61,7 @@ struct DownloadCapsuleView: View {
 
 // MARK: - 下载胶囊通知容器（类似 RemoteSourceStatusBar，自管理可见性）
 
-/// 下载状态胶囊通知 — 悬浮在屏幕顶部居中显示，自动消失
+/// 下载状态胶囊通知 — 悬浮在底栏上方居中显示，自动消失
 /// 放置在 ContentView 的 ZStack 内部，确保所有页面都可见
 struct DownloadCapsuleNotification: View {
     @ObservedObject private var downloadManager = DownloadManager.shared
@@ -93,7 +93,84 @@ struct DownloadCapsuleNotification: View {
                         .stroke(msg.color.opacity(0.5), lineWidth: 0.5)
                 )
                 .clipShape(Capsule())
-                .padding(.top, 50)
+                .padding(.bottom, 6)
+                .shadow(color: Color.black.opacity(0.15), radius: 6, y: 2)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)),
+                    removal: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9))
+                ))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+        .onChange(of: downloadManager.capsuleMessage) { newMessage in
+            handleMessageChange(newMessage)
+        }
+    }
+
+    private func handleMessageChange(_ message: DownloadCapsuleMessage?) {
+        dismissTask?.cancel()
+
+        guard let message = message else {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                isVisible = false
+            }
+            return
+        }
+
+        currentMessage = message
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            isVisible = true
+        }
+
+        // 统一 4 秒后自动消失
+        dismissTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(4.0 * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    isVisible = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 播放器内胶囊通知（顶部显示，不影响播放器交互）
+
+/// 播放器内的下载胶囊通知 — 显示在播放器顶部，4秒自动消失
+/// allowsHitTesting(false) 确保不阻挡播放器手势和按钮
+struct PlayerCapsuleNotification: View {
+    @ObservedObject private var downloadManager = DownloadManager.shared
+    @State private var isVisible: Bool = false
+    @State private var currentMessage: DownloadCapsuleMessage?
+    @State private var dismissTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if isVisible, let msg = currentMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: msg.icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(msg.color)
+
+                    Text(msg.text)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.85))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(msg.color.opacity(0.5), lineWidth: 0.5)
+                )
+                .clipShape(Capsule())
+                .padding(.top, 6)
                 .shadow(color: Color.black.opacity(0.15), radius: 6, y: 2)
                 .transition(.asymmetric(
                     insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9)),
@@ -123,17 +200,9 @@ struct DownloadCapsuleNotification: View {
             isVisible = true
         }
 
-        // 自动消失
-        let duration: TimeInterval
-        switch message.type {
-        case .info: duration = 2.5
-        case .success: duration = 3.0
-        case .failure: duration = 4.0
-        case .network: duration = 4.0
-        }
-
+        // 统一 4 秒后自动消失
         dismissTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(4.0 * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
