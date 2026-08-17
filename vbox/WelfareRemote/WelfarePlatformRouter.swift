@@ -28,6 +28,66 @@ struct WelfarePlatformRouter {
 
     // MARK: 公开 API
 
+    /// 根据 platformKey 和视频信息，创建福利视频播放中转页
+    /// 用于观看记录/收藏点击播放时，重建福利平台 Service 并直接进入视频详情
+    func makeVideoBridgeView(
+        platformKey: String,
+        vodId: String,
+        vodName: String,
+        vodPic: String
+    ) -> AnyView? {
+        guard let platform = WelfarePlatformConfigStore.shared.platform(forKey: platformKey) else {
+            return nil
+        }
+        let video = FuliVideo(vodId: vodId, vodName: vodName, vodPic: vodPic)
+        let type = WelfareServiceType(raw: platform.serviceType)
+
+        switch type {
+        case .aidanVideo:
+            return AnyView(FuliVideoBridgeView(svc: AidanVideoService.shared, video: video))
+        case .fuliBase:
+            return makeFuliBaseVideoBridge(platform: platform, video: video)
+        case .remoteCmsV10:
+            return AnyView(FuliVideoBridgeView(svc: RemoteCMSV10Service.service(for: platform), video: video))
+        case .welfareSpider:
+            return makeWelfareSpiderVideoBridge(platform: platform, video: video)
+        case .pythonSpider:
+            return AnyView(FuliVideoBridgeView(svc: WelfarePythonSpiderService.service(for: platform), video: video))
+        default:
+            return nil
+        }
+    }
+
+    /// 通用 FuliBaseService 视频桥接路由
+    private func makeFuliBaseVideoBridge(platform: WelfarePlatform, video: FuliVideo) -> AnyView? {
+        switch platform.platformKey {
+        case "panda_video":
+            return AnyView(FuliVideoBridgeView(svc: PandaVideoService.shared, video: video))
+        case "four_h_video":
+            return AnyView(FuliVideoBridgeView(svc: FourHVideoService.shared, video: video))
+        case "full_hd":
+            return AnyView(FuliVideoBridgeView(svc: FullHDService.shared, video: video))
+        case "banana_video":
+            return AnyView(FuliVideoBridgeView(svc: BananaVideoService.shared, video: video))
+        default:
+            return nil
+        }
+    }
+
+    /// 福利 Spider 视频桥接路由
+    private func makeWelfareSpiderVideoBridge(platform: WelfarePlatform, video: FuliVideo) -> AnyView? {
+        switch platform.platformKey {
+        case "lusushequ":
+            return AnyView(FuliVideoBridgeView(svc: LusushequService.shared, video: video))
+        default:
+            break
+        }
+        if platform.scriptType?.lowercased() == "javascript" {
+            return AnyView(FuliVideoBridgeView(svc: WelfareJSSpiderService.service(for: platform), video: video))
+        }
+        return nil
+    }
+
     /// 根据 platform 元数据生成对应的目标 View
     /// - Parameters:
     ///   - platform: 远程源中的平台元数据

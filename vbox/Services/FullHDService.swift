@@ -14,7 +14,8 @@ class FullHDService: FuliBaseService {
             defaultHosts: [
                 "https://www.fullhd.xxx",
                 "https://fullhd.xxx"
-            ]
+            ],
+            platformKey: "full_hd"
         )
     }
 

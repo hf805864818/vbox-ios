@@ -186,6 +186,7 @@ struct ComicDirectReaderView<Service: FuliPlatformService>: View {
     let svc: Service
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var settings: AppSettings
     @State private var images: [String] = []
     @State private var title: String = ""
     @State private var isLoading = true
@@ -235,7 +236,17 @@ struct ComicDirectReaderView<Service: FuliPlatformService>: View {
             }
         }
         .navigationBarHidden(true)
-        .onAppear { loadImages() }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                settings.isTabBarHidden = true
+            }
+            loadImages()
+        }
+        .onDisappear {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                settings.isTabBarHidden = false
+            }
+        }
     }
 
     private func loadImages() {

@@ -64,7 +64,10 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
                         Image(systemName: "antenna.radiowaves.left.and.right.slash")
                             .font(.system(size: 50)).foregroundColor(.secondary)
                         Text(err).font(.system(size: 15)).multilineTextAlignment(.center)
-                        Button(action: { loadHome() }) {
+                        Button(action: {
+                            svc.isHostReady = false
+                            loadHome()
+                        }) {
                             Label("重试", systemImage: "arrow.clockwise")
                                 .font(.system(size: 14))
                                 .padding(.horizontal, 20).padding(.vertical, 8)
@@ -160,6 +163,9 @@ struct FuliPlatformMainView<Service: FuliPlatformService>: View {
                 categories = result.categories
                 if result.categories.isEmpty {
                     loadError = "未能解析到分类，请检查域名或网络"
+                    // 探测成功但分类解析失败时，重置域名就绪状态，
+                    // 确保下次进入或点击重试时会重新探测域名（可能切换到其他可用域名）
+                    svc.isHostReady = false
                 } else {
                     selectedTab = 0
                 }

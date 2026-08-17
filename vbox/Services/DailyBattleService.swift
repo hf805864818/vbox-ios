@@ -320,7 +320,9 @@ class DailyBattleService: ObservableObject {
                 print("[DailyBattle:\(config.name)] ⚠️ \(host) 不可达: \(error.localizedDescription)")
             }
         }
-        isReady = true
+        // 所有入口探测失败，保持未就绪状态以便下次重新探测
+        isReady = false
+        print("[DailyBattle:\(config.name)] 所有入口探测失败，保持未就绪状态")
         return currentHost
     }
 

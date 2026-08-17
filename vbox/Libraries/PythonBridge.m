@@ -352,6 +352,15 @@ static NSCache<NSString *, PyScriptEnv *> *_scriptEnvCache = nil;
         // === Phase 4: 调用目标方法 ===
         PyObject *method = PyObject_GetAttrString(spider, [functionName UTF8String]);
         if (!method || !PyCallable_Check(method)) {
+            // init 方法是可选的（base.spider.Spider 中默认为空实现），
+            // 如果脚本的 Spider 类没有定义 init，返回空 JSON 表示成功，
+            // 这样不继承 base.spider.Spider 的脚本也能正常初始化。
+            if ([functionName isEqualToString:@"init"]) {
+                PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ⚠️ %@ 未定义 init 方法，跳过初始化（可选）", [scriptPath lastPathComponent]]);
+                Py_XDECREF(method);
+                result = @"{}";
+                goto cleanup;
+            }
             PYBridgeLog([NSString stringWithFormat:@"[PythonBridge] ❌ 未找到方法: %@.%@", [scriptPath lastPathComponent], functionName]);
             Py_XDECREF(method);
             goto cleanup;

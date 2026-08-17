@@ -1827,14 +1827,19 @@ class PlayerState: ObservableObject {
         let videoRemarks = video.vodRemarks ?? ""
         let videoPic = video.vodPic ?? ""
         let videoId = video.vodId
+        let videoEngineKey = video.engineKey
         Task.detached(priority: .utility) {
             UserDefaults.standard.set(timeToSave, forKey: key)
+            let platformKey: String = {
+                guard let ek = videoEngineKey, ek.hasPrefix("__fuli_welfare__:") else { return "" }
+                return String(ek.dropFirst("__fuli_welfare__:".count))
+            }()
             let record = HistoryRecord(
                 name: videoName,
                 laiyuan: videoRemarks,
                 imgurl: videoPic,
                 detailurl: videoId,
-                detailua: "",
+                detailua: platformKey,
                 xianlu: episodeToSave,
                 jishu: 0,
                 progress: timeToSave,
@@ -1874,12 +1879,16 @@ class PlayerState: ObservableObject {
             }
         } else {
             // 添加收藏
+            let platformKey: String = {
+                guard let ek = video.engineKey, ek.hasPrefix("__fuli_welfare__:") else { return "" }
+                return String(ek.dropFirst("__fuli_welfare__:".count))
+            }()
             let record = FavoriteRecord(
                 name: video.vodName,
                 laiyuan: video.vodRemarks ?? "",
                 imgurl: video.vodPic ?? "",
                 detailurl: video.vodId,
-                detailua: "",
+                detailua: platformKey,
                 xianlu: currentEpisodeIndex,
                 jishu: 0,
                 addedAt: Int64(Date().timeIntervalSince1970)
@@ -2346,12 +2355,16 @@ class PlayerState: ObservableObject {
             }
             guard Date().timeIntervalSince(lastSaveAt) > 0 else { return }
             UserDefaults.standard.set(timeToSave, forKey: key)
+            let platformKey: String = {
+                guard let ek = video.engineKey, ek.hasPrefix("__fuli_welfare__:") else { return "" }
+                return String(ek.dropFirst("__fuli_welfare__:".count))
+            }()
             let record = HistoryRecord(
                 name: video.vodName,
                 laiyuan: video.vodRemarks ?? "",
                 imgurl: video.vodPic ?? "",
                 detailurl: video.vodId,
-                detailua: "",
+                detailua: platformKey,
                 xianlu: episodeToSave,
                 jishu: 0,
                 progress: timeToSave,

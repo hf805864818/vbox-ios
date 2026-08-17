@@ -186,7 +186,8 @@ final class LusushequService: FuliBaseService {
     init() {
         super.init(
             platformName: "六速社区",
-            defaultHosts: ["https://215.x89cneo.com:51111"]
+            defaultHosts: ["https://215.x89cneo.com:51111"],
+            platformKey: "lusushequ"
         )
         // 注册 .enc 图片解密拦截器（幂等）
         EncImageURLProtocol.register()
@@ -219,8 +220,9 @@ final class LusushequService: FuliBaseService {
         let fallback = hosts.first ?? defaultHosts.first ?? ""
         await MainActor.run {
             self.currentHost = fallback
-            self.isHostReady = true
+            self.isHostReady = false
         }
+        print("[六速社区] 所有域名探测失败，保持未就绪状态以便下次重新探测")
         return fallback
     }
 

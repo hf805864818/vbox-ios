@@ -24,6 +24,8 @@ extension String.Encoding {
 protocol FuliPlatformService: ObservableObject {
     /// 平台唯一名称（与 WelfareSettingsView 中配置一致）
     var platformName: String { get }
+    /// 平台唯一 key（用于历史记录定位、路由分发等）
+    var platformKey: String { get }
     /// 默认域名列表
     var defaultHosts: [String] { get }
     /// 当前选中的可用域名
@@ -62,6 +64,7 @@ extension FuliPlatformService {
     var contentCategory: FuliContentCategory { .video }
     var imageReferer: String? { nil }
     var imageSSLBypass: Bool { false }
+    var platformKey: String { "" }
 }
 
 // MARK: - 默认实现（域名探测 + HTTP 工具）
@@ -143,9 +146,10 @@ extension FuliPlatformService {
         if let obj = self as? FuliBaseService {
             await MainActor.run {
                 obj.currentHost = fallback
-                obj.isHostReady = true
+                obj.isHostReady = false
             }
         }
+        print("[\(platformName)] 所有域名探测失败，保持未就绪状态以便下次重新探测")
         return fallback
     }
 
@@ -196,6 +200,7 @@ extension FuliPlatformService {
 // MARK: - 基类（用于 @Published 状态管理）
 class FuliBaseService: ObservableObject, FuliPlatformService {
     let platformName: String
+    let platformKey: String
     let defaultHosts: [String]
 
     @Published var currentHost: String = ""
@@ -208,9 +213,10 @@ class FuliBaseService: ObservableObject, FuliPlatformService {
     /// 默认不绕过图片 SSL；远程配置类服务可 override。
     var imageSSLBypass: Bool { false }
 
-    init(platformName: String, defaultHosts: [String]) {
+    init(platformName: String, defaultHosts: [String], platformKey: String = "") {
         self.platformName = platformName
         self.defaultHosts = defaultHosts
+        self.platformKey = platformKey
     }
 
     func fetchHomeContent() async -> FuliHomeResult { .empty }
