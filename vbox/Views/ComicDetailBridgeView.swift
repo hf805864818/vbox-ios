@@ -181,16 +181,24 @@ private struct ScrollOffsetKey: PreferenceKey {
 
 // MARK: - 漫画直接阅读器（跳过详情页）
 /// 分类页点击漫画后直接进入长卷浏览，自动加载详情和图片列表
+/// 使用 fullScreenCover 呈现，物理覆盖底栏（与旧版 ComicDetailBridgeView 一致）
 struct ComicDirectReaderView<Service: FuliPlatformService>: View {
     let video: FuliVideo
     let svc: Service
 
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var settings: AppSettings
     @State private var images: [String] = []
     @State private var title: String = ""
     @State private var isLoading = true
     @State private var errorMsg: String?
+
+    /// 有效 Referer：优先使用平台配置的 imageReferer，为空时回退到当前域名
+    /// 避免图片加载时使用错误的默认 Referer 导致 403 防盗链拒绝
+    private var effectiveReferer: String? {
+        if let ref = svc.imageReferer, !ref.isEmpty { return ref }
+        let host = svc.currentHost
+        return host.isEmpty ? nil : host
+    }
 
     var body: some View {
         ZStack {
@@ -198,7 +206,7 @@ struct ComicDirectReaderView<Service: FuliPlatformService>: View {
                 MangaReaderView(
                     images: images,
                     title: title,
-                    referer: svc.imageReferer,
+                    referer: effectiveReferer,
                     sslBypass: svc.imageSSLBypass
                 )
             } else if let err = errorMsg {
@@ -222,6 +230,8 @@ struct ComicDirectReaderView<Service: FuliPlatformService>: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.ignoresSafeArea())
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -237,15 +247,7 @@ struct ComicDirectReaderView<Service: FuliPlatformService>: View {
         }
         .navigationBarHidden(true)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                settings.isTabBarHidden = true
-            }
             loadImages()
-        }
-        .onDisappear {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                settings.isTabBarHidden = false
-            }
         }
     }
 

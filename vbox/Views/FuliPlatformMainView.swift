@@ -188,6 +188,9 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
         self.cacheKey = cacheKey
     }
 
+    /// 漫画类型点击时，通过 fullScreenCover 呈现阅读器（物理覆盖底栏）
+    @State private var selectedComicVideo: FuliVideo? = nil
+
     private var state: CategoryTabStateCache.State {
         stateCache.state(for: cacheKey)
     }
@@ -235,10 +238,16 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
                         spacing: 14
                     ) {
                         ForEach(state.videos) { video in
-                            NavigationLink(destination: detailView(for: video)) {
+                            if svc.contentCategory == .comic {
+                                // 漫画：用 fullScreenCover 呈现，物理覆盖底栏
                                 FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                                    .onTapGesture { selectedComicVideo = video }
+                            } else {
+                                NavigationLink(destination: detailView(for: video)) {
+                                    FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                             .onAppear {
                                 if video.id == state.videos[max(0, state.videos.count - 4)].id { loadMore() }
                             }
@@ -265,6 +274,9 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
             guard let key = notif.userInfo?["cacheKey"] as? String,
                   key == cacheKey else { return }
             refresh(force: true)
+        }
+        .fullScreenCover(item: $selectedComicVideo) { video in
+            ComicDirectReaderView(video: video, svc: svc)
         }
     }
 
@@ -348,6 +360,8 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
     @State private var isLoading = false
     @State private var currentPage = 1
     @State private var hasMore = false
+    /// 漫画搜索结果点击时，通过 fullScreenCover 呈现阅读器
+    @State private var selectedComicVideo: FuliVideo? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -378,10 +392,16 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
                         spacing: 14
                     ) {
                         ForEach(videos) { video in
-                            NavigationLink(destination: searchDetailView(for: video)) {
+                            if svc.contentCategory == .comic {
+                                // 漫画搜索结果：用 fullScreenCover 呈现
                                 FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                                    .onTapGesture { selectedComicVideo = video }
+                            } else {
+                                NavigationLink(destination: searchDetailView(for: video)) {
+                                    FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                             .onAppear {
                                 if video.id == videos[max(0, videos.count - 4)].id { loadMore() }
                             }
@@ -390,6 +410,9 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
                     .padding(12)
                 }
             }
+        }
+        .fullScreenCover(item: $selectedComicVideo) { video in
+            ComicDirectReaderView(video: video, svc: svc)
         }
     }
 
