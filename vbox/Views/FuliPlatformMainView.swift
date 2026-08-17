@@ -279,16 +279,17 @@ struct FuliCategoryTabView<Service: FuliPlatformService>: View {
         }
     }
 
-    @ViewBuilder
     private func videoCard(for video: FuliVideo) -> some View {
-        if svc.contentCategory == .comic {
-            FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
-                .onTapGesture { selectedComicVideo = video }
-        } else {
-            NavigationLink(destination: detailView(for: video)) {
+        Group {
+            if svc.contentCategory == .comic {
                 FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                    .onTapGesture { selectedComicVideo = video }
+            } else {
+                NavigationLink(destination: detailView(for: video)) {
+                    FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .onAppear {
             if video.id == state.videos[max(0, state.videos.count - 4)].id { loadMore() }
@@ -431,16 +432,17 @@ struct FuliSearchTabView<Service: FuliPlatformService>: View {
         }
     }
 
-    @ViewBuilder
     private func searchResultCard(for video: FuliVideo) -> some View {
-        if svc.contentCategory == .comic {
-            FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
-                .onTapGesture { selectedComicVideo = video }
-        } else {
-            NavigationLink(destination: searchDetailView(for: video)) {
+        Group {
+            if svc.contentCategory == .comic {
                 FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                    .onTapGesture { selectedComicVideo = video }
+            } else {
+                NavigationLink(destination: searchDetailView(for: video)) {
+                    FuliVideoCard(video: video, imageReferer: svc.imageReferer, imageSSLBypass: svc.imageSSLBypass)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .onAppear {
             if video.id == videos[max(0, videos.count - 4)].id { loadMore() }
