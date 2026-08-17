@@ -19,10 +19,12 @@ final class DownloadManager: ObservableObject {
     static let shared = DownloadManager()
 
     @Published var activeDownloads: [DownloadRecord] = []
+    @Published var capsuleMessage: DownloadCapsuleMessage?  // 胶囊通知消息
 
     private var downloadTasks: [Int: Task<Void, Never>] = [:]  // recordId → Task
     private let maxConcurrent = 2  // 最大并发下载数
     private var pendingQueue: [DownloadRecord] = []
+    private var lastStatusMap: [Int: String] = [:]  // 跟踪状态变化：recordId → 旧状态
 
     private init() {}
 
@@ -39,10 +41,32 @@ final class DownloadManager: ObservableObject {
             return
         }
 
+        // 发送胶囊通知：正在下载
+        postCapsule(
+            text: "已添加「\(savedRecord.name)」到下载",
+            icon: "arrow.down.circle.fill",
+            type: .info
+        )
+
         if downloadTasks.count < maxConcurrent {
             startDownload(record: savedRecord)
         } else {
             pendingQueue.append(savedRecord)
+        }
+    }
+
+    // MARK: - 胶囊通知
+
+    /// 发送胶囊通知（自动 2.5 秒后清除）
+    private func postCapsule(text: String, icon: String, type: DownloadCapsuleMessage.CapsuleType) {
+        let msg = DownloadCapsuleMessage(text: text, icon: icon, type: type)
+        DispatchQueue.main.async { [weak self] in
+            self?.capsuleMessage = msg
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                if self?.capsuleMessage?.id == msg.id {
+                    self?.capsuleMessage = nil
+                }
+            }
         }
     }
 
@@ -57,6 +81,49 @@ final class DownloadManager: ObservableObject {
 
     func reloadActiveDownloads() {
         activeDownloads = DatabaseManager.shared.queryDownloads()
+        checkStatusChanges()
+    }
+
+    /// 检测下载状态变化，自动发送胶囊通知
+    private func checkStatusChanges() {
+        for record in activeDownloads {
+            guard let recordId = record.id else { continue }
+            let oldStatus = lastStatusMap[recordId]
+            let newStatus = record.status
+
+            // 状态未变化或首次记录（跳过首次，避免初始化时误报）
+            if oldStatus == newStatus { continue }
+            if oldStatus == nil {
+                lastStatusMap[recordId] = newStatus
+                continue
+            }
+
+            // 状态发生变化
+            switch newStatus {
+            case "completed":
+                postCapsule(
+                    text: "「\(record.name)」下载完成",
+                    icon: "checkmark.circle.fill",
+                    type: .success
+                )
+            case "failed":
+                // 区分网络失败和普通失败
+                let isNetworkError = record.downloadedSize == 0
+                postCapsule(
+                    text: "「\(record.name)」\(isNetworkError ? "网络失败" : "下载失败")",
+                    icon: isNetworkError ? "wifi.slash" : "xmark.circle.fill",
+                    type: isNetworkError ? .network : .failure
+                )
+            default:
+                break
+            }
+
+            lastStatusMap[recordId] = newStatus
+        }
+
+        // 清理已删除记录的状态跟踪
+        let currentIds = Set(activeDownloads.compactMap { $0.id })
+        lastStatusMap = lastStatusMap.filter { currentIds.contains($0.key) }
     }
 
     // MARK: - 启动下载
