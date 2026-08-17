@@ -202,12 +202,10 @@ class DatabaseManager {
         }
 
         migrator.registerMigration("v4_add_download_columns") { db in
-            try db.alter(table: "download") { t in
-                t.add(.sourceType, ColumnType.text)
-                t.add(.engineKey, ColumnType.text)
-                t.add(.vodId, ColumnType.text)
-                t.add(.headers, ColumnType.text)
-            }
+            try db.execute(sql: "ALTER TABLE download ADD COLUMN sourceType TEXT")
+            try db.execute(sql: "ALTER TABLE download ADD COLUMN engineKey TEXT")
+            try db.execute(sql: "ALTER TABLE download ADD COLUMN vodId TEXT")
+            try db.execute(sql: "ALTER TABLE download ADD COLUMN headers TEXT")
             print("[DatabaseManager] v4 迁移完成：download 表新增 sourceType/engineKey/vodId/headers 字段")
         }
 
