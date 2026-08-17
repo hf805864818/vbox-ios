@@ -79,9 +79,10 @@ struct ContentView: View {
                 .background(settings.usesVisualSkin ? Color.clear : Color(uiColor: .systemBackground))
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
-                // 远程源状态通知条 + 悬浮式底部导航栏
+                // 远程源状态通知条 + 下载胶囊通知 + 悬浮式底部导航栏
                 VStack(spacing: 0) {
                     RemoteSourceStatusBar()
+                    DownloadCapsuleNotification()
 
                     // 悬浮式底部导航栏
                     if !settings.isTabBarHidden {
@@ -187,11 +188,6 @@ struct ContentView: View {
                 })
                 .zIndex(5)
             }
-        }
-        // 胶囊通知（放在最顶层，确保所有页面可见）
-        .overlay {
-            DownloadCapsuleNotification()
-                .zIndex(50)
         }
         .onChange(of: UpdateManager.shared.isMinimized) { _ in
             // 下载完成时自动弹出

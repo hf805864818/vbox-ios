@@ -564,7 +564,15 @@ struct VideoPlayerViewV2: View {
                 video: video
             )
             .persistentSystemOverlays(.hidden)
-            
+
+            // 下载胶囊通知 — 顶部显示，不影响播放器交互
+            VStack {
+                PlayerCapsuleNotification()
+                Spacer()
+            }
+            .allowsHitTesting(false)
+            .zIndex(200)
+
             // 错误提示（附带调试日志）
             if let error = playerState.loadError {
                 ErrorViewWithLogs(error: error, logs: playerState.debugLogs, onRetry: { playerState.retry(video: video) })
