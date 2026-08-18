@@ -261,7 +261,7 @@ final class DownloadManager: ObservableObject {
             let (saveURL, response) = try await URLSession.shared.download(for: request)
 
             // 确定文件扩展名
-            var ext = downloadURL.pathExtension.isEmpty
+            let ext = downloadURL.pathExtension.isEmpty
                 ? "mp4" : downloadURL.pathExtension
 
             // 创建下载目录
