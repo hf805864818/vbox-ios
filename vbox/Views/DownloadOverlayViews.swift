@@ -123,9 +123,9 @@ struct DownloadCapsuleNotification: View {
             isVisible = true
         }
 
-        // 统一 4 秒后自动消失
+        // 统一 5 秒后自动消失
         dismissTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(4.0 * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(5.0 * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -138,7 +138,7 @@ struct DownloadCapsuleNotification: View {
 
 // MARK: - 播放器内胶囊通知（顶部显示，不影响播放器交互）
 
-/// 播放器内的下载胶囊通知 — 显示在播放器顶部，4秒自动消失
+/// 播放器内的下载胶囊通知 — 显示在播放器顶部，5秒自动消失
 /// allowsHitTesting(false) 确保不阻挡播放器手势和按钮
 struct PlayerCapsuleNotification: View {
     @ObservedObject private var downloadManager = DownloadManager.shared
@@ -200,9 +200,9 @@ struct PlayerCapsuleNotification: View {
             isVisible = true
         }
 
-        // 统一 4 秒后自动消失
+        // 统一 5 秒后自动消失
         dismissTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(4.0 * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(5.0 * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -225,7 +225,7 @@ struct FloatingVideoDownloadButton: View {
 
     private let screenWidth = UIScreen.main.bounds.width
     private let screenHeight = UIScreen.main.bounds.height
-    private let buttonSize: CGFloat = 48
+    private let buttonSize: CGFloat = 40
 
     private var defaultPosition: CGPoint {
         CGPoint(
@@ -277,13 +277,13 @@ struct FloatingVideoDownloadButton: View {
         ZStack {
             // 进度环
             Circle()
-                .stroke(Color.white.opacity(0.15), lineWidth: 3)
+                .stroke(Color.white.opacity(0.15), lineWidth: 2.5)
                 .frame(width: buttonSize, height: buttonSize)
 
             if hasActiveDownloads {
                 Circle()
                     .trim(from: 0, to: max(0.05, CGFloat(overallProgress)))
-                    .stroke(Color(hex: "00A8FF"), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .stroke(Color(hex: "00A8FF"), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .frame(width: buttonSize, height: buttonSize)
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 0.3), value: overallProgress)
@@ -293,12 +293,12 @@ struct FloatingVideoDownloadButton: View {
             Image(systemName: hasActiveDownloads ? "arrow.down.circle.fill" : "tray.full.fill")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 28, height: 28)
+                .frame(width: 22, height: 22)
                 .foregroundColor(hasActiveDownloads ? Color(hex: "00A8FF") : Color(hex: "22C55E"))
                 .background(
                     Circle()
                         .fill(Color(uiColor: .systemBackground))
-                        .frame(width: 28, height: 28)
+                        .frame(width: 22, height: 22)
                 )
                 .clipShape(Circle())
 
@@ -417,6 +417,17 @@ struct DownloadManagementPopup: View {
                             if !downloading.isEmpty {
                                 downloadSectionHeader("下载中", count: downloading.count, color: .blue)
                                 ForEach(downloading) { record in
+                                    DownloadPopupProgressRow(record: record)
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 8)
+                                }
+                            }
+
+                            // 已暂停
+                            let paused = downloadRecords.filter { $0.status == "paused" }
+                            if !paused.isEmpty {
+                                downloadSectionHeader("已暂停", count: paused.count, color: .orange)
+                                ForEach(paused) { record in
                                     DownloadPopupProgressRow(record: record)
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 8)
@@ -673,7 +684,7 @@ struct DownloadManagementPopup: View {
             return
         }
 
-        let preset = AVAssetExportPresetHighestQuality
+        let preset = AVAssetExportPresetPassthrough
         guard let exporter = AVAssetExportSession(asset: asset, presetName: preset) else {
             showSaveMessage("视频转换失败")
             return
@@ -730,6 +741,7 @@ struct DownloadManagementPopup: View {
 
 private struct DownloadPopupProgressRow: View {
     let record: DownloadRecord
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     var body: some View {
         HStack(spacing: 10) {
@@ -764,6 +776,16 @@ private struct DownloadPopupProgressRow: View {
                     }
                     .font(.system(size: 10))
                     .foregroundColor(.blue)
+                } else if record.status == "paused" {
+                    ProgressView(value: record.progress)
+                        .progressViewStyle(LinearProgressViewStyle(tint: .orange))
+                        .frame(height: 3)
+                    HStack(spacing: 4) {
+                        Text("已暂停")
+                        Text("· \(Int(record.progress * 100))%")
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
                 } else {
                     Text("等待下载")
                         .font(.system(size: 10))
@@ -771,6 +793,27 @@ private struct DownloadPopupProgressRow: View {
                 }
             }
             Spacer()
+
+            // 暂停/继续按钮
+            if record.status == "downloading" {
+                Button(action: {
+                    downloadManager.pauseDownload(id: record.id ?? 0)
+                }) {
+                    Image(systemName: "pause.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
+            } else if record.status == "paused" {
+                Button(action: {
+                    downloadManager.resumeDownload(id: record.id ?? 0)
+                }) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }

@@ -23,6 +23,8 @@ final class DownloadManager: ObservableObject {
     @Published var capsuleMessage: DownloadCapsuleMessage?  // 胶囊通知消息
     @Published var isFloatingButtonManuallyHidden: Bool = false  // 用户手动隐藏悬浮按键
 
+    @Published var pausedDownloadIds: Set<Int> = []  // 已暂停的下载 ID
+
     private var downloadTasks: [Int: Task<Void, Never>] = [:]  // recordId → Task
     private let maxConcurrent = 2  // 最大并发下载数
     private var pendingQueue: [DownloadRecord] = []
@@ -62,16 +64,11 @@ final class DownloadManager: ObservableObject {
 
     // MARK: - 胶囊通知
 
-    /// 发送胶囊通知（自动 2.5 秒后清除）
+    /// 发送胶囊通知（UI 组件统一管理 5 秒自动消失，此处只负责设置消息）
     private func postCapsule(text: String, icon: String, type: DownloadCapsuleMessage.CapsuleType) {
         let msg = DownloadCapsuleMessage(text: text, icon: icon, type: type)
         DispatchQueue.main.async { [weak self] in
             self?.capsuleMessage = msg
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-                if self?.capsuleMessage?.id == msg.id {
-                    self?.capsuleMessage = nil
-                }
-            }
         }
     }
 
@@ -264,7 +261,7 @@ final class DownloadManager: ObservableObject {
             let (saveURL, response) = try await URLSession.shared.download(for: request)
 
             // 确定文件扩展名
-            let ext = downloadURL.pathExtension.isEmpty
+            var ext = downloadURL.pathExtension.isEmpty
                 ? "mp4" : downloadURL.pathExtension
 
             // 创建下载目录
@@ -274,6 +271,38 @@ final class DownloadManager: ObservableObject {
 
             // 清理文件名中的非法字符
             let safeName = record.name.replacingOccurrences(of: "[/\\:*?\"<>|]", with: "_", options: .regularExpression)
+
+            // 如果是 TS 文件，先保存为临时 TS，再转 MP4
+            if ext.lowercased() == "ts" {
+                let tempTSURL = downloadsDir.appendingPathComponent("\(safeName)_temp.ts")
+                try? FileManager.default.removeItem(at: tempTSURL)
+                try FileManager.default.moveItem(at: saveURL, to: tempTSURL)
+
+                let mp4URL = downloadsDir.appendingPathComponent("\(safeName).mp4")
+                let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: mp4URL)
+
+                if conversionSuccess {
+                    try? FileManager.default.removeItem(at: tempTSURL)
+                    let fileSize = (try? FileManager.default.attributesOfItem(
+                        atPath: mp4URL.path)[.size] as? Int64) ?? 0
+                    DatabaseManager.shared.updateDownloadPath(
+                        id: recordId, path: mp4URL.path,
+                        fileSize: fileSize, status: "completed")
+                } else {
+                    // 转码失败，用 TS 文件兜底
+                    let tsURL = downloadsDir.appendingPathComponent("\(safeName).ts")
+                    try? FileManager.default.removeItem(at: tsURL)
+                    try FileManager.default.moveItem(at: tempTSURL, to: tsURL)
+                    let fileSize = (try? FileManager.default.attributesOfItem(
+                        atPath: tsURL.path)[.size] as? Int64) ?? 0
+                    DatabaseManager.shared.updateDownloadPath(
+                        id: recordId, path: tsURL.path,
+                        fileSize: fileSize, status: "completed")
+                }
+                await MainActor.run { reloadActiveDownloads() }
+                return
+            }
+
             let outputURL = downloadsDir.appendingPathComponent("\(safeName).\(ext)")
 
             // 如果文件已存在，先删除
@@ -341,9 +370,10 @@ final class DownloadManager: ObservableObject {
             aesKey = await fetchData(url: keyURL, headers: headers)
         }
 
-        // 5. 创建临时目录
+        // 5. 创建临时目录（清理旧数据，支持暂停后重新下载）
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("vbox_dl_\(recordId)")
+        try? FileManager.default.removeItem(at: tempDir)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         // 6. 逐个下载 TS 分片
@@ -351,6 +381,9 @@ final class DownloadManager: ObservableObject {
             if Task.isCancelled { return }
 
             guard let tsData = await fetchData(url: tsURL, headers: headers) else { continue }
+
+            // 异步操作后再次检查取消状态（暂停时避免覆盖 paused 状态）
+            if Task.isCancelled { return }
 
             let finalData: Data
             if let key = aesKey, let iv = keyInfo?.iv {
@@ -419,6 +452,31 @@ final class DownloadManager: ObservableObject {
     }
 
     // MARK: - 暂停/继续/删除
+
+    /// 暂停下载：取消 Task，标记状态为 paused
+    func pauseDownload(id: Int) {
+        downloadTasks[id]?.cancel()
+        downloadTasks.removeValue(forKey: id)
+        pausedDownloadIds.insert(id)
+        DatabaseManager.shared.updateDownloadStatus(id: id, status: "paused")
+        reloadActiveDownloads()
+        // 暂停后尝试启动队列中等待的任务
+        startNextPending()
+    }
+
+    /// 继续下载：从数据库恢复记录，重新启动下载
+    func resumeDownload(id: Int) {
+        let records = DatabaseManager.shared.queryDownloads()
+        guard let record = records.first(where: { $0.id == id }) else { return }
+        pausedDownloadIds.remove(id)
+        DatabaseManager.shared.updateDownloadStatus(id: id, status: "pending")
+        reloadActiveDownloads()
+        if downloadTasks.count < maxConcurrent {
+            startDownload(record: record)
+        } else {
+            pendingQueue.append(record)
+        }
+    }
 
     func cancelDownload(id: Int) {
         downloadTasks[id]?.cancel()
@@ -631,11 +689,11 @@ final class DownloadManager: ObservableObject {
     }
 
     /// 将合并后的 TS 文件转换为 MP4 格式
+    /// 使用 Passthrough 预设（仅重封装不重编码），兼容性最好
     private func convertTSToMP4(from tsURL: URL, to mp4URL: URL) async -> Bool {
         let asset = AVAsset(url: tsURL)
 
-        // 尝试用最高质量视频导出
-        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
             return false
         }
 
