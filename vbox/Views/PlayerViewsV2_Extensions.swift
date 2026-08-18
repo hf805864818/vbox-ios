@@ -19,6 +19,20 @@ struct GestureControlView: View {
         case ignored
     }
 
+    /// 任意弹窗显示时禁用长按
+    private var isAnyPopupPresented: Bool {
+        playerState.showSettings ||
+        playerState.showEpisodePicker ||
+        playerState.showQualityPicker ||
+        playerState.showDanmakuSettings ||
+        playerState.showEnginePicker ||
+        playerState.showDanmakuInput ||
+        playerState.showToolsMenu ||
+        playerState.showSkipSettings ||
+        playerState.showDanmakuSearch ||
+        playerState.showLongPressSpeedSettings
+    }
+
     var body: some View {
         GeometryReader { geo in
             Color.clear.contentShape(Rectangle())
@@ -29,8 +43,10 @@ struct GestureControlView: View {
                 .gesture(DragGesture(minimumDistance: 14)
                     .onChanged { value in
                         guard !playerState.isOrientationLocked else { return }
+                        // 长按倍速期间禁用拖拽手势
+                        if playerState.showLongPressSpeedHint { return }
                         // 修复: 弹窗显示时禁用手势，防止控制面板卡死
-                        if playerState.showSettings || playerState.showEpisodePicker || playerState.showQualityPicker || playerState.showDanmakuSettings || playerState.showEnginePicker || playerState.showDanmakuInput { return }
+                        if isAnyPopupPresented { return }
                         if !isDragging {
                             isDragging = true
                             startBrightness = playerState.brightness
@@ -80,6 +96,24 @@ struct GestureControlView: View {
                         isDragging = false
                         gestureMode = nil
                     }
+                )
+                // 长按倍速手势：长按 0.5 秒触发，松手恢复
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .sequenced(before: DragGesture(minimumDistance: 0))
+                        .onChanged { value in
+                            switch value {
+                            case .first(true):
+                                guard !playerState.isOrientationLocked else { return }
+                                guard !isAnyPopupPresented else { return }
+                                playerState.startLongPressSpeed()
+                            default:
+                                break
+                            }
+                        }
+                        .onEnded { _ in
+                            playerState.endLongPressSpeed()
+                        }
                 )
         }
     }

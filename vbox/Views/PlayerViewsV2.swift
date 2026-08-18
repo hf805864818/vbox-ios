@@ -876,6 +876,15 @@ class PlayerState: ObservableObject {
     @Published var showToolsMenu = false
     @Published var showSkipSettings = false
     @Published var showDanmakuSearch = false
+    @Published var showLongPressSpeedSettings = false  // 长按倍速设置弹窗
+    @Published var showLongPressSpeedHint = false        // 长按倍速提示浮层
+    // 长按倍速设置（持久化），默认 2.5x
+    @Published var longPressSpeed: Double = UserDefaults.standard.object(forKey: "player_long_press_speed") as? Double ?? 2.5 {
+        didSet { UserDefaults.standard.set(longPressSpeed, forKey: "player_long_press_speed") }
+    }
+    // 长按倍速内部状态
+    private var preLongPressSpeed: Double = 1.0
+    private var isLongPressing = false
     // 片头片尾设置：按视频 vodId 独立存储，同一剧集所有集数共享
     @Published var skipIntroEnabled = false
     @Published var skipIntroSeconds = 0
@@ -1478,6 +1487,24 @@ class PlayerState: ObservableObject {
             NotificationCenter.default.post(name: notification, object: nil, userInfo: ["speed": speed])
             log("[PlayerV2] \(compatibilityEngineName) 倍速切换：\(String(format: "%.2f", speed))X")
         }
+    }
+
+    // MARK: - 长按倍速
+    /// 长按屏幕开始：记录当前倍速，切换到长按倍速
+    func startLongPressSpeed() {
+        guard !isLongPressing else { return }
+        isLongPressing = true
+        preLongPressSpeed = playbackSpeed
+        changePlaybackSpeed(longPressSpeed)
+        showLongPressSpeedHint = true
+    }
+
+    /// 松手结束：恢复长按前的倍速
+    func endLongPressSpeed() {
+        guard isLongPressing else { return }
+        isLongPressing = false
+        changePlaybackSpeed(preLongPressSpeed)
+        showLongPressSpeedHint = false
     }
 
     func changeQuality(index: Int) {
@@ -5678,6 +5705,8 @@ class PlayerState: ObservableObject {
         showToolsMenu = false
         showSkipSettings = false
         showDanmakuSearch = false
+        showLongPressSpeedSettings = false
+        showLongPressSpeedHint = false
         skipOutroTriggered = false
         skipIntroTriggered = false
         isSwitchingEpisode = false
@@ -5724,7 +5753,8 @@ struct PlayerContainerView: View {
         playerState.showDanmakuInput ||
         playerState.showToolsMenu ||
         playerState.showSkipSettings ||
-        playerState.showDanmakuSearch
+        playerState.showDanmakuSearch ||
+        playerState.showLongPressSpeedSettings
     }
 
     private var hasPlaybackError: Bool {
@@ -5736,6 +5766,7 @@ struct PlayerContainerView: View {
         !isAnyControlPopupPresented &&
         !playerState.isSeeking &&
         !playerState.isOrientationLocked &&
+        !playerState.showLongPressSpeedHint &&
         playerState.showControls &&
         playerState.isPlaying
     }
@@ -5877,6 +5908,7 @@ struct PlayerContainerView: View {
             if !hasPlaybackError {
                 GestureControlView(playerState: playerState) {
                     guard !playerState.isSeeking else { return }
+                    guard !playerState.showLongPressSpeedHint else { return }
                     guard !isAnyControlPopupPresented else { return }
                     if playerState.isOrientationLocked {
                         // 锁定状态：点击屏幕只显示锁定按钮，3秒后自动隐藏
@@ -6220,7 +6252,8 @@ struct PlayerContainerView: View {
                         backgroundPlay: $playerState.backgroundPlay,
                         pipEnabled: $playerState.pipEnabled,
                         showDebugOverlay: $playerState.showDebugOverlay,
-                        showDanmakuSearch: $playerState.showDanmakuSearch
+                        showDanmakuSearch: $playerState.showDanmakuSearch,
+                        showLongPressSpeedSettings: $playerState.showLongPressSpeedSettings
                     )
                     .environmentObject(settings)
                     .position(x: geo.size.width - 70.5, y: 155)
@@ -6293,6 +6326,49 @@ struct PlayerContainerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .zIndex(42)
             }
+
+            // 长按倍速设置面板（居中弹窗，竖屏/横屏均可用）
+            if playerState.showLongPressSpeedSettings {
+                GeometryReader { geo in
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showLongPressSpeedSettings = false
+                            }
+                        }
+                    LongPressSpeedSettingsPanel(
+                        isPresented: $playerState.showLongPressSpeedSettings,
+                        longPressSpeed: $playerState.longPressSpeed
+                    )
+                    .environmentObject(settings)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9))
+                    ))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(42)
+            }
+
+            // 长按倍速提示浮层（长按屏幕期间显示）
+            if playerState.showLongPressSpeedHint {
+                VStack(spacing: 8) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: 28))
+                        .foregroundColor(.white)
+                    Text(String(format: "%@x", playerState.longPressSpeed == floor(playerState.longPressSpeed) ? String(format: "%.0f", playerState.longPressSpeed) : String(format: "%.1f", playerState.longPressSpeed)))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 20)
+                .background(Color.black.opacity(0.6))
+                .cornerRadius(16)
+                .allowsHitTesting(false)
+                .zIndex(43)
+            }
         }
         .onAppear {
             resetAutoHideTimer()
@@ -6328,6 +6404,7 @@ struct PlayerContainerView: View {
         .onChange(of: playerState.showToolsMenu) { handleControlPopupChange($0) }
         .onChange(of: playerState.showSkipSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.showDanmakuSearch) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showLongPressSpeedSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.isSeeking) { isSeeking in
             if isSeeking {
                 autoHideTask?.cancel()
@@ -8523,6 +8600,90 @@ struct PlayerSettingsPanelV2: View {
     }
 }
 
+// MARK: - 长按倍速设置面板
+struct LongPressSpeedSettingsPanel: View {
+    @Binding var isPresented: Bool
+    @Binding var longPressSpeed: Double
+    @EnvironmentObject private var settings: AppSettings
+
+    let speeds: [Double] = [1.5, 2.0, 2.5, 3.0]
+
+    private var panelBackground: Color {
+        if settings.usesLiquidSkin {
+            return Color(hex: "1A1A2E").opacity(0.88)
+        } else if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.8)
+    }
+
+    private var textPrimary: Color {
+        settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.85)
+    }
+
+    private var textSecondary: Color {
+        settings.usesFrostedSkin ? Color(uiColor: .secondaryLabel) : .white.opacity(0.5)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // 标题
+            HStack {
+                Image(systemName: "speedometer")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color(hex: "2196F3"))
+                Text("长按倍速设置")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(textPrimary)
+                Spacer()
+            }
+
+            // 说明文字
+            Text("长按屏幕时以此倍速播放，松手后恢复原速")
+                .font(.system(size: 12))
+                .foregroundColor(textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 倍速选择网格
+            HStack(spacing: 10) {
+                ForEach(speeds, id: \.self) { s in
+                    Button(action: {
+                        longPressSpeed = s
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isPresented = false
+                        }
+                    }) {
+                        let speedText = s == floor(s) ? String(format: "%.0f", s) : String(format: "%.1f", s)
+                        Text(speedText + "x")
+                            .font(.system(size: 16, weight: longPressSpeed == s ? .bold : .medium))
+                            .foregroundColor(longPressSpeed == s ? .white : textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(longPressSpeed == s ? Color(hex: "2196F3") : Color.white.opacity(0.1))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(longPressSpeed == s ? Color.clear : Color.white.opacity(0.15), lineWidth: 0.5)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 300)
+        .background(panelBackground)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 16, x: 0, y: 4)
+    }
+}
+
 // MARK: - 选集面板 (侧边栏版本)
 
 // MARK: - 清晰度面板 (侧边栏版本)
@@ -9278,6 +9439,7 @@ struct ToolsQuickMenuV2: View {
     @Binding var pipEnabled: Bool
     @Binding var showDebugOverlay: Bool
     @Binding var showDanmakuSearch: Bool
+    @Binding var showLongPressSpeedSettings: Bool
     @EnvironmentObject private var settings: AppSettings
 
     private var menuBackground: Color {
@@ -9294,6 +9456,38 @@ struct ToolsQuickMenuV2: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
         VStack(spacing: 0) {
+            // 长按倍速（跳转按钮）
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showToolsMenu = false
+                    showLongPressSpeedSettings = true
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.8))
+                        .frame(width: 18)
+                    Text("长按倍速")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(textColor)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 2)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.4))
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .padding(.horizontal, 8)
+                .frame(width: 135, height: 38)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
             // 搜索弹幕（跳转按钮）
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -9382,7 +9576,7 @@ struct ToolsQuickMenuV2: View {
         .padding(.vertical, 4)
         }
         .frame(width: 135)
-        .frame(maxHeight: 280)
+        .frame(maxHeight: 320)
         .background(menuBackground)
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
