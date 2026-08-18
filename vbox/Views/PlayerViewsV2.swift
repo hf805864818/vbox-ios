@@ -3,6 +3,7 @@ import AVKit
 import AVFoundation
 import Combine
 import UIKit
+import UniformIdentifiers
 #if canImport(MobileVLCKit)
 import MobileVLCKit
 #endif
@@ -878,6 +879,7 @@ class PlayerState: ObservableObject {
     @Published var showDanmakuSearch = false
     @Published var showLongPressSpeedSettings = false  // 长按倍速设置弹窗
     @Published var showLongPressSpeedHint = false        // 长按倍速提示浮层
+    @Published var showSubtitleSettings = false          // 字幕设置弹窗
     // 长按倍速设置（持久化），默认 2.0x
     @Published var longPressSpeed: Double = UserDefaults.standard.object(forKey: "player_long_press_speed") as? Double ?? 2.0 {
         didSet { UserDefaults.standard.set(longPressSpeed, forKey: "player_long_press_speed") }
@@ -947,6 +949,13 @@ class PlayerState: ObservableObject {
     private var sceneRestorationTask: Task<Void, Never>?
     @Published var isFavorite: Bool = false  // 当前视频是否已收藏
     
+    @Published var subtitleCues: [SubtitleCue] = []        // 解析后的字幕数据
+    @Published var showSubtitle: Bool = false               // 字幕开关
+    @Published var subtitleFileName: String = ""            // 当前字幕文件名
+    @Published var subtitleFontSize: CGFloat = 18           // 字幕字号
+    @Published var subtitleColorIndex: Int = 0              // 0=白 1=黄 2=青
+    @Published var currentSubtitleText: String? = nil       // 当前应显示的字幕文本
+
     // 通用集数列表（所有资源类型共用）
     @Published var episodeItems: [EpisodeItem] = []
 
@@ -1507,6 +1516,74 @@ class PlayerState: ObservableObject {
         isLongPressing = false
         changePlaybackSpeed(preLongPressSpeed)
         showLongPressSpeedHint = false
+    }
+
+    // MARK: - 字幕
+
+    /// 加载字幕文件
+    func loadSubtitle(url: URL) {
+        // 文档选择器返回的 URL 可能需要安全作用域访问权限
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let cues = SubtitleParser.parse(url: url), !cues.isEmpty else {
+            log("[PlayerV2] 字幕解析失败: \(url.lastPathComponent)")
+            return
+        }
+        subtitleCues = cues
+        subtitleFileName = url.deletingPathExtension().lastPathComponent
+        showSubtitle = true
+        currentSubtitleText = nil
+        log("[PlayerV2] ✅ 字幕加载成功: \(subtitleFileName) (\(cues.count) 条)")
+    }
+
+    /// 清除字幕
+    func clearSubtitle() {
+        subtitleCues = []
+        showSubtitle = false
+        subtitleFileName = ""
+        currentSubtitleText = nil
+    }
+
+    /// 根据当前播放时间更新字幕显示（二分查找）
+    func updateSubtitle(currentTime: Double) {
+        guard showSubtitle, !subtitleCues.isEmpty else {
+            if currentSubtitleText != nil { currentSubtitleText = nil }
+            return
+        }
+
+        // 二分查找当前时间对应的字幕
+        var lo = 0, hi = subtitleCues.count - 1
+        while lo <= hi {
+            let mid = (lo + hi) >> 1
+            let cue = subtitleCues[mid]
+            if currentTime < cue.startTime {
+                hi = mid - 1
+            } else if currentTime > cue.endTime {
+                lo = mid + 1
+            } else {
+                // 命中
+                if currentSubtitleText != cue.text {
+                    currentSubtitleText = cue.text
+                }
+                return
+            }
+        }
+        // 未命中：清空
+        if currentSubtitleText != nil { currentSubtitleText = nil }
+    }
+
+    /// 字幕颜色
+    var subtitleColor: Color {
+        switch subtitleColorIndex {
+        case 1: return .yellow
+        case 2: return .cyan
+        default: return .white
+        }
     }
 
     func changeQuality(index: Int) {
@@ -3611,6 +3688,7 @@ class PlayerState: ObservableObject {
             guard let self else { return }
             guard self.playbackSessionId == sessionId, self.player === p else { return }
             self.currentTime = time.seconds
+            self.updateSubtitle(currentTime: time.seconds)
             if let d = p.currentItem?.duration {
                 self.duration = d.seconds.isFinite ? d.seconds : 0
             }
@@ -5578,6 +5656,7 @@ class PlayerState: ObservableObject {
             guard let self else { return }
             guard self.playbackSessionId == sessionId, self.player === p else { return }
             self.currentTime = time.seconds
+            self.updateSubtitle(currentTime: time.seconds)
             if let itemDuration = p.currentItem?.duration {
                 self.duration = itemDuration.seconds.isFinite ? itemDuration.seconds : 0
             }
@@ -5709,6 +5788,7 @@ class PlayerState: ObservableObject {
         showDanmakuSearch = false
         showLongPressSpeedSettings = false
         showLongPressSpeedHint = false
+        showSubtitleSettings = false
         skipOutroTriggered = false
         skipIntroTriggered = false
         isSwitchingEpisode = false
@@ -6255,7 +6335,8 @@ struct PlayerContainerView: View {
                         pipEnabled: $playerState.pipEnabled,
                         showDebugOverlay: $playerState.showDebugOverlay,
                         showDanmakuSearch: $playerState.showDanmakuSearch,
-                        showLongPressSpeedSettings: $playerState.showLongPressSpeedSettings
+                        showLongPressSpeedSettings: $playerState.showLongPressSpeedSettings,
+                        showSubtitleSettings: $playerState.showSubtitleSettings
                     )
                     .environmentObject(settings)
                     .position(x: geo.size.width - 70.5, y: 155)
@@ -6376,6 +6457,57 @@ struct PlayerContainerView: View {
                 }
                 .zIndex(43)
             }
+
+            // 字幕设置面板
+            if playerState.showSubtitleSettings {
+                GeometryReader { geo in
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                playerState.showSubtitleSettings = false
+                            }
+                        }
+                    SubtitleSettingsPanel(
+                        isPresented: $playerState.showSubtitleSettings,
+                        showSubtitle: $playerState.showSubtitle,
+                        subtitleFontSize: $playerState.subtitleFontSize,
+                        subtitleColorIndex: $playerState.subtitleColorIndex,
+                        subtitleFileName: playerState.subtitleFileName,
+                        onLoadFile: { url in
+                            playerState.loadSubtitle(url: url)
+                        },
+                        onClear: {
+                            playerState.clearSubtitle()
+                        }
+                    )
+                    .environmentObject(settings)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.85)),
+                        removal: .opacity.combined(with: .scale(scale: 0.9))
+                    ))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(42)
+            }
+
+            // 字幕浮层（播放期间显示，底部居中）
+            if playerState.showSubtitle, let text = playerState.currentSubtitleText {
+                VStack {
+                    Spacer()
+                    Text(text)
+                        .font(.system(size: playerState.subtitleFontSize, weight: .medium))
+                        .foregroundColor(playerState.subtitleColor)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(4)
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, playerState.isPortrait ? 100 : 80)
+                        .shadow(color: .black.opacity(0.9), radius: 1, x: 0, y: 1)
+                }
+                .allowsHitTesting(false)
+                .zIndex(14)
+            }
         }
         .onAppear {
             resetAutoHideTimer()
@@ -6412,6 +6544,7 @@ struct PlayerContainerView: View {
         .onChange(of: playerState.showSkipSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.showDanmakuSearch) { handleControlPopupChange($0) }
         .onChange(of: playerState.showLongPressSpeedSettings) { handleControlPopupChange($0) }
+        .onChange(of: playerState.showSubtitleSettings) { handleControlPopupChange($0) }
         .onChange(of: playerState.isSeeking) { isSeeking in
             if isSeeking {
                 autoHideTask?.cancel()
@@ -9447,6 +9580,7 @@ struct ToolsQuickMenuV2: View {
     @Binding var showDebugOverlay: Bool
     @Binding var showDanmakuSearch: Bool
     @Binding var showLongPressSpeedSettings: Bool
+    @Binding var showSubtitleSettings: Bool
     @EnvironmentObject private var settings: AppSettings
 
     private var menuBackground: Color {
@@ -9527,6 +9661,38 @@ struct ToolsQuickMenuV2: View {
             Divider().background(textColor.opacity(0.15))
                 .padding(.horizontal, 8)
 
+            // 加载字幕（跳转按钮）
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showToolsMenu = false
+                    showSubtitleSettings = true
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "captions.bubble")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.8))
+                        .frame(width: 18)
+                    Text("加载字幕")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(textColor)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 2)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(textColor.opacity(0.4))
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .padding(.horizontal, 8)
+                .frame(width: 135, height: 38)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Divider().background(textColor.opacity(0.15))
+                .padding(.horizontal, 8)
+
             // 功能项：片头片尾（横向布局，与其他行统一）
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -9583,7 +9749,7 @@ struct ToolsQuickMenuV2: View {
         .padding(.vertical, 4)
         }
         .frame(width: 135)
-        .frame(maxHeight: 320)
+        .fixedSize(horizontal: false, vertical: true)
         .background(menuBackground)
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 0.5))
@@ -9799,9 +9965,251 @@ extension View {
 struct RoundedCorner: Shape {
     var radius: CGFloat = .infinity
     var corners: UIRectCorner = .allCorners
-    
+
     func path(in rect: CGRect) -> Path {
         let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
         return Path(path.cgPath)
+    }
+}
+
+// MARK: - 字幕设置面板
+struct SubtitleSettingsPanel: View {
+    @Binding var isPresented: Bool
+    @Binding var showSubtitle: Bool
+    @Binding var subtitleFontSize: CGFloat
+    @Binding var subtitleColorIndex: Int
+    let subtitleFileName: String
+    let onLoadFile: (URL) -> Void
+    let onClear: () -> Void
+    @EnvironmentObject private var settings: AppSettings
+
+    @State private var showDocumentPicker = false
+
+    private var panelBackground: Color {
+        if settings.usesLiquidSkin {
+            return Color(hex: "1A1A2E").opacity(0.88)
+        } else if settings.usesFrostedSkin {
+            return Color(uiColor: .secondarySystemBackground).opacity(0.92)
+        }
+        return Color.black.opacity(0.8)
+    }
+
+    private var textPrimary: Color {
+        settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.85)
+    }
+
+    private var textSecondary: Color {
+        settings.usesFrostedSkin ? Color(uiColor: .secondaryLabel) : .white.opacity(0.5)
+    }
+
+    private var accentColor: Color {
+        Color(hex: "2196F3")
+    }
+
+    private let colorOptions: [(String, Color)] = [
+        ("白色", .white),
+        ("黄色", .yellow),
+        ("青色", .cyan)
+    ]
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // 标题
+            HStack {
+                Image(systemName: "captions.bubble")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(accentColor)
+                Text("字幕设置")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(textPrimary)
+                Spacer()
+            }
+
+            // 当前字幕状态
+            if subtitleFileName.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(textSecondary)
+                    Text("暂未加载字幕")
+                        .font(.system(size: 12))
+                        .foregroundColor(textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.green)
+                    Text(subtitleFileName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 上传本地字幕按钮
+            Button(action: {
+                showDocumentPicker = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("上传本地字幕文件")
+                        .font(.system(size: 14, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(accentColor)
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            // 支持格式说明
+            Text("支持 SRT / VTT / ASS / SSA 格式")
+                .font(.system(size: 11))
+                .foregroundColor(textSecondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Divider()
+                .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12))
+
+            // 字幕开关
+            if !subtitleFileName.isEmpty {
+                HStack {
+                    Text("显示字幕")
+                        .font(.system(size: 14))
+                        .foregroundColor(textPrimary)
+                    Spacer()
+                    Toggle("", isOn: $showSubtitle)
+                        .labelsHidden()
+                        .tint(accentColor)
+                }
+
+                Divider()
+                    .background(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12))
+            }
+
+            // 字号设置
+            VStack(spacing: 8) {
+                HStack {
+                    Text("字幕字号")
+                        .font(.system(size: 14))
+                        .foregroundColor(textPrimary)
+                    Spacer()
+                    Text("\(Int(subtitleFontSize))")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(accentColor)
+                }
+                Slider(value: $subtitleFontSize, in: 12...32, step: 1)
+                    .tint(accentColor)
+            }
+
+            // 颜色选择
+            HStack(spacing: 10) {
+                Text("字幕颜色")
+                    .font(.system(size: 14))
+                    .foregroundColor(textPrimary)
+                ForEach(0..<colorOptions.count, id: \.self) { idx in
+                    Button(action: {
+                        subtitleColorIndex = idx
+                    }) {
+                        Circle()
+                            .fill(colorOptions[idx].1)
+                            .frame(width: 28, height: 28)
+                            .overlay(
+                                Circle()
+                                    .stroke(subtitleColorIndex == idx ? accentColor : Color.white.opacity(0.2), lineWidth: subtitleColorIndex == idx ? 2.5 : 0.5)
+                            )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                Spacer()
+            }
+
+            // 清除字幕按钮
+            if !subtitleFileName.isEmpty {
+                Button(action: {
+                    onClear()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isPresented = false
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13))
+                        Text("清除字幕")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundColor(.red.opacity(0.8))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.red.opacity(0.1))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+        .padding(20)
+        .frame(width: 300)
+        .background(panelBackground)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(settings.usesFrostedSkin ? Color(uiColor: .separator) : Color.white.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.5), radius: 16, x: 0, y: 4)
+        .sheet(isPresented: $showDocumentPicker) {
+            DocumentPicker { url in
+                onLoadFile(url)
+                showDocumentPicker = false
+            }
+        }
+    }
+}
+
+// MARK: - 文档选择器（用于选择本地字幕文件）
+struct DocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // 支持选择文本类文件（SRT/VTT/ASS/SSA）
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType(filenameExtension: "srt") ?? UTType.plainText,
+                                                                             UTType(filenameExtension: "vtt") ?? UTType.plainText,
+                                                                             UTType(filenameExtension: "ass") ?? UTType.plainText,
+                                                                             UTType(filenameExtension: "ssa") ?? UTType.plainText,
+                                                                             UTType.plainText])
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+
+        init(onPick: @escaping (URL) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {}
     }
 }

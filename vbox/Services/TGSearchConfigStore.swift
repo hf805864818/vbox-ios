@@ -33,17 +33,30 @@ class TGSearchConfigStore: ObservableObject {
         }
     }
 
+    /// 加载完成前禁止 didSet 触发 save()，避免 load() 中的属性赋值
+    /// 用空数据覆盖已有的持久化数据（这是升级后自定义频道丢失的根因）
+    private var isLoaded = false
+
     // MARK: - Published 属性
     @Published var proxyURL: String = "" {
-        didSet { save() }
+        didSet {
+            guard isLoaded else { return }
+            save()
+        }
     }
 
     @Published var channels: [TGChannel] = [] {
-        didSet { save() }
+        didSet {
+            guard isLoaded else { return }
+            save()
+        }
     }
 
     @Published var channelMode: ChannelMode = .default {
-        didSet { save() }
+        didSet {
+            guard isLoaded else { return }
+            save()
+        }
     }
 
     // MARK: - 预置常用频道（快捷添加用）
@@ -57,6 +70,7 @@ class TGSearchConfigStore: ObservableObject {
     // MARK: - Init
     init() {
         load()
+        isLoaded = true
     }
 
     // MARK: - 代理地址有效性
