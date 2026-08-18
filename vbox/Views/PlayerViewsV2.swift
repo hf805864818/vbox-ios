@@ -3,7 +3,6 @@ import AVKit
 import AVFoundation
 import Combine
 import UIKit
-import UniformIdentifiers
 #if canImport(MobileVLCKit)
 import MobileVLCKit
 #endif
@@ -10181,12 +10180,9 @@ struct DocumentPicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // 支持选择文本类文件（SRT/VTT/ASS/SSA）
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType(filenameExtension: "srt") ?? UTType.plainText,
-                                                                             UTType(filenameExtension: "vtt") ?? UTType.plainText,
-                                                                             UTType(filenameExtension: "ass") ?? UTType.plainText,
-                                                                             UTType(filenameExtension: "ssa") ?? UTType.plainText,
-                                                                             UTType.plainText])
+        // 使用字符串 UTI 方式，避免依赖 UniformIdentifiers 模块
+        // 支持选择文本类文件（SRT/VTT/ASS/SSA 均属于 public.plain-text 子类型）
+        let picker = UIDocumentPickerViewController(documentTypes: ["public.plain-text"], in: .open)
         picker.allowsMultipleSelection = false
         picker.delegate = context.coordinator
         return picker
