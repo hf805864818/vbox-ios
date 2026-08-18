@@ -194,21 +194,32 @@ final class DownloadManager: ObservableObject {
 
         let url = record.playurl
 
-        // 1. 如果是媒体直链，直接返回
+        // 解析 record.headers（JSON 编码的自定义请求头）
+        var savedHeaders: [String: String] = [:]
+        if let headersJson = record.headers,
+           let data = headersJson.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            savedHeaders = decoded
+        }
+
+        // 1. 如果是媒体直链，直接返回（保留自定义 headers）
         if isDirectMediaURL(url) {
             let type: DownloadType = url.lowercased().contains("m3u8") ? .m3u8 : .directFile
-            return (url, [:], type)
+            return (url, savedHeaders, type)
         }
 
         // 2. 调用 SpiderManager.getPlayerContent（JS 蜘蛛 playerContent）
         if let engineKey = record.engineKey, !engineKey.isEmpty,
            let vodId = record.vodId, !vodId.isEmpty {
-            if let pr = await SpiderManager.shared.getPlayerContent(
-                vodId: vodId, flag: "play", url: url, engineKey: engineKey) {
-                let resolvedUrl = pr.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? pr.url ?? ""
-                if !resolvedUrl.isEmpty {
-                    let type: DownloadType = resolvedUrl.lowercased().contains("m3u8") ? .m3u8 : .directFile
-                    return (resolvedUrl, pr.header ?? [:], type)
+            // 福利资源 engineKey 以 __fuli_welfare__ 开头，URL 已是直链，跳过 getPlayerContent
+            if !engineKey.hasPrefix("__fuli_welfare__") {
+                if let pr = await SpiderManager.shared.getPlayerContent(
+                    vodId: vodId, flag: "play", url: url, engineKey: engineKey) {
+                    let resolvedUrl = pr.playUrl.flatMap { $0.isEmpty ? nil : $0 } ?? pr.url ?? ""
+                    if !resolvedUrl.isEmpty {
+                        let type: DownloadType = resolvedUrl.lowercased().contains("m3u8") ? .m3u8 : .directFile
+                        return (resolvedUrl, pr.header ?? [:], type)
+                    }
                 }
             }
         }
@@ -216,10 +227,10 @@ final class DownloadManager: ObservableObject {
         // 3. 调用解析器兜底
         if let parsed = await SpiderManager.shared.parsePlayUrl(from: url) {
             let type: DownloadType = parsed.lowercased().contains("m3u8") ? .m3u8 : .directFile
-            return (parsed, [:], type)
+            return (parsed, savedHeaders, type)
         }
 
-        return ("", [:], .unsupported)
+        return ("", savedHeaders, .unsupported)
     }
 
     // MARK: - 网盘资源解析（动态统一入口）
@@ -257,44 +268,101 @@ final class DownloadManager: ObservableObject {
         var request = URLRequest(url: downloadURL)
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
 
+        // 创建下载目录
+        let downloadsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+
+        // 清理文件名中的非法字符
+        let safeName = record.name.replacingOccurrences(of: "[/\\:*?\"<>|]", with: "_", options: .regularExpression)
+
+        // 确定文件扩展名
+        let ext = downloadURL.pathExtension.isEmpty
+            ? "mp4" : downloadURL.pathExtension
+
+        let outputURL = downloadsDir.appendingPathComponent("\(safeName).\(ext)")
+        let tempURL = downloadsDir.appendingPathComponent("\(safeName)_temp.\(ext)")
+
+        // 如果文件已存在，先删除
+        try? FileManager.default.removeItem(at: outputURL)
+        try? FileManager.default.removeItem(at: tempURL)
+
         do {
-            let (saveURL, response) = try await URLSession.shared.download(for: request)
+            // 使用 URLSession.bytes 流式下载，支持实时进度回调
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
-            // 确定文件扩展名
-            let ext = downloadURL.pathExtension.isEmpty
-                ? "mp4" : downloadURL.pathExtension
+            // 从响应头获取总大小
+            let expectedContentLength = Int64(response.expectedContentLength)
 
-            // 创建下载目录
-            let downloadsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Downloads", isDirectory: true)
-            try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+            // 流式写入文件
+            FileManager.default.createFile(atPath: tempURL.path, contents: nil)
+            guard let fileHandle = try? FileHandle(forWritingTo: tempURL) else {
+                throw NSError(domain: "DownloadManager", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "无法创建文件"])
+            }
 
-            // 清理文件名中的非法字符
-            let safeName = record.name.replacingOccurrences(of: "[/\\:*?\"<>|]", with: "_", options: .regularExpression)
+            var downloadedSize: Int64 = 0
+            var lastReportTime = Date()
+            var buffer = Data()
+            let bufferSize = 64 * 1024  // 64KB 缓冲区
 
-            // 如果是 TS 文件，先保存为临时 TS，再转 MP4
+            // 逐块读取写入
+            for try await byte in bytes {
+                if Task.isCancelled {
+                    try? fileHandle.close()
+                    try? FileManager.default.removeItem(at: tempURL)
+                    return
+                }
+
+                buffer.append(byte)
+                if buffer.count >= bufferSize {
+                    fileHandle.write(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+                downloadedSize += 1
+
+                // 每 0.5 秒上报一次进度，避免频繁刷新 UI
+                let now = Date()
+                if now.timeIntervalSince(lastReportTime) > 0.5 {
+                    lastReportTime = now
+                    let progress = expectedContentLength > 0
+                        ? Double(downloadedSize) / Double(expectedContentLength)
+                        : 0
+                    DatabaseManager.shared.updateDownloadProgress(
+                        id: recordId, progress: progress,
+                        downloadedSize: downloadedSize, status: "downloading")
+                    await MainActor.run { reloadActiveDownloads() }
+                }
+            }
+
+            // 写入缓冲区剩余数据
+            if !buffer.isEmpty {
+                fileHandle.write(buffer)
+            }
+
+            try? fileHandle.close()
+
+            // 下载完成，重命名临时文件为最终文件
+            try FileManager.default.moveItem(at: tempURL, to: outputURL)
+
+            // 如果是 TS 文件，转 MP4
             if ext.lowercased() == "ts" {
-                let tempTSURL = downloadsDir.appendingPathComponent("\(safeName)_temp.ts")
-                try? FileManager.default.removeItem(at: tempTSURL)
-                try FileManager.default.moveItem(at: saveURL, to: tempTSURL)
-
                 let mp4URL = downloadsDir.appendingPathComponent("\(safeName).mp4")
+                try? FileManager.default.removeItem(at: mp4URL)
 
-                // 优先用 AVMutableComposition 方式（最可靠）
-                let composeSuccess = await convertTSToMP4ViaComposition(from: tempTSURL, to: mp4URL)
-
+                // 优先用 AVMutableComposition 方式
+                let composeSuccess = await convertTSToMP4ViaComposition(from: outputURL, to: mp4URL)
                 if composeSuccess {
-                    try? FileManager.default.removeItem(at: tempTSURL)
+                    try? FileManager.default.removeItem(at: outputURL)
                     let fileSize = (try? FileManager.default.attributesOfItem(
                         atPath: mp4URL.path)[.size] as? Int64) ?? 0
                     DatabaseManager.shared.updateDownloadPath(
                         id: recordId, path: mp4URL.path,
                         fileSize: fileSize, status: "completed")
                 } else {
-                    // Composition 失败，尝试传统转码
-                    let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: mp4URL)
+                    let conversionSuccess = await convertTSToMP4(from: outputURL, to: mp4URL)
                     if conversionSuccess {
-                        try? FileManager.default.removeItem(at: tempTSURL)
+                        try? FileManager.default.removeItem(at: outputURL)
                         let fileSize = (try? FileManager.default.attributesOfItem(
                             atPath: mp4URL.path)[.size] as? Int64) ?? 0
                         DatabaseManager.shared.updateDownloadPath(
@@ -302,36 +370,25 @@ final class DownloadManager: ObservableObject {
                             fileSize: fileSize, status: "completed")
                     } else {
                         // 最终兜底：用 TS 文件
-                        let tsURL = downloadsDir.appendingPathComponent("\(safeName).ts")
-                        try? FileManager.default.removeItem(at: tsURL)
-                        try FileManager.default.moveItem(at: tempTSURL, to: tsURL)
                         let fileSize = (try? FileManager.default.attributesOfItem(
-                            atPath: tsURL.path)[.size] as? Int64) ?? 0
+                            atPath: outputURL.path)[.size] as? Int64) ?? 0
                         DatabaseManager.shared.updateDownloadPath(
-                            id: recordId, path: tsURL.path,
+                            id: recordId, path: outputURL.path,
                             fileSize: fileSize, status: "completed")
                     }
                 }
-                await MainActor.run { reloadActiveDownloads() }
-                return
+            } else {
+                let fileSize = (try? FileManager.default.attributesOfItem(
+                    atPath: outputURL.path)[.size] as? Int64) ?? 0
+                DatabaseManager.shared.updateDownloadPath(
+                    id: recordId, path: outputURL.path,
+                    fileSize: fileSize, status: "completed")
             }
-
-            let outputURL = downloadsDir.appendingPathComponent("\(safeName).\(ext)")
-
-            // 如果文件已存在，先删除
-            try? FileManager.default.removeItem(at: outputURL)
-            try FileManager.default.moveItem(at: saveURL, to: outputURL)
-
-            let fileSize = (try? FileManager.default.attributesOfItem(
-                atPath: outputURL.path)[.size] as? Int64) ?? 0
-
-            DatabaseManager.shared.updateDownloadPath(
-                id: recordId, path: outputURL.path,
-                fileSize: fileSize, status: "completed")
             await MainActor.run { reloadActiveDownloads() }
 
         } catch {
             print("[DownloadManager] 直链下载失败: \(error.localizedDescription)")
+            try? FileManager.default.removeItem(at: tempURL)
             DatabaseManager.shared.updateDownloadStatus(id: recordId, status: "failed")
             await MainActor.run { reloadActiveDownloads() }
         }

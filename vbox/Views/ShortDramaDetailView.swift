@@ -9,6 +9,9 @@ struct ShortDramaDetailView: View {
     @State private var isLoading = true
     @State private var selectedEpisodeIndex = 0
     @State private var playerDrama: VodItem?
+    @State private var showDownloadSheet = false
+    @State private var showDownloadTip = false
+    @State private var downloadTipText = ""
 
     var body: some View {
         NavigationStack {
@@ -17,7 +20,7 @@ struct ShortDramaDetailView: View {
                     coverInfoSection
                     synopsisSection
                     episodesSection
-                    playButtonSection
+                    actionButtonsSection
                 }
                 .padding(.bottom, 40)
             }
@@ -29,8 +32,31 @@ struct ShortDramaDetailView: View {
                     ProgressView()
                 }
             }
+            .overlay(alignment: .bottom) {
+                if showDownloadTip {
+                    Text(downloadTipText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.black.opacity(0.8)))
+                        .padding(.bottom, 20)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .fullScreenCover(item: $playerDrama) { playDrama in
                 VideoPlayerViewV2(video: playDrama, preParsedEpisodes: episodes.isEmpty ? nil : episodes.map { (name: $0.number, url: $0.url) })
+            }
+            .sheet(isPresented: $showDownloadSheet) {
+                ShortDramaDownloadSheet(
+                    episodes: episodes,
+                    onSelect: { indices in
+                        handleBatchDownload(indices: indices)
+                        showDownloadSheet = false
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .onAppear {
                 loadDetail()
@@ -176,37 +202,57 @@ struct ShortDramaDetailView: View {
     }
 
     @ViewBuilder
-    private var playButtonSection: some View {
+    private var actionButtonsSection: some View {
         if !episodes.isEmpty {
-            Button(action: {
-                let ep = episodes[selectedEpisodeIndex]
-                playerDrama = VodItem(
-                    vodId: drama.vodId,
-                    vodName: "\(drama.vodName) \(ep.number)",
-                    vodPic: detailItem?.vodPic ?? drama.vodPic,
-                    vodRemarks: ep.number,
-                    vodYear: detailItem?.vodYear ?? drama.vodYear,
-                    vodArea: detailItem?.vodArea ?? drama.vodArea,
-                    vodDirector: detailItem?.vodDirector ?? drama.vodDirector,
-                    vodActor: detailItem?.vodActor ?? drama.vodActor,
-                    vodContent: detailItem?.vodContent ?? drama.vodContent,
-                    vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
-                    vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl,
-                    engineKey: detailItem?.engineKey ?? drama.engineKey
-                )
-            }) {
-                HStack {
-                    Image(systemName: "play.fill")
-                    Text("立即播放")
+            HStack(spacing: 12) {
+                // 播放按钮
+                Button(action: {
+                    let ep = episodes[selectedEpisodeIndex]
+                    playerDrama = VodItem(
+                        vodId: drama.vodId,
+                        vodName: "\(drama.vodName) \(ep.number)",
+                        vodPic: detailItem?.vodPic ?? drama.vodPic,
+                        vodRemarks: ep.number,
+                        vodYear: detailItem?.vodYear ?? drama.vodYear,
+                        vodArea: detailItem?.vodArea ?? drama.vodArea,
+                        vodDirector: detailItem?.vodDirector ?? drama.vodDirector,
+                        vodActor: detailItem?.vodActor ?? drama.vodActor,
+                        vodContent: detailItem?.vodContent ?? drama.vodContent,
+                        vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
+                        vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl,
+                        engineKey: detailItem?.engineKey ?? drama.engineKey
+                    )
+                }) {
+                    HStack {
+                        Image(systemName: "play.fill")
+                        Text("立即播放")
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(accentColor)
+                    .cornerRadius(12)
                 }
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(accentColor)
-                .cornerRadius(12)
+                .buttonStyle(.plain)
+
+                // 下载按钮
+                Button(action: {
+                    showDownloadSheet = true
+                }) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle")
+                        Text("下载")
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.gray.opacity(0.6))
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .padding(.horizontal, 16)
             .padding(.top, 8)
         }
@@ -241,6 +287,39 @@ struct ShortDramaDetailView: View {
         } else {
             isLoading = false
         }
+    }
+
+    // MARK: - 批量下载
+    private func handleBatchDownload(indices: [Int]) {
+        guard !episodes.isEmpty, !indices.isEmpty else { return }
+
+        let sourceName = "短剧"
+        let engineKey = detailItem?.engineKey ?? drama.engineKey
+
+        for index in indices {
+            guard index < episodes.count else { continue }
+            let episode = episodes[index]
+
+            let record = DownloadRecord(
+                name: "\(drama.vodName) \(episode.number)",
+                laiyuan: sourceName,
+                imgurl: detailItem?.vodPic ?? drama.vodPic,
+                detailurl: drama.vodId,
+                playurl: episode.url,
+                jishu: index + 1,
+                progress: 0,
+                status: "pending",
+                addedAt: Int64(Date().timeIntervalSince1970),
+                sourceType: "normal",
+                engineKey: engineKey,
+                vodId: drama.vodId
+            )
+            DownloadManager.shared.enqueueDownload(record: record)
+        }
+
+        downloadTipText = "已添加 \(indices.count) 集到下载"
+        showDownloadTip = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
     }
 
     private func parseEpisodes(from playUrl: String?) {
@@ -388,5 +467,91 @@ struct ShortDramaDetailView: View {
         if settings.usesLiquidSkin { return Color(hex: "38BDF8") }
         if settings.usesFrostedSkin { return Color(hex: "7C3AED") }
         return Color(hex: "E11D48")
+    }
+}
+
+// MARK: - 短剧下载选集弹窗
+private struct ShortDramaDownloadSheet: View {
+    let episodes: [(number: String, url: String)]
+    let onSelect: ([Int]) -> Void
+
+    @State private var selectedIndices: Set<Int> = []
+    @Environment(\.dismiss) private var dismiss
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("选择下载集数")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("共 \(episodes.count) 集，已选 \(selectedIndices.count) 集")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+
+                Button("全选") {
+                    if selectedIndices.count == episodes.count {
+                        selectedIndices.removeAll()
+                    } else {
+                        selectedIndices = Set(0..<episodes.count)
+                    }
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(Array(episodes.enumerated()), id: \.offset) { index, ep in
+                        Button(action: {
+                            if selectedIndices.contains(index) {
+                                selectedIndices.remove(index)
+                            } else {
+                                selectedIndices.insert(index)
+                            }
+                        }) {
+                            Text(ep.number)
+                                .font(.system(size: 13, weight: .medium))
+                                .frame(width: 60, height: 36)
+                                .background(selectedIndices.contains(index) ? Color.accentColor : Color.gray.opacity(0.12))
+                                .foregroundColor(selectedIndices.contains(index) ? .white : .primary)
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 80)
+            }
+
+            // 底部确认按钮
+            VStack {
+                Button(action: {
+                    let sorted = selectedIndices.sorted()
+                    onSelect(sorted)
+                    dismiss()
+                }) {
+                    Text("下载选中(\(selectedIndices.count))")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(selectedIndices.isEmpty ? Color.gray : Color.accentColor)
+                        .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedIndices.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
     }
 }

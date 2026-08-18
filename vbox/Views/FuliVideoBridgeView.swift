@@ -34,6 +34,12 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
     @State private var resolveError: String? = nil
     @State private var pendingEpisode: FuliEpisode? = nil
 
+    // 下载相关
+    @State private var showDownloadSheet = false
+    @State private var showDownloadTip = false
+    @State private var downloadTipText = ""
+    @State private var isDownloading = false
+
     // MARK: - 当前线路/集数（计算属性）
     private var currentLine: FuliLine? {
         guard selectedLineIndex < lines.count else { return nil }
@@ -142,6 +148,23 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+
+                            // 下载按钮
+                            Button(action: {
+                                showDownloadSheet = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.down.circle")
+                                    Text("下载")
+                                }
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.accentColor)
+                                .padding(.horizontal, 20).padding(.vertical, 10)
+                                .background(Color.accentColor.opacity(0.1))
+                                .cornerRadius(22)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isDownloading)
                         }
 
                         if let content = detail.vodContent, !content.isEmpty {
@@ -313,6 +336,33 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
                 .padding(.horizontal, 40)
                 .zIndex(100)
             }
+
+            // 下载提示
+            if showDownloadTip {
+                VStack {
+                    Spacer()
+                    Text(downloadTipText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.black.opacity(0.8)))
+                        .padding(.bottom, 20)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+        }
+        .sheet(isPresented: $showDownloadSheet) {
+            FuliDownloadSheet(
+                episodes: currentEpisodes,
+                lineName: currentLine?.name ?? "",
+                onSelect: { indices in
+                    handleBatchDownload(indices: indices)
+                    showDownloadSheet = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -402,6 +452,78 @@ struct FuliVideoBridgeView<Service: FuliPlatformService>: View {
         resolveError = nil
         pendingEpisode = nil
         isResolvingURL = false
+    }
+
+    // MARK: - 批量下载
+    private func handleBatchDownload(indices: [Int]) {
+        guard !currentEpisodes.isEmpty, !indices.isEmpty else { return }
+
+        isDownloading = true
+        let episodesToDownload = indices.compactMap { currentEpisodes.indices.contains($0) ? currentEpisodes[$0] : nil }
+        let platformName = svc.platformName
+        let platformKey = svc.platformKey
+        let videoName = video.vodName
+        let videoPic = video.vodPic
+        let videoId = video.vodId
+
+        Task {
+            var successCount = 0
+            for episode in episodesToDownload {
+                // 解析播放地址
+                await svc.ensureHostReady()
+                let result = await svc.fetchPlayerURL(episode: episode)
+
+                var finalUrl = result.url
+                var finalHeaders = result.headers
+
+                // parse=1 时需要二次解析
+                if result.parse == 1 && !result.url.isEmpty {
+                    if let parsedUrl = await SpiderManager.shared.parsePlayUrl(from: result.url) {
+                        finalUrl = parsedUrl
+                    }
+                }
+
+                guard !finalUrl.isEmpty else { continue }
+
+                let record = DownloadRecord(
+                    name: "\(videoName) \(episode.name)",
+                    laiyuan: "[福利]\(platformName)",
+                    imgurl: videoPic,
+                    detailurl: videoId,
+                    playurl: finalUrl,
+                    jishu: successCount + 1,
+                    progress: 0,
+                    status: "pending",
+                    addedAt: Int64(Date().timeIntervalSince1970),
+                    sourceType: "normal",
+                    engineKey: "__fuli_welfare__:\(platformKey)",
+                    vodId: videoId,
+                    headers: {
+                        guard !finalHeaders.isEmpty,
+                              let data = try? JSONEncoder().encode(finalHeaders),
+                              let json = String(data: data, encoding: .utf8) else { return nil }
+                        return json
+                    }()
+                )
+                await MainActor.run {
+                    DownloadManager.shared.enqueueDownload(record: record)
+                }
+                successCount += 1
+            }
+
+            await MainActor.run {
+                isDownloading = false
+                if successCount > 0 {
+                    downloadTipText = "已添加 \(successCount) 集到下载"
+                    showDownloadTip = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
+                } else {
+                    downloadTipText = "下载失败，未能解析到播放地址"
+                    showDownloadTip = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showDownloadTip = false }
+                }
+            }
+        }
     }
 
     // MARK: - 线路分组检测
@@ -520,5 +642,92 @@ struct FuliEpisodeFloatingPanel: View {
                 .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.5), radius: 12, x: 0, y: 4)
+    }
+}
+
+// MARK: - 福利下载选集弹窗
+private struct FuliDownloadSheet: View {
+    let episodes: [FuliEpisode]
+    let lineName: String
+    let onSelect: ([Int]) -> Void
+
+    @State private var selectedIndices: Set<Int> = []
+    @Environment(\.dismiss) private var dismiss
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("选择下载集数")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("\(lineName) - 共 \(episodes.count) 集，已选 \(selectedIndices.count) 集")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+
+                Button("全选") {
+                    if selectedIndices.count == episodes.count {
+                        selectedIndices.removeAll()
+                    } else {
+                        selectedIndices = Set(0..<episodes.count)
+                    }
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.accentColor)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(Array(episodes.enumerated()), id: \.offset) { index, ep in
+                        Button(action: {
+                            if selectedIndices.contains(index) {
+                                selectedIndices.remove(index)
+                            } else {
+                                selectedIndices.insert(index)
+                            }
+                        }) {
+                            Text(ep.name)
+                                .font(.system(size: 13, weight: .medium))
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                                .lineLimit(1)
+                                .background(selectedIndices.contains(index) ? Color.accentColor : Color.gray.opacity(0.12))
+                                .foregroundColor(selectedIndices.contains(index) ? .white : .primary)
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 80)
+            }
+
+            VStack {
+                Button(action: {
+                    let sorted = selectedIndices.sorted()
+                    onSelect(sorted)
+                    dismiss()
+                }) {
+                    Text("下载选中(\(selectedIndices.count))")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(selectedIndices.isEmpty ? Color.gray : Color.accentColor)
+                        .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedIndices.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
     }
 }
