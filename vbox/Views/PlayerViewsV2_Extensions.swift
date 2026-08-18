@@ -97,18 +97,14 @@ struct GestureControlView: View {
                         gestureMode = nil
                     }
                 )
-                // 长按倍速手势：长按 0.5 秒触发，松手恢复
+                // 长按倍速手势：长按 0.8 秒触发，松手恢复
                 .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.5)
-                        .sequenced(before: DragGesture(minimumDistance: 0))
-                        .onChanged { value in
-                            switch value {
-                            case .first(true):
+                    LongPressGesture(minimumDuration: 0.8)
+                        .onChanged { pressed in
+                            if pressed {
                                 guard !playerState.isOrientationLocked else { return }
                                 guard !isAnyPopupPresented else { return }
                                 playerState.startLongPressSpeed()
-                            default:
-                                break
                             }
                         }
                         .onEnded { _ in

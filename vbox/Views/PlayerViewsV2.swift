@@ -6352,21 +6352,26 @@ struct PlayerContainerView: View {
                 .zIndex(42)
             }
 
-            // 长按倍速提示浮层（长按屏幕期间显示）
+            // 长按倍速提示浮层（长按屏幕期间显示，顶部小胶囊）
             if playerState.showLongPressSpeedHint {
-                VStack(spacing: 8) {
-                    Image(systemName: "speedometer")
-                        .font(.system(size: 28))
-                        .foregroundColor(.white)
-                    Text(String(format: "%@x", playerState.longPressSpeed == floor(playerState.longPressSpeed) ? String(format: "%.0f", playerState.longPressSpeed) : String(format: "%.1f", playerState.longPressSpeed)))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                VStack {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.white)
+                        Text(String(format: "%@x", playerState.longPressSpeed == floor(playerState.longPressSpeed) ? String(format: "%.0f", playerState.longPressSpeed) : String(format: "%.1f", playerState.longPressSpeed)))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.black.opacity(0.6)))
+                    .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                    .padding(.top, 50)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                    Spacer()
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 20)
-                .background(Color.black.opacity(0.6))
-                .cornerRadius(16)
-                .allowsHitTesting(false)
                 .zIndex(43)
             }
         }
