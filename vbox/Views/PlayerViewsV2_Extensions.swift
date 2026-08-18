@@ -35,82 +35,144 @@ struct GestureControlView: View {
 
     var body: some View {
         GeometryReader { geo in
-            Color.clear.contentShape(Rectangle())
-                .onTapGesture {
-                    // 锁定状态下也允许 tap，由父视图决定是否显示锁定按钮
-                    onTap()
+            // 使用 UIKit UILongPressGestureRecognizer 实现可靠的长按检测
+            // SwiftUI 的 LongPressGesture 与 DragGesture 同时存在时会互相干扰
+            LongPressGestureView(
+                minimumPressDuration: 0.8,
+                onPressBegan: {
+                    guard !playerState.isOrientationLocked else { return }
+                    guard !isAnyPopupPresented else { return }
+                    playerState.startLongPressSpeed()
+                },
+                onPressEnded: {
+                    playerState.endLongPressSpeed()
                 }
-                .gesture(DragGesture(minimumDistance: 14)
-                    .onChanged { value in
-                        guard !playerState.isOrientationLocked else { return }
-                        // 长按倍速期间禁用拖拽手势
-                        if playerState.showLongPressSpeedHint { return }
-                        // 修复: 弹窗显示时禁用手势，防止控制面板卡死
-                        if isAnyPopupPresented { return }
-                        if !isDragging {
-                            isDragging = true
-                            startBrightness = playerState.brightness
-                            startVolume = playerState.volume
-                            startSeekTime = playerState.currentTime
-                            let vertical = abs(value.translation.height)
-                            let horizontal = abs(value.translation.width)
-                            if !playerState.isPortrait,
-                               playerState.duration.isFinite,
-                               playerState.duration > 0,
-                               horizontal > 24,
-                               horizontal > vertical * 1.15 {
-                                gestureMode = .seek
-                                playerState.showControls = true
-                                playerState.isSeeking = true
-                                playerState.seekPreviewTime = playerState.currentTime
-                            } else if vertical < 18 || horizontal > vertical * 0.75 {
-                                gestureMode = .ignored
-                            } else {
-                                gestureMode = value.startLocation.x < geo.size.width / 2 ? .brightness : .volume
-                            }
-                        }
-                        guard gestureMode != .ignored else { return }
-                        if gestureMode == .seek {
-                            let maxSeekDelta = min(max(playerState.duration * 0.12, 60), 300)
-                            let deltaSeconds = Double(value.translation.width / max(geo.size.width, 1)) * maxSeekDelta
-                            let target = max(0, min(playerState.duration, startSeekTime + deltaSeconds))
-                            playerState.seekPreviewTime = target
-                            playerState.currentTime = target
-                            return
-                        }
-                        let half = geo.size.width / 2
-                        let sensitivity = max(0.45, min(0.9, geo.size.height / 700))
-                        let delta = -value.translation.height / geo.size.height * sensitivity
-                        if gestureMode == .brightness || (gestureMode == nil && value.location.x < half) {
-                            playerState.brightness = max(0, min(1, startBrightness + delta))
-                            UIScreen.main.brightness = playerState.brightness
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTap()
+            }
+            .gesture(DragGesture(minimumDistance: 14)
+                .onChanged { value in
+                    guard !playerState.isOrientationLocked else { return }
+                    if playerState.showLongPressSpeedHint { return }
+                    if isAnyPopupPresented { return }
+                    if !isDragging {
+                        isDragging = true
+                        startBrightness = playerState.brightness
+                        startVolume = playerState.volume
+                        startSeekTime = playerState.currentTime
+                        let vertical = abs(value.translation.height)
+                        let horizontal = abs(value.translation.width)
+                        if !playerState.isPortrait,
+                           playerState.duration.isFinite,
+                           playerState.duration > 0,
+                           horizontal > 24,
+                           horizontal > vertical * 1.15 {
+                            gestureMode = .seek
+                            playerState.showControls = true
+                            playerState.isSeeking = true
+                            playerState.seekPreviewTime = playerState.currentTime
+                        } else if vertical < 18 || horizontal > vertical * 0.75 {
+                            gestureMode = .ignored
                         } else {
-                            playerState.volume = max(0, min(1, startVolume + delta))
-                            SystemVolumeController.shared.setVolume(Float(playerState.volume))
+                            gestureMode = value.startLocation.x < geo.size.width / 2 ? .brightness : .volume
                         }
                     }
-                    .onEnded { _ in
-                        if gestureMode == .seek {
-                            playerState.seek(to: playerState.seekPreviewTime)
-                        }
-                        isDragging = false
-                        gestureMode = nil
+                    guard gestureMode != .ignored else { return }
+                    if gestureMode == .seek {
+                        let maxSeekDelta = min(max(playerState.duration * 0.12, 60), 300)
+                        let deltaSeconds = Double(value.translation.width / max(geo.size.width, 1)) * maxSeekDelta
+                        let target = max(0, min(playerState.duration, startSeekTime + deltaSeconds))
+                        playerState.seekPreviewTime = target
+                        playerState.currentTime = target
+                        return
                     }
-                )
-                // 长按倍速手势：长按 0.8 秒触发，松手恢复
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.8)
-                        .onChanged { pressed in
-                            if pressed {
-                                guard !playerState.isOrientationLocked else { return }
-                                guard !isAnyPopupPresented else { return }
-                                playerState.startLongPressSpeed()
-                            }
-                        }
-                        .onEnded { _ in
-                            playerState.endLongPressSpeed()
-                        }
-                )
+                    let half = geo.size.width / 2
+                    let sensitivity = max(0.45, min(0.9, geo.size.height / 700))
+                    let delta = -value.translation.height / geo.size.height * sensitivity
+                    if gestureMode == .brightness || (gestureMode == nil && value.location.x < half) {
+                        playerState.brightness = max(0, min(1, startBrightness + delta))
+                        UIScreen.main.brightness = playerState.brightness
+                    } else {
+                        playerState.volume = max(0, min(1, startVolume + delta))
+                        SystemVolumeController.shared.setVolume(Float(playerState.volume))
+                    }
+                }
+                .onEnded { _ in
+                    if gestureMode == .seek {
+                        playerState.seek(to: playerState.seekPreviewTime)
+                    }
+                    isDragging = false
+                    gestureMode = nil
+                }
+            )
+        }
+    }
+}
+
+// MARK: - UIKit 长按手势视图
+// 使用 UILongPressGestureRecognizer 替代 SwiftUI 的 LongPressGesture
+// 解决 LongPressGesture 与 DragGesture/TapGesture 同时存在时互相干扰的问题
+// UILongPressGestureRecognizer 状态清晰：.began（长按达到阈值）→ .ended（松手）/ .cancelled（被中断）
+struct LongPressGestureView: UIViewRepresentable {
+    var minimumPressDuration: TimeInterval
+    var onPressBegan: () -> Void
+    var onPressEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPressBegan: onPressBegan, onPressEnded: onPressEnded)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = true
+
+        let longPressGesture = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLongPress(_:))
+        )
+        longPressGesture.minimumPressDuration = minimumPressDuration
+        // 允许较大范围的手指移动，避免微小抖动取消长按
+        longPressGesture.allowableMovement = 1000
+        // 不取消 view 的触摸事件，让 SwiftUI 的 onTapGesture 也能正常工作
+        longPressGesture.cancelsTouchesInView = false
+        longPressGesture.delegate = context.coordinator
+        view.addGestureRecognizer(longPressGesture)
+
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onPressBegan = onPressBegan
+        context.coordinator.onPressEnded = onPressEnded
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onPressBegan: () -> Void
+        var onPressEnded: () -> Void
+
+        init(onPressBegan: @escaping () -> Void, onPressEnded: @escaping () -> Void) {
+            self.onPressBegan = onPressBegan
+            self.onPressEnded = onPressEnded
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                onPressBegan()
+            case .ended, .cancelled, .failed:
+                onPressEnded()
+            default:
+                break
+            }
+        }
+
+        // 允许与其他手势识别器同时工作
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            return true
         }
     }
 }
