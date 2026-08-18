@@ -161,7 +161,6 @@
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A11050 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11050 /* DownloadManager.swift */; };
-		SU0100000000000000000A001 /* SubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = SU0100000000000000000B001 /* SubtitleParser.swift */; };
 		A11051 /* DownloadOverlayViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11051 /* DownloadOverlayViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
@@ -265,6 +264,7 @@
 		FAFA6B0DD6E550D369A45464 /* lcms2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2D70CA1C7CC2DD1CAD0E171A /* lcms2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FC99896C969E58FDC7F83096 /* Libass.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9353A6CB751B12B08CDC9742 /* Libass.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		FE31F3FFC9094771B7E85EFB /* WelfareHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D37F86000EC43D4A73E5128 /* WelfareHomeView.swift */; };
+		SU0100000000000000000A001 /* SubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = SU0100000000000000000B001 /* SubtitleParser.swift */; };
 		TG0100000000000000000A001 /* TGSearchConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B001 /* TGSearchConfigStore.swift */; };
 		TG0100000000000000000A002 /* TGChannelListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B002 /* TGChannelListView.swift */; };
 /* End PBXBuildFile section */
@@ -464,7 +464,6 @@
 		B11002 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
 		B11003 /* ZhanyuanSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhanyuanSearchService.swift; sourceTree = "<group>"; };
 		B11050 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
-		SU0100000000000000000B001 /* SubtitleParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleParser.swift; sourceTree = "<group>"; };
 		B11051 /* DownloadOverlayViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadOverlayViews.swift; sourceTree = "<group>"; };
 		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
 		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
@@ -547,6 +546,7 @@
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
 		FC18A246CE82EAF037E92E10 /* WelfarePlatformRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformRouter.swift; sourceTree = "<group>"; };
 		FF4A2F51F4D48142714B5109 /* WelfarePlatformConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformConfig.swift; sourceTree = "<group>"; };
+		SU0100000000000000000B001 /* SubtitleParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleParser.swift; sourceTree = "<group>"; };
 		TG0100000000000000000B001 /* TGSearchConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGSearchConfigStore.swift; sourceTree = "<group>"; };
 		TG0100000000000000000B002 /* TGChannelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGChannelListView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
