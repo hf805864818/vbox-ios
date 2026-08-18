@@ -46,6 +46,10 @@ struct VideoDetailView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var cloudDriveSortManager = CloudDriveSortManager.shared
+    @ObservedObject private var downloadManager = DownloadManager.shared
+
+    // 下载管理悬浮弹窗
+    @State private var showDownloadPopup: Bool = false
 
     // 播放器
     @State private var playerLaunchData: PlayerLaunchData?
@@ -806,6 +810,23 @@ struct VideoDetailView: View {
             DownloadCapsuleNotification()
                 .allowsHitTesting(false)
                 .zIndex(50)
+
+            // 悬浮下载按键（详情页专用）
+            if !showDownloadPopup && !downloadManager.isFloatingButtonManuallyHidden {
+                FloatingVideoDownloadButton(onTap: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showDownloadPopup = true
+                    }
+                })
+                .zIndex(15)
+            }
+
+            // 下载管理悬浮弹窗
+            if showDownloadPopup {
+                DownloadManagementPopup(isPresented: $showDownloadPopup)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(20)
+            }
 
             if showExpandedEpisodePopup {
                 EpisodeExpandPopup(
