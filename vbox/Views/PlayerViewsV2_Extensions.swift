@@ -30,7 +30,8 @@ struct GestureControlView: View {
         playerState.showToolsMenu ||
         playerState.showSkipSettings ||
         playerState.showDanmakuSearch ||
-        playerState.showLongPressSpeedSettings
+        playerState.showLongPressSpeedSettings ||
+        playerState.showSubtitleSettings
     }
 
     var body: some View {
