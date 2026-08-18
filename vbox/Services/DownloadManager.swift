@@ -279,9 +279,11 @@ final class DownloadManager: ObservableObject {
                 try FileManager.default.moveItem(at: saveURL, to: tempTSURL)
 
                 let mp4URL = downloadsDir.appendingPathComponent("\(safeName).mp4")
-                let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: mp4URL)
 
-                if conversionSuccess {
+                // 优先用 AVMutableComposition 方式（最可靠）
+                let composeSuccess = await convertTSToMP4ViaComposition(from: tempTSURL, to: mp4URL)
+
+                if composeSuccess {
                     try? FileManager.default.removeItem(at: tempTSURL)
                     let fileSize = (try? FileManager.default.attributesOfItem(
                         atPath: mp4URL.path)[.size] as? Int64) ?? 0
@@ -289,15 +291,26 @@ final class DownloadManager: ObservableObject {
                         id: recordId, path: mp4URL.path,
                         fileSize: fileSize, status: "completed")
                 } else {
-                    // 转码失败，用 TS 文件兜底
-                    let tsURL = downloadsDir.appendingPathComponent("\(safeName).ts")
-                    try? FileManager.default.removeItem(at: tsURL)
-                    try FileManager.default.moveItem(at: tempTSURL, to: tsURL)
-                    let fileSize = (try? FileManager.default.attributesOfItem(
-                        atPath: tsURL.path)[.size] as? Int64) ?? 0
-                    DatabaseManager.shared.updateDownloadPath(
-                        id: recordId, path: tsURL.path,
-                        fileSize: fileSize, status: "completed")
+                    // Composition 失败，尝试传统转码
+                    let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: mp4URL)
+                    if conversionSuccess {
+                        try? FileManager.default.removeItem(at: tempTSURL)
+                        let fileSize = (try? FileManager.default.attributesOfItem(
+                            atPath: mp4URL.path)[.size] as? Int64) ?? 0
+                        DatabaseManager.shared.updateDownloadPath(
+                            id: recordId, path: mp4URL.path,
+                            fileSize: fileSize, status: "completed")
+                    } else {
+                        // 最终兜底：用 TS 文件
+                        let tsURL = downloadsDir.appendingPathComponent("\(safeName).ts")
+                        try? FileManager.default.removeItem(at: tsURL)
+                        try FileManager.default.moveItem(at: tempTSURL, to: tsURL)
+                        let fileSize = (try? FileManager.default.attributesOfItem(
+                            atPath: tsURL.path)[.size] as? Int64) ?? 0
+                        DatabaseManager.shared.updateDownloadPath(
+                            id: recordId, path: tsURL.path,
+                            fileSize: fileSize, status: "completed")
+                    }
                 }
                 await MainActor.run { reloadActiveDownloads() }
                 return
@@ -410,45 +423,54 @@ final class DownloadManager: ObservableObject {
             await MainActor.run { reloadActiveDownloads() }
         }
 
-        // 8. 合并 TS → 临时文件
+        // 8. 用 AVMutableComposition 合并 TS 分片并导出为 MP4
         let downloadsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
         let safeName = record.name.replacingOccurrences(of: "[/\\:*?\"<>|]", with: "_", options: .regularExpression)
-        let tempTSURL = downloadsDir.appendingPathComponent("\(safeName)_temp.ts")
         let outputURL = downloadsDir.appendingPathComponent("\(safeName).mp4")
 
-        mergeTSSegments(in: tempDir, to: tempTSURL)
+        // 尝试用 AVMutableComposition 合并分片（最可靠的方式）
+        let composeSuccess = await composeSegmentsToMP4(segmentsDir: tempDir, to: outputURL)
 
-        // 9. TS → MP4 转码
-        let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: outputURL)
-
-        // 清理临时文件
-        try? FileManager.default.removeItem(at: tempDir)
-        if conversionSuccess {
-            try? FileManager.default.removeItem(at: tempTSURL)
-        } else {
-            // 转码失败，用 TS 文件兜底
-            try? FileManager.default.removeItem(at: outputURL)
-            try? FileManager.default.moveItem(at: tempTSURL, to: downloadsDir.appendingPathComponent("\(safeName).ts"))
-            let tsOutput = downloadsDir.appendingPathComponent("\(safeName).ts")
+        if composeSuccess {
+            // 清理临时分片目录
+            try? FileManager.default.removeItem(at: tempDir)
             let fileSize = (try? FileManager.default.attributesOfItem(
-                atPath: tsOutput.path)[.size] as? Int64) ?? 0
+                atPath: outputURL.path)[.size] as? Int64) ?? 0
             DatabaseManager.shared.updateDownloadPath(
-                id: recordId, path: tsOutput.path,
+                id: recordId, path: outputURL.path,
                 fileSize: fileSize, status: "completed")
             await MainActor.run { reloadActiveDownloads() }
-            return
+        } else {
+            // Composition 失败，尝试传统合并+转码兜底
+            let tempTSURL = downloadsDir.appendingPathComponent("\(safeName)_temp.ts")
+            mergeTSSegments(in: tempDir, to: tempTSURL)
+            // 清理临时分片目录（已合并到 tempTSURL）
+            try? FileManager.default.removeItem(at: tempDir)
+            let conversionSuccess = await convertTSToMP4(from: tempTSURL, to: outputURL)
+
+            if conversionSuccess {
+                try? FileManager.default.removeItem(at: tempTSURL)
+                let fileSize = (try? FileManager.default.attributesOfItem(
+                    atPath: outputURL.path)[.size] as? Int64) ?? 0
+                DatabaseManager.shared.updateDownloadPath(
+                    id: recordId, path: outputURL.path,
+                    fileSize: fileSize, status: "completed")
+            } else {
+                // 最终兜底：用 TS 文件
+                try? FileManager.default.removeItem(at: outputURL)
+                let tsOutput = downloadsDir.appendingPathComponent("\(safeName).ts")
+                try? FileManager.default.moveItem(at: tempTSURL, to: tsOutput)
+                let fileSize = (try? FileManager.default.attributesOfItem(
+                    atPath: tsOutput.path)[.size] as? Int64) ?? 0
+                DatabaseManager.shared.updateDownloadPath(
+                    id: recordId, path: tsOutput.path,
+                    fileSize: fileSize, status: "completed")
+            }
+            await MainActor.run { reloadActiveDownloads() }
         }
-
-        let fileSize = (try? FileManager.default.attributesOfItem(
-            atPath: outputURL.path)[.size] as? Int64) ?? 0
-
-        DatabaseManager.shared.updateDownloadPath(
-            id: recordId, path: outputURL.path,
-            fileSize: fileSize, status: "completed")
-        await MainActor.run { reloadActiveDownloads() }
     }
 
     // MARK: - 暂停/继续/删除
@@ -686,6 +708,170 @@ final class DownloadManager: ObservableObject {
             }
         }
         try? fileHandle.close()
+    }
+
+    /// 使用 AVMutableComposition 将 TS 分片逐个插入并导出为 MP4
+    /// 这是 iOS 上最可靠的 TS→MP4 转换方式：AVFoundation 逐个解析分片，正确处理时间轴
+    private func composeSegmentsToMP4(segmentsDir: URL, to mp4URL: URL) async -> Bool {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: segmentsDir, includingPropertiesForKeys: nil) else {
+            return false
+        }
+
+        let sortedFiles = files.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !sortedFiles.isEmpty else { return false }
+
+        let composition = AVMutableComposition()
+
+        guard let videoTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let audioTrack = composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            print("[DownloadManager] 无法创建 composition track")
+            return false
+        }
+
+        var currentTime = CMTime.zero
+        var hasVideo = false
+        var hasAudio = false
+
+        for file in sortedFiles {
+            if Task.isCancelled { return false }
+
+            let asset = AVAsset(url: file)
+
+            // iOS 16+ async API
+            let duration: CMTime
+            let videoTracks: [AVAssetTrack]
+            let audioTracks: [AVAssetTrack]
+
+            do {
+                duration = try await asset.load(.duration)
+                videoTracks = try await asset.loadTracks(withMediaType: .video)
+                audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            } catch {
+                print("[DownloadManager] 无法加载分片轨道: \(error.localizedDescription)")
+                continue
+            }
+
+            let timeRange = CMTimeRange(start: .zero, duration: duration)
+
+            if let vTrack = videoTracks.first {
+                do {
+                    try videoTrack.insertTimeRange(timeRange, of: vTrack, at: currentTime)
+                    hasVideo = true
+                } catch {
+                    print("[DownloadManager] 视频轨道插入失败: \(error.localizedDescription)")
+                }
+            }
+
+            if let aTrack = audioTracks.first {
+                do {
+                    try audioTrack.insertTimeRange(timeRange, of: aTrack, at: currentTime)
+                    hasAudio = true
+                } catch {
+                    print("[DownloadManager] 音频轨道插入失败: \(error.localizedDescription)")
+                }
+            }
+
+            currentTime = CMTimeAdd(currentTime, duration)
+        }
+
+        guard hasVideo else {
+            print("[DownloadManager] 没有找到视频轨道，composition 失败")
+            return false
+        }
+
+        // 导出为 MP4
+        guard let exporter = AVAssetExportSession(
+            asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+            // Passthrough 不支持时尝试 HighestQuality
+            guard let exporter2 = AVAssetExportSession(
+                asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+                return false
+            }
+            return await exportComposition(exporter: exporter2, to: mp4URL)
+        }
+
+        return await exportComposition(exporter: exporter, to: mp4URL)
+    }
+
+    /// 执行 AVAssetExportSession 导出
+    private func exportComposition(exporter: AVAssetExportSession, to mp4URL: URL) async -> Bool {
+        try? FileManager.default.removeItem(at: mp4URL)
+
+        exporter.outputURL = mp4URL
+        exporter.outputFileType = .mp4
+        exporter.shouldOptimizeForNetworkUse = true
+
+        return await withCheckedContinuation { continuation in
+            exporter.exportAsynchronously {
+                let success = exporter.status == .completed
+                if !success {
+                    print("[DownloadManager] Composition 导出失败: \(exporter.error?.localizedDescription ?? "unknown") status=\(exporter.status.rawValue)")
+                }
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
+    /// 使用 AVMutableComposition 将单个 TS 文件转为 MP4
+    /// 比 AVAssetExportSession 直接转更可靠：AVFoundation 正确解析 TS 容器
+    private func convertTSToMP4ViaComposition(from tsURL: URL, to mp4URL: URL) async -> Bool {
+        let asset = AVAsset(url: tsURL)
+
+        let duration: CMTime
+        let videoTracks: [AVAssetTrack]
+        let audioTracks: [AVAssetTrack]
+
+        do {
+            duration = try await asset.load(.duration)
+            videoTracks = try await asset.loadTracks(withMediaType: .video)
+            audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        } catch {
+            print("[DownloadManager] 无法加载 TS 文件轨道: \(error.localizedDescription)")
+            return false
+        }
+
+        guard !videoTracks.isEmpty else {
+            print("[DownloadManager] TS 文件无视频轨道")
+            return false
+        }
+
+        let composition = AVMutableComposition()
+
+        guard let compVideoTrack = composition.addMutableTrack(
+            withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            return false
+        }
+
+        let compAudioTrack = composition.addMutableTrack(
+            withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+
+        let timeRange = CMTimeRange(start: .zero, duration: duration)
+
+        do {
+            try compVideoTrack.insertTimeRange(timeRange, of: videoTracks.first!, at: .zero)
+        } catch {
+            print("[DownloadManager] 视频轨道插入失败: \(error.localizedDescription)")
+            return false
+        }
+
+        if let aTrack = audioTracks.first, let compAudio = compAudioTrack {
+            try? compAudio.insertTimeRange(timeRange, of: aTrack, at: .zero)
+        }
+
+        // 导出为 MP4
+        guard let exporter = AVAssetExportSession(
+            asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+            guard let exporter2 = AVAssetExportSession(
+                asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+                return false
+            }
+            return await exportComposition(exporter: exporter2, to: mp4URL)
+        }
+
+        return await exportComposition(exporter: exporter, to: mp4URL)
     }
 
     /// 将合并后的 TS 文件转换为 MP4 格式
