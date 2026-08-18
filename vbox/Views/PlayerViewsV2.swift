@@ -878,8 +878,8 @@ class PlayerState: ObservableObject {
     @Published var showDanmakuSearch = false
     @Published var showLongPressSpeedSettings = false  // 长按倍速设置弹窗
     @Published var showLongPressSpeedHint = false        // 长按倍速提示浮层
-    // 长按倍速设置（持久化），默认 2.5x
-    @Published var longPressSpeed: Double = UserDefaults.standard.object(forKey: "player_long_press_speed") as? Double ?? 2.5 {
+    // 长按倍速设置（持久化），默认 2.0x
+    @Published var longPressSpeed: Double = UserDefaults.standard.object(forKey: "player_long_press_speed") as? Double ?? 2.0 {
         didSet { UserDefaults.standard.set(longPressSpeed, forKey: "player_long_press_speed") }
     }
     // 长按倍速内部状态
@@ -1497,6 +1497,8 @@ class PlayerState: ObservableObject {
         preLongPressSpeed = playbackSpeed
         changePlaybackSpeed(longPressSpeed)
         showLongPressSpeedHint = true
+        // 震动触感反馈
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     /// 松手结束：恢复长按前的倍速
