@@ -161,6 +161,7 @@
 		A10200 /* YBoxService2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* YBoxService2.swift */; };
 		A10203 /* WelfareSubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10203 /* WelfareSubViews.swift */; };
 		A11050 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11050 /* DownloadManager.swift */; };
+		SU0100000000000000000A001 /* SubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = SU0100000000000000000B001 /* SubtitleParser.swift */; };
 		A11051 /* DownloadOverlayViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11051 /* DownloadOverlayViews.swift */; };
 		A12001 /* PlayerEngineType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12001 /* PlayerEngineType.swift */; };
 		A12002 /* PlaybackRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12002 /* PlaybackRoute.swift */; };
@@ -463,6 +464,7 @@
 		B11002 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
 		B11003 /* ZhanyuanSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhanyuanSearchService.swift; sourceTree = "<group>"; };
 		B11050 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		SU0100000000000000000B001 /* SubtitleParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleParser.swift; sourceTree = "<group>"; };
 		B11051 /* DownloadOverlayViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadOverlayViews.swift; sourceTree = "<group>"; };
 		B12001 /* PlayerEngineType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerEngineType.swift; sourceTree = "<group>"; };
 		B12002 /* PlaybackRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRoute.swift; sourceTree = "<group>"; };
@@ -779,6 +781,7 @@
 				B10143 /* LiveTVService.swift */,
 				B11002 /* DatabaseManager.swift */,
 				B11050 /* DownloadManager.swift */,
+				SU0100000000000000000B001 /* SubtitleParser.swift */,
 				B12035 /* SecureCredentialStore.swift */,
 				B11003 /* ZhanyuanSearchService.swift */,
 				2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */,
@@ -1129,6 +1132,7 @@
 				A10044 /* DBModels.swift in Sources */,
 				A10045 /* DatabaseManager.swift in Sources */,
 				A11050 /* DownloadManager.swift in Sources */,
+				SU0100000000000000000A001 /* SubtitleParser.swift in Sources */,
 				A10046 /* ZhanyuanSearchService.swift in Sources */,
 				37A8FB0406404A94A0619C06 /* ProfileView.swift in Sources */,
 				A10047 /* BaiduWebViewBridge.swift in Sources */,
