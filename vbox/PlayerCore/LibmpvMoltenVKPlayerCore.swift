@@ -574,6 +574,19 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             gravityObserver = nil
         }
 
+        // 取消 wakeup 回调，防止新事件触发
+        if let handle = mpv {
+            mpv_set_wakeup_callback(handle, nil, nil)
+        }
+
+        // 等待事件循环退出（给 100ms 时间）
+        let group = DispatchGroup()
+        group.enter()
+        eventQueue.async {
+            group.leave()
+        }
+        _ = group.wait(timeout: .now() + 0.1)
+
         // 清理 render context
         if let renderContext {
             mpv_render_context_free(renderContext)
@@ -581,7 +594,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         }
 
         if let handle = mpv {
-            mpv_set_wakeup_callback(handle, nil, nil)
             // 不使用 eventQueue.sync {} 防止主线程死锁
             command("stop", checkForErrors: false)
             mpv_terminate_destroy(handle)
