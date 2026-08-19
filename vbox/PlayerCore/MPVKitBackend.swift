@@ -866,6 +866,10 @@ final class MPVKitBackend: MPVBackend {
         eventLoopWorkItem = nil
 
         if let handle {
+            // 先发送 stop 命令，让 mpv 停止解码
+            _ = Self.sendStopCommand(handle: handle)
+            // 给事件循环 50ms 时间处理 stop 事件
+            usleep(50000)
             mpv_terminate_destroy(handle)
             self.handle = nil
         }

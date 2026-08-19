@@ -480,21 +480,29 @@ extension MDKRenderView: MTKViewDelegate {
         renderLock.lock()
         defer { renderLock.unlock() }
 
-        // 加载过渡期：清黑屏等待，不尝试解除标记（由 setRenderCallback 回调负责解除）
+        // 加载过渡期：尝试渲染新帧，只有真正可用时才解除标记并 blit。
         // 防止 renderTexture 中的旧解码器脏帧被呈现为紫屏（品红色 #FF00FF）。
         if isReloading {
-            let rpd = MTLRenderPassDescriptor()
-            rpd.colorAttachments[0].texture = drawable.texture
-            rpd.colorAttachments[0].loadAction = .clear
-            rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-            rpd.colorAttachments[0].storeAction = .store
-            if let cmdBuffer = queue.makeCommandBuffer(),
-               let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
-                encoder.endEncoding()
-                cmdBuffer.present(drawable)
-                cmdBuffer.commit()
+            // 主动尝试渲染新帧，只有 pts >= 0（新帧真正可用）时才解除标记
+            let reloadPts = player.renderVideo(vid: nil)
+            if reloadPts >= 0 {
+                // 新帧已到达，解除加载标记，继续执行下方的 blit 逻辑
+                isReloading = false
+            } else {
+                // 新帧尚未到达，清黑屏等待
+                let rpd = MTLRenderPassDescriptor()
+                rpd.colorAttachments[0].texture = drawable.texture
+                rpd.colorAttachments[0].loadAction = .clear
+                rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+                rpd.colorAttachments[0].storeAction = .store
+                if let cmdBuffer = queue.makeCommandBuffer(),
+                   let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+                    encoder.endEncoding()
+                    cmdBuffer.present(drawable)
+                    cmdBuffer.commit()
+                }
+                return
             }
-            return
         }
 
         guard let renderTex = renderTexture else { return }
