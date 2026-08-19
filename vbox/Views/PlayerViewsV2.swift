@@ -2207,14 +2207,14 @@ class PlayerState: ObservableObject {
             quarkFallbackHeaders = result.fallbackHeaders
             quarkFallbackSource = result.fallbackSource
             logDrivePlayResult(result)
-            await playDriveVideo(url: result.url, headers: result.headers)
+            await playDriveVideo(url: result.url, headers: result.headers, driveType: result.driveType)
         } else {
             quarkFallbackTimeoutTask?.cancel()
             quarkFallbackAttempted = false
             quarkFallbackURL = nil
             quarkFallbackHeaders = nil
             quarkFallbackSource = nil
-            await playDriveVideo(url: result.url, headers: result.headers)
+            await playDriveVideo(url: result.url, headers: result.headers, driveType: result.driveType)
         }
     }
 
@@ -2709,8 +2709,15 @@ class PlayerState: ObservableObject {
                 let files = try await CloudDriveManager.shared.aliGetAllPlayableFiles(shareURL: cleanShareURL)
                 log("[Ali] ✅ 成功，共\(files.count)个文件")
 
+                // 详情页指定剧集：通过 vbox_fid fragment 定位用户点击的集数
+                let selectedIndex = vboxParams["vbox_fid"].flatMap { fid in
+                    files.firstIndex(where: { $0.fileId == fid })
+                } ?? 0
+                let reason = vboxParams["vbox_fid"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
+                log("[Ali] 选集: index=\(selectedIndex) reason=\(reason)")
+
                 await MainActor.run {
-                    currentEpisodeIndex = 0
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
                         EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .ali, aliFileId: f.fileId)
@@ -2724,11 +2731,11 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                // 播放第一个文件
+                // 播放选中的文件
                 let result = try await CloudDriveManager.shared.resolveAliFilePlayURL(
                     shareURL: cleanShareURL,
-                    fileId: files[0].fileId,
-                    fileName: files[0].fileName
+                    fileId: files[selectedIndex].fileId,
+                    fileName: files[selectedIndex].fileName
                 )
                 await playResolvedDriveVideo(result)
                 return
@@ -2957,8 +2964,15 @@ class PlayerState: ObservableObject {
                 let files = try await CloudDriveManager.shared.xunleiGetFileList(shareURL: cleanShareURL, cookie: token.value)
                 log("[Xunlei] ✅ 成功，共\(files.count)个文件")
 
+                // 详情页指定剧集：通过 vbox_fid fragment 定位用户点击的集数
+                let selectedIndex = vboxParams["vbox_fid"].flatMap { fid in
+                    files.firstIndex(where: { $0.fileId == fid })
+                } ?? 0
+                let reason = vboxParams["vbox_fid"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
+                log("[Xunlei] 选集: index=\(selectedIndex) reason=\(reason)")
+
                 await MainActor.run {
-                    currentEpisodeIndex = 0
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
                         EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .xunlei, xunleiFileId: f.fileId)
@@ -2972,12 +2986,12 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                // 播放第一个文件
+                // 播放选中的文件
                 let result = try await CloudDriveManager.shared.resolveXunleiFilePlayURL(
                     shareURL: cleanShareURL,
                     cookie: token.value,
-                    fileId: files[0].fileId,
-                    fileName: files[0].fileName
+                    fileId: files[selectedIndex].fileId,
+                    fileName: files[selectedIndex].fileName
                 )
                 await playResolvedDriveVideo(result)
                 return
@@ -3295,7 +3309,7 @@ class PlayerState: ObservableObject {
         }
     }
     
-    private func playDriveVideo(url: String, headers: [String: String]) async {
+    private func playDriveVideo(url: String, headers: [String: String], driveType: DriveTypeAlias? = nil) async {
         guard !Task.isCancelled else {
             log("[PlayerV2] 已取消的网盘播放任务，跳过播放器提交")
             return
@@ -3417,25 +3431,30 @@ class PlayerState: ObservableObject {
                 logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "\(proxyType) IJK/MPV/MDK 均不可用")
                 log("[Quark] IJK/MPV/MDK 均不可用，\(proxyType)降级使用 VLC")
             }
-        } else if isUCLocalProxy && enginePreference == .auto {
-            // UC网盘直链：优先 IJKPlayer，其次 MPV/MDK/VLC
+        } else if (isUCLocalProxy || driveType == .uc || isUCPlaybackURL(url)) && enginePreference == .auto {
+            // UC网盘资源（直连或本地代理）：一律优先兼容内核，禁止 AVPlayer。
+            // 原因：AVPlayer 播放 UC 网盘 CDN 直链时会出现"舞台声"（音频路由异常），
+            // 必须使用 MDK/MPV/IJK 等兼容内核，与百度网盘策略一致。
+            let ucReason = isUCLocalProxy ? "UC网盘本地代理" : "UC网盘直链"
             await MainActor.run {
                 guard playbackSessionId == sessionId else { return }
                 playbackEngineMode = .compatibility
-                compatibilityHint = "UC网盘直链"
+                compatibilityHint = ucReason
+                currentPiPStrategy = compatibilityPiPStrategy(engineName: preferredCompatibilityEngineName(for: urlObj), url: urlObj)
+                loadingMessage = "正在使用兼容内核..."
             }
-            if isIJKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "uc-stream 优先 IJKPlayer")
-                log("[UC] 自动模式下 uc-stream 优先使用 IJKPlayer")
-            } else if isMPVBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "uc-stream（IJKPlayer 不可用）")
-                log("[UC] IJKPlayer 不可用，uc-stream 降级使用 MPV-MoltenVK")
+            if isMPVBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "UC网盘强制兼容内核：\(ucReason)")
+                log("[UC] 自动模式下UC网盘强制使用 MPV-MoltenVK 兼容内核，不再尝试 AVPlayer")
             } else if isMDKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "uc-stream（IJK/MPV 不可用）")
-                log("[UC] IJK/MPV 不可用，uc-stream 降级使用 MDK")
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "UC网盘强制兼容内核（MPV 不可用）：\(ucReason)")
+                log("[UC] MPV 不可用，UC网盘强制降级使用 MDK 兼容内核")
+            } else if isIJKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "UC网盘强制兼容内核（MPV/MDK 不可用）：\(ucReason)")
+                log("[UC] MPV/MDK 不可用，UC网盘降级使用 IJKPlayer")
             } else if isVLCBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "uc-stream IJK/MPV/MDK 均不可用")
-                log("[UC] IJK/MPV/MDK 均不可用，uc-stream 降级使用 VLC")
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "UC网盘强制兼容内核（MPV/MDK/IJK 不可用）：\(ucReason)")
+                log("[UC] MPV/MDK/IJK 不可用，UC网盘降级使用 VLC 兼容内核")
             }
         } else if isBaiduLocalProxy && enginePreference == .auto {
             // 百度网盘资源一律优先兼容内核，禁止自动模式再尝试 AVPlayer 主播放链路。

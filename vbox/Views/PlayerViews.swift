@@ -547,7 +547,58 @@ struct VideoDetailView: View {
                 }
             }
             return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
-            
+
+        case .ali:
+            // 阿里云盘：递归获取分享链接内所有视频文件，展开为多集
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
+                do {
+                    let files = try await CloudDriveManager.shared.aliGetAllPlayableFiles(shareURL: link.url)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fileId]),
+                            name: file.fileName,
+                            driveType: driveType,
+                            driveName: driveName,
+                            index: allExpanded.count + fileIndex
+                        )
+                    }
+                    allExpanded.append(contentsOf: items)
+                } catch {
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("阿里云盘资源加载失败")
+                    }
+                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+
+        case .xunlei:
+            // 迅雷云盘：递归获取分享链接内所有视频文件，展开为多集
+            guard let token = CloudDriveManager.shared.tokens(for: .xunlei).first else {
+                return .failed("未配置迅雷云盘 Cookie")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
+                do {
+                    let files = try await CloudDriveManager.shared.xunleiGetFileList(shareURL: link.url, cookie: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fileId]),
+                            name: file.fileName,
+                            driveType: driveType,
+                            driveName: driveName,
+                            index: allExpanded.count + fileIndex
+                        )
+                    }
+                    allExpanded.append(contentsOf: items)
+                } catch {
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("迅雷云盘资源加载失败")
+                    }
+                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+
         default:
             let fallback = links.enumerated().map { idx, link in
                 makeCloudPanLink(url: link.url, name: link.name, driveType: link.driveType, driveName: link.driveName, index: idx)
