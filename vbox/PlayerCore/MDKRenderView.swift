@@ -289,7 +289,9 @@ final class MDKRenderView: MTKView {
         if bounds.width > 0, bounds.height > 0 {
             let size = drawableSizeForBounds()
             recreateRenderTexture(size: size)
-            setupRenderAPIIfNeeded()
+            // ★ 切集复用 renderView 时重建了纹理，必须 force 重新绑定新纹理指针给 MDK，
+            // 否则 MDK 仍渲染到旧纹理，draw 从新纹理（全黑）blit → 黑屏。
+            setupRenderAPIIfNeeded(force: true)
             player.setVideoSurfaceSize(CGFloat(size.width), CGFloat(size.height))
         }
 
@@ -345,15 +347,7 @@ final class MDKRenderView: MTKView {
 
         // 确保 MDK 已经拿到 device/queue/texture；纹理重建后也要把新 texture 指针交给 MDK
         #if canImport(swift_mdk)
-        setupRenderAPIIfNeeded()
-        if let tex = renderTexture, let device = device, let queue = commandQueue {
-            var ra = mdkMetalRenderAPI()
-            ra.type = MDK_RenderAPI_Metal
-            ra.device = bridge(device)!
-            ra.cmdQueue = bridge(queue)!
-            ra.texture = bridge(tex)!
-            player.setRenderAPI(&ra, vid: nil)
-        }
+        setupRenderAPIIfNeeded(force: true)
         #endif
 
         // 在 render API 就绪后再设置 surface size，确保 callback 被触发
@@ -363,8 +357,15 @@ final class MDKRenderView: MTKView {
     // MARK: - 渲染目标设置
 
     #if canImport(swift_mdk)
-    private func setupRenderAPIIfNeeded() {
-        guard !hasSetupRenderAPI, let player = player, let device = device, let queue = commandQueue else { return }
+    /// 将当前 renderTexture 的 Metal 纹理指针绑定给 MDK。
+    /// - Parameter force: 为 true 时即使已绑定过也强制重新 setRenderAPI。
+    ///
+    /// ★ 切集黑屏根因：切集复用同一个 MDKRenderView 时，`recreateRenderTexture` 会创建
+    /// 一个全新的 MTLTexture（新指针），但旧的 `guard !hasSetupRenderAPI` 会阻止重新
+    /// setRenderAPI，导致 MDK 仍把画面渲染到「旧纹理」，而 draw(in:) 却从「新纹理（全黑）」
+    /// blit 到屏幕 → 有声音、画面黑屏。必须每次纹理重建后强制重新绑定新纹理指针。
+    private func setupRenderAPIIfNeeded(force: Bool = false) {
+        guard force || !hasSetupRenderAPI, let player = player, let device = device, let queue = commandQueue else { return }
         guard let tex = renderTexture else { return }
         hasSetupRenderAPI = true
 
