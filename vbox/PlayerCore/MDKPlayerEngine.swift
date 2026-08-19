@@ -64,6 +64,16 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         progressTimer = nil
         currentRoute = route
 
+        // 切集时先停止旧播放，避免新旧解码管线交叉导致画面异常（洋红/紫屏）。
+        // mdk-sdk 在未停止旧 media 的情况下直接设置新 URL，旧解码器仍会向
+        // renderTexture 写入脏帧，Metal blit 后呈现为品红色画面。
+        player.state = .Stopped
+        // 立即触发重绘：renderVideo 此时返回 < 0，draw(in:) 会清屏为黑色，
+        // 避免旧帧残留在屏幕上直到新首帧到达。
+        DispatchQueue.main.async { [weak self] in
+            self?.renderView?.setNeedsDisplay()
+        }
+
         // 设置 Media URL
         player.media = route.url.absoluteString
 
