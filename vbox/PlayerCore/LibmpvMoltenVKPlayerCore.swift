@@ -589,21 +589,19 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             self.renderContext = nil
         }
 
-        // ★ 关键修复：在 eventQueue 串行队列内同步销毁 mpv。
-        // 之前在主线程直接 mpv_terminate_destroy(handle)，而 readEvents() 可能同时在
-        // eventQueue 后台线程里阻塞于 mpv_wait_event(handle, 0)，两者并发访问同一 handle
-        // 导致 use-after-free 闪退。
-        // 这里用 eventQueue.sync 串行化：由于 readEvents 的 while 循环在 isShuttingDown==true
-        // 时（或拿到事件后）会 break 退出，sync 会等当前这一批事件处理完再销毁，
-        // 从而保证 destroy 时后台线程不再访问该 handle。
+        // ★ 修复切换内核闪退（死锁）：不再用 eventQueue.sync 销毁 mpv。
+        // 之前 eventQueue.sync 在持有 attachLock 时等待 eventQueue 空闲，而 eventQueue 里的
+        // readEvents 任务又需要 attachLock 才能检查 isShuttingDown 并退出 → 死锁，
+        // 主线程 watchdog 超时被杀（表现为「切换内核马上闪退、无 crash log」）。
+        //
+        // 正确做法：isShuttingDown=true 已在上面设置，且 wakeup 回调已取消。
+        // readEvents 的 while 循环在拿到 attachLock 后会因 isShuttingDown==true 立即 break，
+        // 不再访问 handle。因此这里可以直接在 attachLock 保护下同步 mpv_terminate_destroy。
         if let handle = mpv {
-            eventQueue.sync { [weak self] in
-                guard let self, self.mpv == handle else { return }
-                // 发送 stop 命令让 mpv 停止解码（幂等，handle 仍有效）
-                self.command("stop", checkForErrors: false)
-                mpv_terminate_destroy(handle)
-                self.mpv = nil
-            }
+            // 先发送 stop 命令让 mpv 停止解码（幂等，handle 仍有效，且此时持有锁）
+            command("stop", checkForErrors: false)
+            mpv_terminate_destroy(handle)
+            mpv = nil
         }
 
         renderView.delegate = nil
