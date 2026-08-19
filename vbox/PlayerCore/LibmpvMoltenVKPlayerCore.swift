@@ -79,15 +79,26 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }()
 
     /// GLKView 渲染视图（lazy，依赖 eaglContext）
-    /// 不能用 let 直接初始化，因为 GLKView 的初始化器要求传入 context。
-    private lazy var renderView: GLKView = {
-        let view = GLKView(frame: .zero, context: eaglContext!)
-        view.backgroundColor = .black
-        view.isOpaque = true
-        view.clipsToBounds = true
-        view.enableSetNeedsDisplay = true
-        return view
-    }()
+    /// 修复: 不再使用 eaglContext! 强制解包，避免从 MDK(Metal) 切换到 MPV(OpenGL ES) 时上下文冲突导致闪退
+    private var _renderView: GLKView?
+    private var renderView: GLKView {
+        if _renderView == nil {
+            guard let ctx = eaglContext else {
+                // EAGLContext 创建失败（设备不支持或上下文冲突），返回空视图避免崩溃
+                let fallback = GLKView()
+                fallback.backgroundColor = .black
+                _renderView = fallback
+                return fallback
+            }
+            let view = GLKView(frame: .zero, context: ctx)
+            view.backgroundColor = .black
+            view.isOpaque = true
+            view.clipsToBounds = true
+            view.enableSetNeedsDisplay = true
+            _renderView = view
+        }
+        return _renderView!
+    }
 
     /// 画面拉伸模式观察者
     private var gravityObserver: NSObjectProtocol?
@@ -98,6 +109,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private var renderContext: OpaquePointer?
     private let eventQueue = DispatchQueue(label: "app.vbox.libmpv.moltenvk-events", qos: .userInitiated)
     private var isShuttingDown = false
+    /// 防止 teardown 尚未完成时 attach 重入导致 mpv_create 闪退
+    private let attachLock = NSLock()
 
     /// 供悬浮窗使用的渲染视图
     var videoRenderView: UIView { renderView }
@@ -407,6 +420,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     func attach(to view: UIView) {
         guard !isShuttingDown else { return }
+        // 修复: 防止 teardown 尚未完成时 attach 重入导致 mpv_create 闪退
+        attachLock.lock()
+        defer { attachLock.unlock() }
         containerView = view
         if renderView.superview !== view {
             renderView.removeFromSuperview()
@@ -558,6 +574,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         }
 
         state = PlayerEngineState()
+
+        // 修复: 延迟重置 isShuttingDown，确保 mpv_terminate_destroy 和事件循环完全停止。
+        // 否则切换内核时新 attach 可能在旧 teardown 还在进行中被调用，
+        // guard !isShuttingDown 直接 return，导致 mpv 未创建但上层认为已初始化。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.isShuttingDown = false
+        }
     }
 
     private func setupMPV() {

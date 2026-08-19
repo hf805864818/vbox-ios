@@ -55,6 +55,9 @@ final class MDKRenderView: MTKView {
     private var hasSetupRenderAPI = false
     private var currentSize: CGSize = .zero
 
+    /// 加载新资源时的安全标记，期间强制清黑屏，防止旧解码器脏帧被 blit 到屏幕导致紫屏
+    private var isReloading = false
+
     /// 当前画面拉伸模式（默认 .aspectFill，attach 时会从 PlayerState 同步真实值）
     private var videoGravity: PlayerState.VideoGravityMode = .aspectFill
     private var gravityObserver: NSObjectProtocol?
@@ -65,6 +68,31 @@ final class MDKRenderView: MTKView {
     private var videoHeight: Int = 0
 
     var isPiPEnabled: Bool { pipEnabled }
+
+    /// 标记进入加载过渡期（由 MDKPlayerEngine.load 调用）。
+    /// 期间 draw(in:) 强制清黑屏，防止 renderTexture 中的旧解码器脏帧呈现为紫屏。
+    func markReloading() {
+        isReloading = true
+        // 同步清空当前 drawable，不等待 async dispatch
+        if let drawable = currentDrawable, let queue = commandQueue {
+            let rpd = MTLRenderPassDescriptor()
+            rpd.colorAttachments[0].texture = drawable.texture
+            rpd.colorAttachments[0].loadAction = .clear
+            rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            rpd.colorAttachments[0].storeAction = .store
+            if let cmdBuffer = queue.makeCommandBuffer(),
+               let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+                encoder.endEncoding()
+                cmdBuffer.present(drawable)
+                cmdBuffer.commit()
+            }
+        }
+    }
+
+    /// 标记加载完成，新首帧已到达（由 MDKPlayerEngine 的 .Playing 回调调用）
+    func markReloadComplete() {
+        isReloading = false
+    }
 
     init(frame: CGRect) {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -423,11 +451,29 @@ extension MDKRenderView: MTKViewDelegate {
     func draw(in view: MTKView) {
         guard let drawable = currentDrawable,
               let queue = commandQueue,
-              let renderTex = renderTexture,
               let player = player else { return }
 
         renderLock.lock()
         defer { renderLock.unlock() }
+
+        // 加载过渡期：强制清黑屏，不 blit 任何纹理。
+        // 防止 renderTexture 中的旧解码器脏帧被呈现为紫屏（品红色 #FF00FF）。
+        if isReloading {
+            let rpd = MTLRenderPassDescriptor()
+            rpd.colorAttachments[0].texture = drawable.texture
+            rpd.colorAttachments[0].loadAction = .clear
+            rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            rpd.colorAttachments[0].storeAction = .store
+            if let cmdBuffer = queue.makeCommandBuffer(),
+               let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+                encoder.endEncoding()
+                cmdBuffer.present(drawable)
+                cmdBuffer.commit()
+            }
+            return
+        }
+
+        guard let renderTex = renderTexture else { return }
 
         // 先让 MDK 把当前视频帧渲染到离屏纹理；返回值 < 0 表示尚无可用帧
         let pts = player.renderVideo(vid: nil)

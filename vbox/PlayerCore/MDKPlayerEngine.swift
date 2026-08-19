@@ -68,14 +68,17 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         // mdk-sdk 在未停止旧 media 的情况下直接设置新 URL，旧解码器仍会向
         // renderTexture 写入脏帧，Metal blit 后呈现为品红色画面。
         player.state = .Stopped
-        // 立即触发重绘：renderVideo 此时返回 < 0，draw(in:) 会清屏为黑色，
-        // 避免旧帧残留在屏幕上直到新首帧到达。
-        DispatchQueue.main.async { [weak self] in
-            self?.renderView?.setNeedsDisplay()
-        }
+        // 修复: 同步标记加载过渡期并清屏，不依赖异步 dispatch。
+        // 之前的 setNeedsDisplay 是异步的，可能在新 media 设置后才执行，
+        // 导致旧解码器脏帧被 blit 到屏幕。
+        renderView?.markReloading()
 
-        // 设置 Media URL
-        player.media = route.url.absoluteString
+        // 延迟一拍设置新 URL，确保 Stopped 状态完全生效后再加载新 media，
+        // 避免新旧解码管线交叉。
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.player.media = route.url.absoluteString
+        }
 
         // 设置 HTTP Headers
         var headerFields = ""
@@ -120,6 +123,8 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
                 self.state.isPlaying = true
                 self.onEvent?(.buffering(false))
                 self.onEvent?(.ready)
+                // 新首帧到达，解除加载过渡标记，恢复正常渲染
+                self.renderView?.markReloadComplete()
             case .Paused:
                 self.state.isPlaying = false
             case .Stopped:
