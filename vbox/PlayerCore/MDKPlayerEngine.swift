@@ -75,7 +75,12 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         // 造成"正在启动 MDK..."永久卡住。
         player.media = route.url.absoluteString
 
-        // 设置 HTTP Headers
+        // ★ 彻底修复切集黑屏：setMedia（切集）之后强制重新绑定 renderTexture 到 MDK。
+        // 防止 mdk 底层在切换媒体时重置 renderer、丢失之前绑定的纹理指针导致黑屏。
+        // 注意：此调用必须在主线程（renderView 属于 Metal/UI 资源）。
+        DispatchQueue.main.async { [weak self] in
+            self?.renderView?.rebindRenderAPI()
+        }
         var headerFields = ""
         for (key, value) in route.headers {
             let lowerKey = key.lowercased()

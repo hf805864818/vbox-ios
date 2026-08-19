@@ -295,25 +295,31 @@ final class MDKRenderView: MTKView {
             player.setVideoSurfaceSize(CGFloat(size.width), CGFloat(size.height))
         }
 
-        // callback 负责通知刷新；PiP 启用时还要在后台解码线程持续捕获 PiP 帧，
-        // 因为进入后台后 MTKView 不再 draw，必须在这里推帧。
+        // callback 只负责通知「有新帧已渲染到 renderTexture，请刷新显示」。
+        // 关键：不要在此回调里再调用 renderVideo()。mdk 的 setRenderCallback 触发时
+        // 帧已经写入 renderAPI 指定的 texture，这里只需 setNeedsDisplay 让 draw(in:)
+        // 把 renderTexture blit 到当前 drawable。之前在 callback 里又调 renderVideo
+        // 会导致「自动渲染」与「手动渲染」两种模式冲突，是切集黑屏的核心嫌疑之一。
+        //
+        // PiP 后台捕获：进入后台后 MTKView 不再 draw，但 callback 仍会触发，
+        // 这里直接 blit renderTexture（已渲染好的帧）到 PiP 纹理，不再 renderVideo。
         player.setRenderCallback { [weak self] in
             guard let self else { return }
-            // 加载过渡期：回调触发意味着新帧已渲染到纹理，解除加载标记
-            if self.isReloading {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
+            if self.pipEnabled, let queue = self.commandQueue {
+                // 后台 PiP：把当前已渲染的 renderTexture blit 到 PiP 纹理
+                self.renderLock.lock()
+                self.capturePiPFrameLocked(queue: queue)
+                self.renderLock.unlock()
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // 新帧已渲染：解除加载过渡期，并触发 draw 去 renderVideo + blit
+                if self.isReloading {
                     self.isReloading = false
                     self.reloadProbeStartedAt = nil
                     self.stopReloadWakeTimer()
-                    self.setNeedsDisplay()
                 }
-            }
-            if self.pipEnabled {
-                self.capturePiPFrameInCallback()
-            }
-            DispatchQueue.main.async { [weak self] in
-                self?.setNeedsDisplay()
+                self.setNeedsDisplay()
             }
         }
     }
@@ -321,6 +327,14 @@ final class MDKRenderView: MTKView {
 
     func setPiPEnabled(_ enabled: Bool) {
         pipEnabled = enabled
+    }
+
+    /// 供 MDKPlayerEngine 在 setMedia（切集）之后调用，强制把当前 renderTexture 重新绑定给 MDK。
+    /// 防止 mdk 底层在 setMedia 切换媒体时重置 renderer、丢失之前绑定的纹理指针。
+    func rebindRenderAPI() {
+        #if canImport(swift_mdk)
+        setupRenderAPIIfNeeded(force: true)
+        #endif
     }
 
     // MARK: - 尺寸变化
@@ -465,27 +479,6 @@ final class MDKRenderView: MTKView {
 
     // MARK: - 后台 PiP 捕获
 
-    #if canImport(swift_mdk)
-    /// 在 MDK render callback（后台解码线程）中完成 PiP 帧捕获。
-    /// 进入桌面小窗后 MTKView 不 draw，必须靠这里持续把视频帧推到 PiP 队列。
-    /// 屏幕渲染仍由 draw(in:) 自己调用 renderVideo 负责，避免 callback 单独渲染失败导致洋红。
-    /// 使用 tryLock 避免后台线程与主线程 draw() 争锁导致主线程渲染卡顿，
-    /// 获取不到锁时跳过本帧（PiP 只需 ~10fps，丢帧不可见）。
-    private func capturePiPFrameInCallback() {
-        guard let player = player, let queue = commandQueue else { return }
-
-        guard renderLock.try() else { return }
-        defer { renderLock.unlock() }
-
-        guard renderTexture != nil else { return }
-
-        let pts = player.renderVideo(vid: nil)
-        guard pts >= 0 else { return }
-
-        capturePiPFrameLocked(queue: queue)
-    }
-    #endif
-
     /// 把当前 renderTexture 内容 blit 到 PiP 纹理，并在 GPU 完成后入队。
     private func capturePiPFrameLocked(queue: MTLCommandQueue) {
         guard pipEnabled, let renderTex = renderTexture else { return }
@@ -536,53 +529,25 @@ extension MDKRenderView: MTKViewDelegate {
         renderLock.lock()
         defer { renderLock.unlock() }
 
-        // 加载过渡期：尝试渲染新帧，只有真正可用时才解除标记并 blit。
-        // 防止 renderTexture 中的旧解码器脏帧被呈现为紫屏（品红色 #FF00FF）。
-        if isReloading {
-            // 主动尝试渲染新帧，只有 pts >= 0（新帧真正可用）时才解除标记
-            let reloadPts = player.renderVideo(vid: nil)
-            if reloadPts >= 0 {
-                // 新帧已到达，解除加载标记，继续执行下方的 blit 逻辑
-                isReloading = false
-                reloadProbeStartedAt = nil
-                stopReloadWakeTimer()
-            } else {
-                // 新帧尚未到达，清黑屏等待（主动唤醒由 reloadWakeTimer 驱动，无需在此阻塞）
-                let rpd = MTLRenderPassDescriptor()
-                rpd.colorAttachments[0].texture = drawable.texture
-                rpd.colorAttachments[0].loadAction = .clear
-                rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-                rpd.colorAttachments[0].storeAction = .store
-                if let cmdBuffer = queue.makeCommandBuffer(),
-                   let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
-                    encoder.endEncoding()
-                    cmdBuffer.present(drawable)
-                    cmdBuffer.commit()
-                }
-                return
-            }
+        guard let renderTex = renderTexture else {
+            clearDrawableToBlack(drawable: drawable, queue: queue)
+            return
         }
 
-        guard let renderTex = renderTexture else { return }
-
-        // 先让 MDK 把当前视频帧渲染到离屏纹理；返回值 < 0 表示尚无可用帧
+        // ★ 正确模式：renderToTexture 下，由 draw 主动调用 renderVideo() 把当前帧
+        // 画到 renderTexture，再 blit 到屏幕。renderVideo() 返回的 pts < 0 表示
+        // 尚无可用帧（切集/加载中），此时清黑屏等待。
         let pts = player.renderVideo(vid: nil)
-
         if pts < 0 {
-            // 无可用帧（切集/加载中）：清空 drawable 为黑色，
-            // 避免显示未初始化的脏纹理（红色/洋红）
-            let rpd = MTLRenderPassDescriptor()
-            rpd.colorAttachments[0].texture = drawable.texture
-            rpd.colorAttachments[0].loadAction = .clear
-            rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-            rpd.colorAttachments[0].storeAction = .store
-            if let cmdBuffer = queue.makeCommandBuffer(),
-               let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
-                encoder.endEncoding()
-                cmdBuffer.present(drawable)
-                cmdBuffer.commit()
-            }
+            // 无可用帧：清黑屏，避免显示旧脏帧
+            clearDrawableToBlack(drawable: drawable, queue: queue)
             return
+        }
+        // 有有效帧：解除加载过渡期标记
+        if isReloading {
+            isReloading = false
+            reloadProbeStartedAt = nil
+            stopReloadWakeTimer()
         }
 
         guard let cmdBuffer = queue.makeCommandBuffer() else { return }
@@ -606,9 +571,24 @@ extension MDKRenderView: MTKViewDelegate {
         cmdBuffer.present(drawable)
         cmdBuffer.commit()
 
-        // 前台 PiP 也在这里捕获（后台 PiP 由 render callback 负责）
+        // 前台 PiP 也在这里捕获
         if pipEnabled {
             capturePiPFrameLocked(queue: queue)
+        }
+    }
+
+    /// 清空 drawable 为黑色（避免显示未初始化的脏纹理）
+    private func clearDrawableToBlack(drawable: CAMetalDrawable, queue: MTLCommandQueue) {
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = drawable.texture
+        rpd.colorAttachments[0].loadAction = .clear
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        rpd.colorAttachments[0].storeAction = .store
+        if let cmdBuffer = queue.makeCommandBuffer(),
+           let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+            encoder.endEncoding()
+            cmdBuffer.present(drawable)
+            cmdBuffer.commit()
         }
     }
 }
