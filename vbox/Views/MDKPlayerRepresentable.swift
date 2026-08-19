@@ -170,6 +170,8 @@ struct MDKPlayerRepresentable: UIViewRepresentable {
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
             guard !isStopped else { return }
+            // 是否为首次 attach（进入播放页）。切集时 currentURL 已有值，走 updateUIView → attach。
+            let isFirstAttach = (currentURL == nil)
             currentURL = url
 
             let episodeTitle = playerState.flatMap { state in
@@ -194,7 +196,11 @@ struct MDKPlayerRepresentable: UIViewRepresentable {
             engine.setRate(playerState?.playbackSpeed ?? 1.0)
             engine.play()
 
-            if let resume = playerState?.currentTime, resume > 10 {
+            // ★ 修复切集跳进度：只在「首次进入播放页」时恢复上次进度。
+            // 切集（updateUIView → attach，currentURL 已有值）时 currentTime 可能残留
+            // 上一集的进度，若在此 seek 会导致切集后跳转到旧进度。
+            // 切集各自的进度恢复已由 switchToEpisode / switchBaiduFile 处理，这里不再重复 seek。
+            if isFirstAttach, let resume = playerState?.currentTime, resume > 10 {
                 engine.seek(to: resume)
                 playerState?.log("[Progress] MDK 自动跳转到上次进度：\(Int(resume))s")
             }
