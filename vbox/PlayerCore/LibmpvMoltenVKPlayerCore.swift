@@ -532,6 +532,10 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func teardown() {
+        // 加锁防止与 attach()/load() 并发执行
+        attachLock.lock()
+        defer { attachLock.unlock() }
+
         guard !isShuttingDown || mpv != nil else { return }
         isShuttingDown = true
         onLog = nil
@@ -557,7 +561,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
         if let handle = mpv {
             mpv_set_wakeup_callback(handle, nil, nil)
-            eventQueue.sync {}
+            // 不使用 eventQueue.sync {} 防止主线程死锁
             command("stop", checkForErrors: false)
             mpv_terminate_destroy(handle)
             mpv = nil
@@ -575,12 +579,10 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
         state = PlayerEngineState()
 
-        // 修复: 延迟重置 isShuttingDown，确保 mpv_terminate_destroy 和事件循环完全停止。
-        // 否则切换内核时新 attach 可能在旧 teardown 还在进行中被调用，
-        // guard !isShuttingDown 直接 return，导致 mpv 未创建但上层认为已初始化。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.isShuttingDown = false
-        }
+        // 同步重置：mpv_terminate_destroy 已同步完成，无需延迟。
+        // 之前的 0.5s 延迟导致 attach() 的 guard !isShuttingDown 在窗口期内直接 return，
+        // mpv 未创建但上层认为已初始化，后续操作触发闪退。
+        isShuttingDown = false
     }
 
     private func setupMPV() {

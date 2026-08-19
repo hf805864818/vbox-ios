@@ -64,21 +64,16 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         progressTimer = nil
         currentRoute = route
 
-        // 切集时先停止旧播放，避免新旧解码管线交叉导致画面异常（洋红/紫屏）。
-        // mdk-sdk 在未停止旧 media 的情况下直接设置新 URL，旧解码器仍会向
-        // renderTexture 写入脏帧，Metal blit 后呈现为品红色画面。
-        player.state = .Stopped
-        // 修复: 同步标记加载过渡期并清屏，不依赖异步 dispatch。
-        // 之前的 setNeedsDisplay 是异步的，可能在新 media 设置后才执行，
-        // 导致旧解码器脏帧被 blit 到屏幕。
+        // 标记加载过渡期并清屏，防止旧解码器脏帧被 blit 到屏幕导致紫屏。
+        // markReloadComplete() 会在 onStateChanged .Playing 回调中调用。
         renderView?.markReloading()
 
-        // 延迟一拍设置新 URL，确保 Stopped 状态完全生效后再加载新 media，
-        // 避免新旧解码管线交叉。
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.player.media = route.url.absoluteString
-        }
+        // 同步设置新 URL：mdk-sdk 内部会自动停止旧 media 并启动新 media。
+        // 之前用 DispatchQueue.main.async 延迟设置 URL，导致 engine.play()
+        // 在 URL 设置前就执行 player.state = .Playing，mdk 在无 media 时
+        // 触发 .Playing 回调，清除 isLoading 和 isReloading，但实际未加载任何内容，
+        // 造成"正在启动 MDK..."永久卡住。
+        player.media = route.url.absoluteString
 
         // 设置 HTTP Headers
         var headerFields = ""
