@@ -599,6 +599,114 @@ struct VideoDetailView: View {
             }
             return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
 
+        case .one15:
+            // 115网盘：递归获取分享链接内所有视频文件，展开为多集
+            guard let token = CloudDriveManager.shared.tokens(for: .one15).first else {
+                return .failed("未配置115网盘 Cookie/CID")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
+                do {
+                    let files = try await CloudDriveManager.shared.one15GetAllPlayableFiles(shareURL: link.url, cid: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_pickcode": file.pickCode]),
+                            name: file.fileName,
+                            driveType: driveType,
+                            driveName: driveName,
+                            index: allExpanded.count + fileIndex
+                        )
+                    }
+                    allExpanded.append(contentsOf: items)
+                } catch {
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("115网盘资源加载失败")
+                    }
+                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+
+        case .pan123:
+            // 123云盘：递归获取分享链接内所有视频文件，展开为多集
+            guard let token = CloudDriveManager.shared.tokens(for: .pan123).first else {
+                return .failed("未配置123云盘 Cookie")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
+                do {
+                    let files = try await CloudDriveManager.shared.pan123GetAllFiles(shareURL: link.url, token: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fileId": file.fileId, "vbox_etag": file.eTag]),
+                            name: file.fileName,
+                            driveType: driveType,
+                            driveName: driveName,
+                            index: allExpanded.count + fileIndex
+                        )
+                    }
+                    allExpanded.append(contentsOf: items)
+                } catch {
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("123云盘资源加载失败")
+                    }
+                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+
+        case .pan139:
+            // 139云盘：递归获取分享链接内所有视频文件，展开为多集
+            guard let token = CloudDriveManager.shared.tokens(for: .pan139).first else {
+                return .failed("未配置139云盘 Cookie")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
+                do {
+                    let files = try await CloudDriveManager.shared.pan139GetAllFiles(shareURL: link.url, cookie: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_contentId": file.contentId, "vbox_catalogId": file.catalogId]),
+                            name: file.fileName,
+                            driveType: driveType,
+                            driveName: driveName,
+                            index: allExpanded.count + fileIndex
+                        )
+                    }
+                    allExpanded.append(contentsOf: items)
+                } catch {
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("139云盘资源加载失败")
+                    }
+                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+
+        case .pan189:
+            // 天翼云盘：递归获取分享链接内所有视频文件，展开为多集
+            guard let token = CloudDriveManager.shared.tokens(for: .pan189).first else {
+                return .failed("未配置天翼云盘 Cookie")
+            }
+            var allExpanded: [CloudPanLink] = []
+            for (linkIndex, link) in links.enumerated() {
+                do {
+                    let files = try await CloudDriveManager.shared.pan189GetAllFiles(shareURL: link.url, cookie: token.value)
+                    let items = files.enumerated().map { fileIndex, file in
+                        makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: ["vbox_fileId": file.fileId]),
+                            name: file.fileName,
+                            driveType: driveType,
+                            driveName: driveName,
+                            index: allExpanded.count + fileIndex
+                        )
+                    }
+                    allExpanded.append(contentsOf: items)
+                } catch {
+                    if allExpanded.isEmpty && linkIndex == links.count - 1 {
+                        return .failed("天翼云盘资源加载失败")
+                    }
+                }
+            }
+            return allExpanded.isEmpty ? .empty : .loaded(allExpanded)
+
         default:
             let fallback = links.enumerated().map { idx, link in
                 makeCloudPanLink(url: link.url, name: link.name, driveType: link.driveType, driveName: link.driveName, index: idx)
