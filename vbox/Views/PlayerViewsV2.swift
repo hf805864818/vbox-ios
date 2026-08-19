@@ -1295,7 +1295,7 @@ class PlayerState: ObservableObject {
                     for: self.compatibilityURL
                 ) ?? "VLC"
                 await MainActor.run {
-                    guard self.playbackSessionId == sessionId else { return }
+                    guard self.playbackSessionId == self.playbackSessionId else { return }
                     self.compatibilityEngineName = engineName
                 }
                 // 等待第 1 批 SwiftUI 更新完成（旧内核 teardown 完成）
@@ -1303,7 +1303,7 @@ class PlayerState: ObservableObject {
                 // 第 2 步：设置新 URL（引擎名已是新内核），触发新一批更新
                 // 此时旧内核已完全 teardown，新内核 attach 安全
                 await MainActor.run {
-                    guard self.playbackSessionId == sessionId else { return }
+                    guard self.playbackSessionId == self.playbackSessionId else { return }
                     self.compatibilityURL = URL(string: self.compatibilityURL?.absoluteString ?? "")
                     self.restartCurrentResourceWithNewEngine()
                 }
