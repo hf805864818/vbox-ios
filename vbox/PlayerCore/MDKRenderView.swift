@@ -73,6 +73,8 @@ final class MDKRenderView: MTKView {
     /// 期间 draw(in:) 强制清黑屏，防止 renderTexture 中的旧解码器脏帧呈现为紫屏。
     func markReloading() {
         isReloading = true
+        // 清空 renderTexture 内容为黑色，防止旧帧残留
+        clearRenderTextureToBlack()
         // 同步清空当前 drawable，不等待 async dispatch
         if let drawable = currentDrawable, let queue = commandQueue {
             let rpd = MTLRenderPassDescriptor()
@@ -86,6 +88,21 @@ final class MDKRenderView: MTKView {
                 cmdBuffer.present(drawable)
                 cmdBuffer.commit()
             }
+        }
+    }
+
+    /// 清空 renderTexture 为纯黑，防止旧帧残留导致紫屏
+    private func clearRenderTextureToBlack() {
+        guard let tex = renderTexture, let queue = commandQueue else { return }
+        let rpd = MTLRenderPassDescriptor()
+        rpd.colorAttachments[0].texture = tex
+        rpd.colorAttachments[0].loadAction = .clear
+        rpd.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        rpd.colorAttachments[0].storeAction = .store
+        if let cmdBuffer = queue.makeCommandBuffer(),
+           let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+            encoder.endEncoding()
+            cmdBuffer.commit()
         }
     }
 

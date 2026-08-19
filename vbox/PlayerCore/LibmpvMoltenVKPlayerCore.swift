@@ -485,6 +485,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func play() {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         setFlag(MPVKitProperty.pause, false)
         state.isPlaying = true
@@ -493,6 +495,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func pause() {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         setFlag(MPVKitProperty.pause, true)
         state.isPlaying = false
@@ -500,6 +504,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func stop() {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         command("stop", checkForErrors: false)
         state.isPlaying = false
@@ -508,21 +514,29 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func seek(to seconds: Double) {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         command("seek", args: [String(seconds), "absolute"])
     }
 
     func togglePause() {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         command(state.isPlaying ? "set pause yes" : "set pause no")
     }
 
     func seekRelative(seconds: Double) {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         command("seek", args: [String(seconds), "relative"])
     }
 
     func setRate(_ rate: Double) {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         var value = rate
@@ -530,6 +544,8 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func setVolume(_ volume: Double) {
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         guard let handle = mpv else { return }
         var value = min(max(volume, 0), 1) * 100
@@ -736,12 +752,31 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private func readEvents() {
         eventQueue.async { [weak self] in
             guard let self else { return }
-            guard !self.isShuttingDown else { return }
-            while let handle = self.mpv {
-                if self.isShuttingDown { break }
+            // 在锁保护下获取 mpv 句柄快照，防止 teardown 并发销毁
+            var handle: OpaquePointer?
+            self.attachLock.lock()
+            if !self.isShuttingDown {
+                handle = self.mpv
+            }
+            self.attachLock.unlock()
+            guard let handle else { return }
+            
+            while true {
+                // 每次循环前检查是否正在关闭
+                self.attachLock.lock()
+                let shouldBreak = self.isShuttingDown || self.mpv == nil
+                self.attachLock.unlock()
+                if shouldBreak { break }
+                
                 guard let event = mpv_wait_event(handle, 0) else { break }
                 if event.pointee.event_id == MPV_EVENT_NONE { break }
-                if self.isShuttingDown { break }
+                
+                // 再次检查关闭状态
+                self.attachLock.lock()
+                let stillActive = !self.isShuttingDown && self.mpv != nil
+                self.attachLock.unlock()
+                if !stillActive { break }
+                
                 self.handle(event: event.pointee)
             }
         }
