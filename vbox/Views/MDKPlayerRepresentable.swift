@@ -9,11 +9,7 @@ extension Notification.Name {
     static let vboxMDKRequestStartPiP = Notification.Name("vbox.mdk.requestStartPiP")
     /// 请求当前 MDK 播放器停止画中画
     static let vboxMDKRequestStopPiP = Notification.Name("vbox.mdk.requestStopPiP")
-    // MDK 播放控制通知（seek/play/pause/speed），用于百度网盘等走 MDK 兼容内核的场景
-    static let vboxMDKPlay = Notification.Name("vbox.mdk.play")
-    static let vboxMDKPause = Notification.Name("vbox.mdk.pause")
-    static let vboxMDKSeek = Notification.Name("vbox.mdk.seek")
-    static let vboxMDKSpeed = Notification.Name("vbox.mdk.speed")
+    // MDK 播放控制通知（seek/play/pause/speed）声明在 PlayerViewsV2.swift 中，此处不再重复声明
 }
 
 // MARK: - SwiftUI Representable
