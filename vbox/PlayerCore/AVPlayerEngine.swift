@@ -47,6 +47,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     }
 
     func load(route: PlaybackRoute) {
+        activateAudioSession()
         cleanupPlaybackObjects(keepLayer: true)
 
         let asset = AVURLAsset(
@@ -65,6 +66,16 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         onEvent?(.log("系统内核加载线路：\(route.title)"))
 
         bindObservers(item: item, player: newPlayer)
+    }
+
+    private func activateAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback, options: .mixWithOthers)
+            try session.setActive(true)
+        } catch {
+            print("[AVPlayer] 音频会话激活失败: \(error.localizedDescription)")
+        }
     }
 
     func play() {
@@ -174,6 +185,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     private func handleStatusChange(_ item: AVPlayerItem) {
         switch item.status {
         case .readyToPlay:
+            try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
             state.isBuffering = false
             let duration = item.duration.seconds.isFinite ? item.duration.seconds : 0
             state.duration = duration
