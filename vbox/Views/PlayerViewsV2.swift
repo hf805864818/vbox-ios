@@ -17,6 +17,10 @@ extension Notification.Name {
     static let vboxMPVSeek = Notification.Name("vbox.mpv.seek")
     static let vboxMPVSpeed = Notification.Name("vbox.mpv.speed")
     static let vboxMPVStop = Notification.Name("vbox.mpv.stop")
+    static let vboxMDKPlay = Notification.Name("vbox.mdk.play")
+    static let vboxMDKPause = Notification.Name("vbox.mdk.pause")
+    static let vboxMDKSeek = Notification.Name("vbox.mdk.seek")
+    static let vboxMDKSpeed = Notification.Name("vbox.mdk.speed")
 }
 
 // 屏幕方向辅助类
@@ -1276,9 +1280,10 @@ class PlayerState: ObservableObject {
             restartCurrentResourceWithNewEngine()
         }
 
-        if !baiduFileList.isEmpty, currentEpisodeIndex < baiduFileList.count {
-            switchBaiduFile(index: currentEpisodeIndex)
-        }
+        // 修复: 移除重复的 switchBaiduFile 调用。
+        // restartCurrentResourceWithNewEngine() 内部已对百度多文件场景调用了 switchBaiduFile，
+        // 此处再调一次会创建两个并发 Task，导致切换到 MPV 时 mpv_create 重入闪退。
+        // 仅在非切换内核场景（首次进入播放页、选集切换）才需要走 switchBaiduFile。
     }
 
     /// 切换内核后，用新引擎重新播放当前正在播放的资源
@@ -1366,7 +1371,17 @@ class PlayerState: ObservableObject {
             currentTime = target
             isLoading = false
             log("[PlayerV2] \(compatibilityEngineName) 拖拽进度跳转：\(formatDuration(target)) / \(formatDuration(duration))")
-            let notification: Notification.Name = (compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK")) ? .vboxMPVSeek : .vboxVLCSeek
+            // 修复: 百度网盘走 MDK 内核时，compatibilityEngineName="MDK" 不含 "MPV"，
+            // 导致 seek 通知被错误发往 VLC，MDK 引擎从未收到 seek 命令。
+            // 新增 .vboxMDKSeek 路由，确保 MDK 内核也能收到拖拽进度跳转。
+            let notification: Notification.Name
+            if compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK") {
+                notification = .vboxMPVSeek
+            } else if compatibilityEngineName.contains("MDK") {
+                notification = .vboxMDKSeek
+            } else {
+                notification = .vboxVLCSeek
+            }
             NotificationCenter.default.post(name: notification, object: nil, userInfo: ["seconds": target])
             isSeeking = false
             return
@@ -1476,10 +1491,13 @@ class PlayerState: ObservableObject {
         }
         guard compatibilityURL != nil else { return }
         let isMPVorIJK = compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK")
+        let isMDK = compatibilityEngineName.contains("MDK")
         if isPlaying {
-            NotificationCenter.default.post(name: isMPVorIJK ? .vboxMPVPause : .vboxVLCPause, object: nil)
+            let pauseNotification: Notification.Name = isMPVorIJK ? .vboxMPVPause : (isMDK ? .vboxMDKPause : .vboxVLCPause)
+            NotificationCenter.default.post(name: pauseNotification, object: nil)
         } else {
-            NotificationCenter.default.post(name: isMPVorIJK ? .vboxMPVPlay : .vboxVLCPlay, object: nil)
+            let playNotification: Notification.Name = isMPVorIJK ? .vboxMPVPlay : (isMDK ? .vboxMDKPlay : .vboxVLCPlay)
+            NotificationCenter.default.post(name: playNotification, object: nil)
         }
         isPlaying.toggle()
     }
@@ -1491,7 +1509,8 @@ class PlayerState: ObservableObject {
         }
         if compatibilityURL != nil {
             let isMPVorIJK = compatibilityEngineName.contains("MPV") || compatibilityEngineName.contains("IJK")
-            let notification: Notification.Name = isMPVorIJK ? .vboxMPVSpeed : .vboxVLCSpeed
+            let isMDK = compatibilityEngineName.contains("MDK")
+            let notification: Notification.Name = isMPVorIJK ? .vboxMPVSpeed : (isMDK ? .vboxMDKSpeed : .vboxVLCSpeed)
             NotificationCenter.default.post(name: notification, object: nil, userInfo: ["speed": speed])
             log("[PlayerV2] \(compatibilityEngineName) 倍速切换：\(String(format: "%.2f", speed))X")
         }

@@ -9,6 +9,11 @@ extension Notification.Name {
     static let vboxMDKRequestStartPiP = Notification.Name("vbox.mdk.requestStartPiP")
     /// 请求当前 MDK 播放器停止画中画
     static let vboxMDKRequestStopPiP = Notification.Name("vbox.mdk.requestStopPiP")
+    // MDK 播放控制通知（seek/play/pause/speed），用于百度网盘等走 MDK 兼容内核的场景
+    static let vboxMDKPlay = Notification.Name("vbox.mdk.play")
+    static let vboxMDKPause = Notification.Name("vbox.mdk.pause")
+    static let vboxMDKSeek = Notification.Name("vbox.mdk.seek")
+    static let vboxMDKSpeed = Notification.Name("vbox.mdk.speed")
 }
 
 // MARK: - SwiftUI Representable
@@ -123,6 +128,43 @@ struct MDKPlayerRepresentable: UIViewRepresentable {
                 queue: .main
             ) { [weak self] _ in
                 self?.engine.stopPiP()
+            })
+
+            // === 新增: MDK seek/play/pause/speed 通知监听 ===
+            // 之前 MDK 引擎缺少这些通知路由，导致百度网盘拖拽进度条时不跳转：
+            // compatibilityEngineName="MDK" 不含 "MPV"，seek 通知被错误发往 VLC。
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxMDKSeek,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let seconds = note.userInfo?["seconds"] as? Double else { return }
+                self?.engine.seek(to: seconds)
+            })
+
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxMDKPlay,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.engine.play()
+            })
+
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxMDKPause,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.engine.pause()
+            })
+
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .vboxMDKSpeed,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                guard let speed = note.userInfo?["speed"] as? Double else { return }
+                self?.engine.setRate(speed)
             })
         }
 
