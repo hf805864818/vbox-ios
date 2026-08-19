@@ -66,6 +66,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     private(set) var state = PlayerEngineState()
 
+    /// time-pos 回调节流：MPV 播放时 time-pos 每秒触发 30-60 次，
+    /// 每次 emitState() 都会触发 SwiftUI @Published 属性变更和视图重算，
+    /// 导致 wakeups 超限（>150/秒）被系统杀进程。
+    /// 节流到每 200ms（5 次/秒）emit 一次，进度条刷新足够流畅。
+    private var lastTimePosEmitAt: Date = .distantPast
+    private let timePosEmitInterval: TimeInterval = 0.2
+
     /// EAGLContext，OpenGL ES 渲染上下文（lazy，首次访问时创建）
     private lazy var eaglContext: EAGLContext? = {
         EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
@@ -765,35 +772,53 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
                 if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                     self.state.currentTime = value
                 }
+                // 节流：time-pos 高频回调（30-60次/秒），仅每 200ms emit 一次，
+                // 避免 SwiftUI 视图重算导致 wakeups 超限闪退。
+                let now = Date()
+                if now.timeIntervalSince(self.lastTimePosEmitAt) >= self.timePosEmitInterval {
+                    self.lastTimePosEmitAt = now
+                    self.emitState()
+                }
             case MPVKitProperty.duration:
                 if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                     self.state.duration = value
                 }
+                self.lastTimePosEmitAt = Date()
+                self.emitState()
             case MPVKitProperty.pause:
                 if let paused = self.readFlag(property.data) {
                     self.state.isPlaying = !paused
                 }
+                self.lastTimePosEmitAt = Date()
+                self.emitState()
             case MPVKitProperty.pausedForCache:
                 if let buffering = self.readFlag(property.data) {
                     self.state.isBuffering = buffering
                 }
+                self.lastTimePosEmitAt = Date()
+                self.emitState()
             case MPVKitProperty.eofReached:
                 if let ended = self.readFlag(property.data), ended {
                     self.state.isPlaying = false
                     self.state.isEnded = true
                 }
+                self.lastTimePosEmitAt = Date()
+                self.emitState()
             case MPVKitProperty.videoWidth:
                 if let value = UnsafePointer<Int64>(OpaquePointer(property.data))?.pointee {
                     self.state.width = Int(value)
                 }
+                self.emitState()
             case MPVKitProperty.videoHeight:
                 if let value = UnsafePointer<Int64>(OpaquePointer(property.data))?.pointee {
                     self.state.height = Int(value)
                 }
+                self.emitState()
             default:
+                // 未使用的属性（demuxer-cache-time、cache-buffering-state 等）
+                // 不更新 state 也不 emitState，避免无意义的 SwiftUI 重算
                 break
             }
-            self.emitState()
         }
     }
 
