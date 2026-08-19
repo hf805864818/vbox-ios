@@ -1281,6 +1281,11 @@ class PlayerState: ObservableObject {
 
         // 如果正在播放网盘资源（夸克/百度），切换内核后立即用新引擎重新播放当前资源
         if oldPreference != preference, isPlaying || compatibilityURL != nil || player != nil {
+            // ★ 修复切换内核闪退：切换前先主动停止旧的兼容内核（尤其 MPV 的 OpenGL ES
+            // 上下文），避免旧内核 GPU 上下文与新内核在 SwiftUI 视图切换的异步窗口内冲突。
+            // 发通知让旧 MPV Coordinator 同步 teardown，再重新播放。
+            NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
+            NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
             restartCurrentResourceWithNewEngine()
         }
 
@@ -8135,6 +8140,18 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 self?.core.setRate(speed)
             })
 
+            // ★ 修复切换内核闪退：监听停止通知，切换内核前先主动 teardown 旧 MPV，
+            // 避免旧 MPV 的 OpenGL ES 上下文与新内核（如 MDK 的 Metal）在 SwiftUI
+            // dismantle/attach 的异步窗口内发生 GPU 上下文冲突导致闪退。
+            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVStop, object: nil, queue: .main) { [weak self] _ in
+                guard let self, !self.isStopped else { return }
+                self.cancelInitTimeout()
+                self.core.stopPiPCapture()
+                self.core.stop()
+                self.core.teardown()
+                self.currentURL = nil
+            })
+
             // PiP 帧捕获控制：监听 PiP 状态变化通知，控制 Metal 帧捕获
             observers.append(NotificationCenter.default.addObserver(forName: .vboxPiPStatusChanged, object: nil, queue: .main) { [weak self] note in
                 guard let isActive = note.object as? Bool else { return }
@@ -8168,6 +8185,8 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
 
         func attach(to view: UIView, url: URL, headers: [String: String]) {
             guard !isStopped else { return }
+            // 是否为首次 attach（进入播放页）。切集时 currentURL 已有值，走 updateUIView → attach。
+            let isFirstAttach = (currentURL == nil)
             currentURL = url
             core.attach(to: view)
             // 同步当前画面拉伸模式：setupMPV 完成后 mpv 句柄才可用，
@@ -8179,7 +8198,9 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
             core.load(url: url, headers: headers, profile: inferredProfile(for: url))
             core.setRate(playerState?.playbackSpeed ?? 1.0)
             core.play()
-            if let resume = playerState?.currentTime, resume > 10 {
+            // ★ 修复切集跳进度：只在「首次进入播放页」时恢复上次进度。
+            // 切集（currentURL 已有值）时 currentTime 残留上一集进度，不应在此 seek。
+            if isFirstAttach, let resume = playerState?.currentTime, resume > 10 {
                 core.seek(to: resume)
                 playerState?.log("[Progress] MPV 自动跳转到上次进度：\(Int(resume))s")
             }
