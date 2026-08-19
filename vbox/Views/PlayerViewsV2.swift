@@ -1281,12 +1281,33 @@ class PlayerState: ObservableObject {
 
         // 如果正在播放网盘资源（夸克/百度），切换内核后立即用新引擎重新播放当前资源
         if oldPreference != preference, isPlaying || compatibilityURL != nil || player != nil {
-            // ★ 修复切换内核闪退：切换前先主动停止旧的兼容内核（尤其 MPV 的 OpenGL ES
-            // 上下文），避免旧内核 GPU 上下文与新内核在 SwiftUI 视图切换的异步窗口内冲突。
-            // 发通知让旧 MPV Coordinator 同步 teardown，再重新播放。
-            NotificationCenter.default.post(name: .vboxMPVStop, object: nil)
-            NotificationCenter.default.post(name: .vboxVLCPause, object: nil)
-            restartCurrentResourceWithNewEngine()
+            // ★ 修复切换内核闪退：使用 deferred engine switch。
+            // 直接修改 compatibilityEngineName 会触发 SwiftUI 立即重建视图（dismantle 旧内核 +
+            // attach 新内核在同一事务中），导致 Metal/OpenGL ES 上下文竞态 → GPU driver 崩溃。
+            // 改为：等一个 runloop tick 后再更新引擎名，让 SwiftUI 先完成旧内核的 dismantle，
+            // 再在新事务中创建新内核，避免并发 GPU 上下文冲突。
+            currentTask?.cancel()
+            currentTask = Task { [weak self] in
+                guard let self else { return }
+                // 第 1 步：仅更新引擎名（不设置 URL），触发 SwiftUI 重建视图
+                // 此时 compatibilityURL 未变，SwiftUI 只会拆解旧内核视图（无 attach 新内核）
+                let engineName = self.preferredCompatibilityEngineName(
+                    for: self.compatibilityURL
+                ) ?? "VLC"
+                await MainActor.run {
+                    guard self.playbackSessionId == sessionId else { return }
+                    self.compatibilityEngineName = engineName
+                }
+                // 等待第 1 批 SwiftUI 更新完成（旧内核 teardown 完成）
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                // 第 2 步：设置新 URL（引擎名已是新内核），触发新一批更新
+                // 此时旧内核已完全 teardown，新内核 attach 安全
+                await MainActor.run {
+                    guard self.playbackSessionId == sessionId else { return }
+                    self.compatibilityURL = URL(string: self.compatibilityURL?.absoluteString ?? "")
+                    self.restartCurrentResourceWithNewEngine()
+                }
+            }
         }
 
         // 修复: 移除重复的 switchBaiduFile 调用。
@@ -8140,17 +8161,14 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
                 self?.core.setRate(speed)
             })
 
-            // ★ 修复切换内核闪退：监听停止通知，切换内核前先主动 teardown 旧 MPV，
-            // 避免旧 MPV 的 OpenGL ES 上下文与新内核（如 MDK 的 Metal）在 SwiftUI
-            // dismantle/attach 的异步窗口内发生 GPU 上下文冲突导致闪退。
-            observers.append(NotificationCenter.default.addObserver(forName: .vboxMPVStop, object: nil, queue: .main) { [weak self] _ in
-                guard let self, !self.isStopped else { return }
-                self.cancelInitTimeout()
-                self.core.stopPiPCapture()
-                self.core.stop()
-                self.core.teardown()
-                self.currentURL = nil
-            })
+            // 注：不再监听 .vboxMPVStop 通知来主动 teardown MPV。
+            // 旧方案在 selectPlaybackEngine 同步调用 teardown()，导致旧内核 GPU 上下文
+            // 在新内核 attach() 前就被销毁，Metal/OpenGL ES 上下文竞态 → GPU driver crash。
+            // 正确做法：延迟引擎名切换（见 selectPlaybackEngine），让 SwiftUI 分批处理
+            // dismantle（旧内核）和 attach（新内核），避免并发 GPU 上下文冲突。
+            //
+            // .vboxMPVStop 仍由 initPlayer() 和 failPlayback() 使用（用于 AVPlayer 模式时
+            // 清理残留的 MPV 实例），MPV Coordinator 的 teardown 仍由 dismantleUIView 自然触发。
 
             // PiP 帧捕获控制：监听 PiP 状态变化通知，控制 Metal 帧捕获
             observers.append(NotificationCenter.default.addObserver(forName: .vboxPiPStatusChanged, object: nil, queue: .main) { [weak self] note in
