@@ -118,8 +118,11 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
                 self.state.isPlaying = true
                 self.onEvent?(.buffering(false))
                 self.onEvent?(.ready)
-                // 新首帧到达，解除加载过渡标记，恢复正常渲染
-                self.renderView?.markReloadComplete()
+                // NOTE: 不再在此处调用 markReloadComplete()。
+                // .Playing 表示播放已开始，但首帧可能尚未渲染到 renderTexture。
+                // isReloading 的解除已移至 draw(in:) 内自适应判断：
+                // 只有 renderVideo() 返回 pts >= 0（新帧真正可用）时才解除，
+                // 防止旧解码器脏帧被 blit 到屏幕导致紫屏。
             case .Paused:
                 self.state.isPlaying = false
             case .Stopped:

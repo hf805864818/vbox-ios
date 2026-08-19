@@ -419,10 +419,12 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     // MARK: - 公开方法
 
     func attach(to view: UIView) {
-        guard !isShuttingDown else { return }
-        // 修复: 防止 teardown 尚未完成时 attach 重入导致 mpv_create 闪退
+        // 修复: guard 移入锁内，防止 TOCTOU 竞态
+        // 之前 guard 在锁外检查，teardown 并发时直接 return 不等待锁，
+        // 导致 containerView 未设置、mpv 未创建，后续操作闪退
         attachLock.lock()
         defer { attachLock.unlock() }
+        guard !isShuttingDown else { return }
         containerView = view
         if renderView.superview !== view {
             renderView.removeFromSuperview()
@@ -460,6 +462,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     }
 
     func load(url: URL, headers: [String: String] = [:], profile explicitProfile: PlaybackProfile? = nil) {
+        // 修复: load() 加锁，防止 setupMPV()/mpv_create() 与 teardown() 并发执行
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         if mpv == nil {
             setupMPV()
@@ -569,6 +574,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
         renderView.delegate = nil
         renderView.removeFromSuperview()
+        // 修复: 置 nil 强制下次 attach 创建新 GLKView，
+        // 避免从 MDK(Metal) 切换到 MPV(OpenGL ES) 时复用旧 GLKView 的失效 framebuffer 导致闪退
+        _renderView = nil
 
         // 注意：不将 eaglContext 设为 nil。
         // lazy var 设为 nil 后不会重新触发初始化器，导致重新 attach 时 context 为 nil。
@@ -699,6 +707,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
 
     /// GLKView 渲染回调：通过 mpv_render_context_render() 渲染到 GLKView 的 framebuffer
     private func renderToGLKView() {
+        // 修复: 加锁防止 renderContext 在渲染期间被 teardown() 释放
+        attachLock.lock()
+        defer { attachLock.unlock() }
         guard let renderContext, let eaglContext else { return }
         EAGLContext.setCurrent(eaglContext)
 
