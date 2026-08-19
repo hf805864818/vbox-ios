@@ -7769,6 +7769,16 @@ struct LandscapeEpisodePickerOverlay: View {
                     Button(action: {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isReversed.toggle()
+                            // 排序切换后重新定位当前播放的集数
+                            let episodes = playerState.episodeItems
+                            guard !episodes.isEmpty else { return }
+                            let currentId = playerState.currentEpisodeIndex >= 0 && playerState.currentEpisodeIndex < episodes.count
+                                ? episodes[playerState.currentEpisodeIndex].id
+                                : nil
+                            guard let currentId else { return }
+                            if let newIndex = episodes.firstIndex(where: { $0.id == currentId }) {
+                                playerState.currentEpisodeIndex = newIndex
+                            }
                         }
                     }) {
                         HStack(spacing: 4) {
@@ -7836,6 +7846,16 @@ struct EpisodePickerPopupWrapper: View {
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isReversed.toggle()
+                    // 排序切换后重新定位当前播放的集数
+                    let episodes = playerState.episodeItems
+                    guard !episodes.isEmpty else { return }
+                    let currentId = playerState.currentEpisodeIndex >= 0 && playerState.currentEpisodeIndex < episodes.count
+                        ? episodes[playerState.currentEpisodeIndex].id
+                        : nil
+                    guard let currentId else { return }
+                    if let newIndex = episodes.firstIndex(where: { $0.id == currentId }) {
+                        playerState.currentEpisodeIndex = newIndex
+                    }
                 }
             }) {
                 HStack(spacing: 4) {
