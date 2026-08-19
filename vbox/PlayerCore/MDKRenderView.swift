@@ -58,6 +58,19 @@ final class MDKRenderView: MTKView {
     /// 加载新资源时的安全标记，期间强制清黑屏，防止旧解码器脏帧被 blit 到屏幕导致紫屏
     private var isReloading = false
 
+    /// 切集/加载新资源后主动唤醒重绘的定时器。
+    /// 切集时 MDK 内部切换 media 后，`renderVideo()` 可能长期返回 pts < 0，
+    /// 而 MTKView 因 isPaused=true 不会自动 draw，也不会再收到 render callback，
+    /// 导致"黑屏等新帧、新帧等 setNeedsDisplay"的死锁。此定时器打破死锁：
+    /// 周期性主动 setNeedsDisplay + renderVideo，直到新帧真正可用（pts >= 0）才停止。
+    private var reloadWakeTimer: Timer?
+
+    /// 加载过渡期是否已经过（供 draw(in:) 判断是否需要手动 render 试探新帧）
+    private var reloadProbeStartedAt: Date?
+
+    /// 加载过渡期的最大等待时间；超时后强制解除 isReloading，避免永久黑屏。
+    private let reloadMaxWait: TimeInterval = 5.0
+
     /// 当前画面拉伸模式（默认 .aspectFill，attach 时会从 PlayerState 同步真实值）
     private var videoGravity: PlayerState.VideoGravityMode = .aspectFill
     private var gravityObserver: NSObjectProtocol?
@@ -73,6 +86,7 @@ final class MDKRenderView: MTKView {
     /// 期间 draw(in:) 强制清黑屏，防止 renderTexture 中的旧解码器脏帧呈现为紫屏。
     func markReloading() {
         isReloading = true
+        reloadProbeStartedAt = Date()
         // 清空 renderTexture 内容为黑色，防止旧帧残留
         clearRenderTextureToBlack()
         // 同步清空当前 drawable，不等待 async dispatch
@@ -89,6 +103,41 @@ final class MDKRenderView: MTKView {
                 cmdBuffer.commit()
             }
         }
+        // 启动主动唤醒定时器：打破"黑屏等新帧、新帧等 setNeedsDisplay"的死锁。
+        // 切集后 render callback 可能不再触发，必须主动轮询直到首帧到达。
+        startReloadWakeTimer()
+    }
+
+    /// 启动加载过渡期的主动唤醒定时器（约每 16ms 尝试一次绘图）
+    private func startReloadWakeTimer() {
+        stopReloadWakeTimer()
+        guard isReloading else { return }
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            guard let self, self.isReloading else {
+                self?.stopReloadWakeTimer()
+                return
+            }
+            // 超时兜底：若长时间无新帧，强制解除加载标记，恢复 draw 的正常路径，
+            // 防止永久黑屏（极慢网络下首帧迟迟不到的情况）。
+            if let startedAt = self.reloadProbeStartedAt,
+               Date().timeIntervalSince(startedAt) >= self.reloadMaxWait {
+                self.isReloading = false
+                self.reloadProbeStartedAt = nil
+                self.stopReloadWakeTimer()
+                self.setNeedsDisplay()
+                return
+            }
+            // 主动触发重绘：draw(in:) 会再次尝试 renderVideo，pts>=0 时解除黑屏
+            self.setNeedsDisplay()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reloadWakeTimer = timer
+    }
+
+    /// 停止主动唤醒定时器
+    private func stopReloadWakeTimer() {
+        reloadWakeTimer?.invalidate()
+        reloadWakeTimer = nil
     }
 
     /// 清空 renderTexture 为纯黑，防止旧帧残留导致紫屏
@@ -109,6 +158,8 @@ final class MDKRenderView: MTKView {
     /// 标记加载完成，新首帧已到达（由 MDKPlayerEngine 的 .Playing 回调调用）
     func markReloadComplete() {
         isReloading = false
+        reloadProbeStartedAt = nil
+        stopReloadWakeTimer()
     }
 
     init(frame: CGRect) {
@@ -165,6 +216,7 @@ final class MDKRenderView: MTKView {
     }
 
     deinit {
+        stopReloadWakeTimer()
         if let observer = gravityObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -248,8 +300,11 @@ final class MDKRenderView: MTKView {
             // 加载过渡期：回调触发意味着新帧已渲染到纹理，解除加载标记
             if self.isReloading {
                 DispatchQueue.main.async { [weak self] in
-                    self?.isReloading = false
-                    self?.setNeedsDisplay()
+                    guard let self else { return }
+                    self.isReloading = false
+                    self.reloadProbeStartedAt = nil
+                    self.stopReloadWakeTimer()
+                    self.setNeedsDisplay()
                 }
             }
             if self.pipEnabled {
@@ -488,8 +543,10 @@ extension MDKRenderView: MTKViewDelegate {
             if reloadPts >= 0 {
                 // 新帧已到达，解除加载标记，继续执行下方的 blit 逻辑
                 isReloading = false
+                reloadProbeStartedAt = nil
+                stopReloadWakeTimer()
             } else {
-                // 新帧尚未到达，清黑屏等待
+                // 新帧尚未到达，清黑屏等待（主动唤醒由 reloadWakeTimer 驱动，无需在此阻塞）
                 let rpd = MTLRenderPassDescriptor()
                 rpd.colorAttachments[0].texture = drawable.texture
                 rpd.colorAttachments[0].loadAction = .clear

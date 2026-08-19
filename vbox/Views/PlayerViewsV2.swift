@@ -936,6 +936,10 @@ class PlayerState: ObservableObject {
     @Published var danmakuItems: [DanmakuRenderItem] = []
     @Published var danmakuLoadedCount = 0
     @Published var currentEpisodeIndex = 0
+    /// 选集弹窗当前的显示排序方向（false=正序第1集在顶，true=倒序最后一集在顶）。
+    /// 提升为 PlayerState 持久状态，使 playNextEpisode / hasNextEpisode 能感知用户的排序选择，
+    /// 修复"倒序下播下一集仍按正序数组 +1"导致切集错乱的问题。
+    @Published var episodesReversed = false
     @Published var debugLogs: [String] = []  // 可视化调试日志
     @Published var playbackEngineMode: PlaybackEngineMode = .system
     @Published var compatibilityHint: String?
@@ -1446,26 +1450,49 @@ class PlayerState: ObservableObject {
         switchBaiduFile(index: next)
     }
     
-    /// 是否有下一集（通用）
+    /// 是否有下一集（通用）。
+    /// 感知排序方向：episodesReversed=true 时"下一集"是数组中的前一个元素，
+    /// 而不是 +1。这样倒序播放时点"下一集"会按用户看到的顺序推进。
     var hasNextEpisode: Bool {
+        if episodesReversed {
+            return currentEpisodeIndex > 0
+        }
         if !episodeItems.isEmpty {
             return currentEpisodeIndex + 1 < episodeItems.count
         }
         return currentEpisodeIndex + 1 < baiduFileList.count
     }
     
-    /// 播放下一集（通用）
+    /// 播放下一集（通用）。
+    /// 感知排序方向：正序 → +1；倒序 → -1。
     func playNextEpisode() {
         // 防重入：兼容内核 Timer 在切集完成前可能再次触发
         guard !isSwitchingEpisode else {
             log("[PlayerV2] ⚠️ 正在切集中，跳过重复的 playNextEpisode 调用")
             return
         }
+        let step = episodesReversed ? -1 : 1
+        let nextIndex = currentEpisodeIndex + step
+        guard nextIndex >= 0 else {
+            log("[PlayerV2] 已播放到最后一集（倒序到头）")
+            isSwitchingEpisode = false
+            return
+        }
         isSwitchingEpisode = true
         if !episodeItems.isEmpty {
-            switchToEpisode(index: currentEpisodeIndex + 1)
+            guard nextIndex < episodeItems.count else {
+                log("[PlayerV2] 已播放到最后一集")
+                isSwitchingEpisode = false
+                return
+            }
+            switchToEpisode(index: nextIndex)
         } else {
-            playNextBaiduFile()
+            guard nextIndex < baiduFileList.count else {
+                log("[PlayerV2] 已播放到最后一集")
+                isSwitchingEpisode = false
+                return
+            }
+            switchBaiduFile(index: nextIndex)
         }
     }
 
@@ -7739,7 +7766,6 @@ struct PlayerControlsView: View {
 struct LandscapeEpisodePickerOverlay: View {
     @ObservedObject var playerState: PlayerState
     @Binding var isPresented: Bool
-    @State private var isReversed = false
     @EnvironmentObject private var settings: AppSettings
 
     private var panelBackground: Color {
@@ -7768,23 +7794,13 @@ struct LandscapeEpisodePickerOverlay: View {
                     Spacer()
                     Button(action: {
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            isReversed.toggle()
-                            // 排序切换后重新定位当前播放的集数
-                            let episodes = playerState.episodeItems
-                            guard !episodes.isEmpty else { return }
-                            let currentId = playerState.currentEpisodeIndex >= 0 && playerState.currentEpisodeIndex < episodes.count
-                                ? episodes[playerState.currentEpisodeIndex].id
-                                : nil
-                            guard let currentId else { return }
-                            if let newIndex = episodes.firstIndex(where: { $0.id == currentId }) {
-                                playerState.currentEpisodeIndex = newIndex
-                            }
+                            playerState.episodesReversed.toggle()
                         }
                     }) {
                         HStack(spacing: 4) {
-                            Image(systemName: isReversed ? "arrow.up" : "arrow.down")
+                            Image(systemName: playerState.episodesReversed ? "arrow.up" : "arrow.down")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text(isReversed ? "倒序" : "正序")
+                            Text(playerState.episodesReversed ? "倒序" : "正序")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))
@@ -7808,7 +7824,7 @@ struct LandscapeEpisodePickerOverlay: View {
                     playerState: playerState,
                     isPresented: $isPresented,
                     isPortrait: false,
-                    isReversed: $isReversed
+                    isReversed: $playerState.episodesReversed
                 )
                 .environmentObject(settings)
             }
@@ -7831,7 +7847,6 @@ struct LandscapeEpisodePickerOverlay: View {
 struct EpisodePickerPopupWrapper: View {
     @ObservedObject var playerState: PlayerState
     @Binding var isPresented: Bool
-    @State private var isReversed = false
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
@@ -7840,28 +7855,18 @@ struct EpisodePickerPopupWrapper: View {
                 playerState: playerState,
                 isPresented: $isPresented,
                 isPortrait: true,
-                isReversed: $isReversed
+                isReversed: $playerState.episodesReversed
             )
         }, trailing: {
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    isReversed.toggle()
-                    // 排序切换后重新定位当前播放的集数
-                    let episodes = playerState.episodeItems
-                    guard !episodes.isEmpty else { return }
-                    let currentId = playerState.currentEpisodeIndex >= 0 && playerState.currentEpisodeIndex < episodes.count
-                        ? episodes[playerState.currentEpisodeIndex].id
-                        : nil
-                    guard let currentId else { return }
-                    if let newIndex = episodes.firstIndex(where: { $0.id == currentId }) {
-                        playerState.currentEpisodeIndex = newIndex
-                    }
+                    playerState.episodesReversed.toggle()
                 }
             }) {
                 HStack(spacing: 4) {
-                    Image(systemName: isReversed ? "arrow.up" : "arrow.down")
+                    Image(systemName: playerState.episodesReversed ? "arrow.up" : "arrow.down")
                         .font(.system(size: 11, weight: .semibold))
-                    Text(isReversed ? "倒序" : "正序")
+                    Text(playerState.episodesReversed ? "倒序" : "正序")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundColor(settings.usesFrostedSkin ? Color(uiColor: .label) : .white.opacity(0.8))

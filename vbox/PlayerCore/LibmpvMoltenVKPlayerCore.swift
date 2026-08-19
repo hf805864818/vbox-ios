@@ -583,25 +583,27 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             mpv_set_wakeup_callback(handle, nil, nil)
         }
 
-        // 等待事件循环退出（给 100ms 时间）
-        let group = DispatchGroup()
-        group.enter()
-        eventQueue.async {
-            group.leave()
-        }
-        _ = group.wait(timeout: .now() + 0.1)
-
         // 清理 render context
         if let renderContext {
             mpv_render_context_free(renderContext)
             self.renderContext = nil
         }
 
+        // ★ 关键修复：在 eventQueue 串行队列内同步销毁 mpv。
+        // 之前在主线程直接 mpv_terminate_destroy(handle)，而 readEvents() 可能同时在
+        // eventQueue 后台线程里阻塞于 mpv_wait_event(handle, 0)，两者并发访问同一 handle
+        // 导致 use-after-free 闪退。
+        // 这里用 eventQueue.sync 串行化：由于 readEvents 的 while 循环在 isShuttingDown==true
+        // 时（或拿到事件后）会 break 退出，sync 会等当前这一批事件处理完再销毁，
+        // 从而保证 destroy 时后台线程不再访问该 handle。
         if let handle = mpv {
-            // 不使用 eventQueue.sync {} 防止主线程死锁
-            command("stop", checkForErrors: false)
-            mpv_terminate_destroy(handle)
-            mpv = nil
+            eventQueue.sync { [weak self] in
+                guard let self, self.mpv == handle else { return }
+                // 发送 stop 命令让 mpv 停止解码（幂等，handle 仍有效）
+                self.command("stop", checkForErrors: false)
+                mpv_terminate_destroy(handle)
+                self.mpv = nil
+            }
         }
 
         renderView.delegate = nil
@@ -622,8 +624,6 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         state = PlayerEngineState()
 
         // 同步重置：mpv_terminate_destroy 已同步完成，无需延迟。
-        // 之前的 0.5s 延迟导致 attach() 的 guard !isShuttingDown 在窗口期内直接 return，
-        // mpv 未创建但上层认为已初始化，后续操作触发闪退。
         isShuttingDown = false
     }
 
