@@ -73,10 +73,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private var lastTimePosEmitAt: Date = .distantPast
     private let timePosEmitInterval: TimeInterval = 0.2
 
-    /// EAGLContext，OpenGL ES 渲染上下文（lazy，首次访问时创建）
-    private lazy var eaglContext: EAGLContext? = {
-        EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
-    }()
+    /// EAGLContext，OpenGL ES 渲染上下文（延迟创建，支持释放重建）
+    private var _eaglContext: EAGLContext?
+    private var eaglContext: EAGLContext? {
+        if _eaglContext == nil {
+            _eaglContext = EAGLContext(api: .openGLES3) ?? EAGLContext(api: .openGLES2)
+        }
+        return _eaglContext
+    }
 
     /// GLKView 渲染视图（lazy，依赖 eaglContext）
     /// 修复: 不再使用 eaglContext! 强制解包，避免从 MDK(Metal) 切换到 MPV(OpenGL ES) 时上下文冲突导致闪退
@@ -606,12 +610,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         // 避免从 MDK(Metal) 切换到 MPV(OpenGL ES) 时复用旧 GLKView 的失效 framebuffer 导致闪退
         _renderView = nil
 
-        // 注意：不将 eaglContext 设为 nil。
-        // lazy var 设为 nil 后不会重新触发初始化器，导致重新 attach 时 context 为 nil。
-        // EAGLContext 可跨多个 MPV 会话复用。
+        // 彻底释放 OpenGL ES 上下文，防止切换到 Metal/MDK 时状态冲突导致闪退
         if EAGLContext.current() === eaglContext {
             EAGLContext.setCurrent(nil)
         }
+        // 将 _eaglContext 置 nil，下次 attach 会重新创建干净的上下文
+        _eaglContext = nil
+        // 同时确保 GLKView 被完全移除
+        _renderView = nil
 
         state = PlayerEngineState()
 
