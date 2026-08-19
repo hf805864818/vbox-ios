@@ -3037,8 +3037,15 @@ class PlayerState: ObservableObject {
                 let files = try await CloudDriveManager.shared.one15GetAllPlayableFiles(shareURL: cleanShareURL, cid: token.value)
                 log("[115] ✅ 成功，共\(files.count)个文件")
 
+                // 详情页指定剧集：通过 vbox_pickcode fragment 定位用户点击的集数
+                let selectedIndex = vboxParams["vbox_pickcode"].flatMap { pickcode in
+                    files.firstIndex(where: { $0.pickCode == pickcode })
+                } ?? 0
+                let reason = vboxParams["vbox_pickcode"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
+                log("[115] 选集: index=\(selectedIndex) reason=\(reason)")
+
                 await MainActor.run {
-                    currentEpisodeIndex = 0
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
                         EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .one15, one15PickCode: f.pickCode)
@@ -3052,12 +3059,13 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                // 播放第一个文件
+                // 播放选中的文件
+                let targetFile = files[selectedIndex]
                 let result = try await CloudDriveManager.shared.resolve115FilePlayURL(
                     shareURL: cleanShareURL,
                     cid: token.value,
-                    pickCode: files[0].pickCode,
-                    fileName: files[0].fileName
+                    pickCode: targetFile.pickCode,
+                    fileName: targetFile.fileName
                 )
                 await playResolvedDriveVideo(result)
                 return
@@ -3102,8 +3110,15 @@ class PlayerState: ObservableObject {
                 let files = try await CloudDriveManager.shared.pan123GetAllFiles(shareURL: cleanShareURL, token: token.value)
                 log("[123] ✅ 成功，共\(files.count)个文件")
 
+                // 详情页指定剧集：通过 vbox_fileId fragment 定位用户点击的集数
+                let selectedIndex = vboxParams["vbox_fileId"].flatMap { fileId in
+                    files.firstIndex(where: { $0.fileId == fileId })
+                } ?? 0
+                let reason = vboxParams["vbox_fileId"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
+                log("[123] 选集: index=\(selectedIndex) reason=\(reason)")
+
                 await MainActor.run {
-                    currentEpisodeIndex = 0
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
                         EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .pan123, pan123FileId: f.fileId, pan123ETag: f.eTag)
@@ -3117,13 +3132,14 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                // 播放第一个文件
+                // 播放选中的文件
+                let targetFile = files[selectedIndex]
                 let result = try await CloudDriveManager.shared.resolve123FilePlayURL(
                     shareURL: cleanShareURL,
                     token: token.value,
-                    fileId: files[0].fileId,
-                    eTag: files[0].eTag,
-                    fileName: files[0].fileName
+                    fileId: targetFile.fileId,
+                    eTag: targetFile.eTag,
+                    fileName: targetFile.fileName
                 )
                 await playResolvedDriveVideo(result)
                 return
@@ -3168,8 +3184,15 @@ class PlayerState: ObservableObject {
                 let files = try await CloudDriveManager.shared.pan139GetAllFiles(shareURL: cleanShareURL, cookie: token.value)
                 log("[139] ✅ 成功，共\(files.count)个文件")
 
+                // 详情页指定剧集：通过 vbox_contentId fragment 定位用户点击的集数
+                let selectedIndex = vboxParams["vbox_contentId"].flatMap { contentId in
+                    files.firstIndex(where: { $0.contentId == contentId })
+                } ?? 0
+                let reason = vboxParams["vbox_contentId"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
+                log("[139] 选集: index=\(selectedIndex) reason=\(reason)")
+
                 await MainActor.run {
-                    currentEpisodeIndex = 0
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
                         EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .pan139, pan139ContentId: f.contentId, pan139CatalogId: f.catalogId)
@@ -3183,13 +3206,14 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                // 播放第一个文件
+                // 播放选中的文件
+                let targetFile = files[selectedIndex]
                 let result = try await CloudDriveManager.shared.resolve139FilePlayURL(
                     shareURL: cleanShareURL,
                     cookie: token.value,
-                    contentId: files[0].contentId,
-                    catalogId: files[0].catalogId,
-                    fileName: files[0].fileName
+                    contentId: targetFile.contentId,
+                    catalogId: targetFile.catalogId,
+                    fileName: targetFile.fileName
                 )
                 await playResolvedDriveVideo(result)
                 return
@@ -3234,8 +3258,15 @@ class PlayerState: ObservableObject {
                 let files = try await CloudDriveManager.shared.pan189GetAllFiles(shareURL: cleanShareURL, cookie: token.value)
                 log("[189] ✅ 成功，共\(files.count)个文件")
 
+                // 详情页指定剧集：通过 vbox_fileId fragment 定位用户点击的集数
+                let selectedIndex = vboxParams["vbox_fileId"].flatMap { fileId in
+                    files.firstIndex(where: { $0.fileId == fileId })
+                } ?? 0
+                let reason = vboxParams["vbox_fileId"] != nil ? "详情页指定剧集" : (files.count == 1 ? "自动播放单文件" : "自动播放")
+                log("[189] 选集: index=\(selectedIndex) reason=\(reason)")
+
                 await MainActor.run {
-                    currentEpisodeIndex = 0
+                    currentEpisodeIndex = selectedIndex
                     episodeItems = files.enumerated().map { idx, f in
                         EpisodeItem(id: idx, name: f.fileName, url: cleanShareURL,
                                     sourceType: .pan189, pan189FileId: f.fileId)
@@ -3249,12 +3280,13 @@ class PlayerState: ObservableObject {
                     return
                 }
 
-                // 播放第一个文件
+                // 播放选中的文件
+                let targetFile = files[selectedIndex]
                 let result = try await CloudDriveManager.shared.resolve189FilePlayURL(
                     shareURL: cleanShareURL,
                     cookie: token.value,
-                    fileId: files[0].fileId,
-                    fileName: files[0].fileName
+                    fileId: targetFile.fileId,
+                    fileName: targetFile.fileName
                 )
                 await playResolvedDriveVideo(result)
                 return
