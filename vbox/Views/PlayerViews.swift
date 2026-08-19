@@ -490,7 +490,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("夸克网盘资源加载失败")
+                        return .failed("夸克网盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -516,7 +516,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("百度网盘资源加载失败")
+                        return .failed("百度网盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -542,7 +542,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("UC网盘资源加载失败")
+                        return .failed("UC网盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -566,7 +566,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("阿里云盘资源加载失败")
+                        return .failed("阿里云盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -593,7 +593,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("迅雷云盘资源加载失败")
+                        return .failed("迅雷云盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -620,7 +620,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("115网盘资源加载失败")
+                        return .failed("115网盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -647,7 +647,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("123云盘资源加载失败")
+                        return .failed("123云盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -674,7 +674,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("139云盘资源加载失败")
+                        return .failed("139云盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
@@ -701,7 +701,7 @@ struct VideoDetailView: View {
                     allExpanded.append(contentsOf: items)
                 } catch {
                     if allExpanded.isEmpty && linkIndex == links.count - 1 {
-                        return .failed("天翼云盘资源加载失败")
+                        return .failed("天翼云盘资源加载失败：\(error.localizedDescription)")
                     }
                 }
             }
