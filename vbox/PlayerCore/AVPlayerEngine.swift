@@ -2,7 +2,18 @@ import AVFoundation
 import UIKit
 
 /// 系统 AVPlayer 内核封装。
-/// 当前只作为 PlayerCore 的独立实现，不替换现有 PlayerViewsV2 播放主流程。
+///
+/// ⚠️ 用途说明（2026-08-19 确认）：
+/// 本类当前 **不参与** 任何网盘资源的实际播放流程。
+/// 实际播放由 `PlayerViewsV2.swift` 中直接创建的 `AVPlayer` 实例完成。
+///
+/// 本类的唯一实例化入口：
+///   `PlayerEngineController(initialEngineType:)` → `makeEngine(.system)`
+/// 仅用于设置页面的 MPV 引擎测试功能（`SettingsViews.swift`），不接管日常播放。
+///
+/// 因此本类内的 `activateAudioSession()` 等音频会话配置
+/// 在正常网盘播放时 **不会被执行**，UC 网盘舞台声问题需在
+/// `PlayerViewsV2.swift` 的 AVPlayer 创建处单独修复。
 final class AVPlayerEngine: NSObject, PlayerEngine {
     let type: PlayerEngineType = .system
     let name = "系统"

@@ -1264,6 +1264,9 @@ final class DoubanImageProxyServer {
             if request.value(forHTTPHeaderField: "Origin") == nil {
                 request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
             }
+            // identity 避免上游返回 gzip 压缩数据，确保 Range 请求的字节位置与实际数据对应，
+            // 否则 seek 后 CDN 返回压缩流，字节映射错乱，播放器无法定位到正确位置。
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
@@ -1330,6 +1333,7 @@ final class DoubanImageProxyServer {
             if request.value(forHTTPHeaderField: "Origin") == nil {
                 request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
             }
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
         request.setValue("bytes=0-65535", forHTTPHeaderField: "Range")

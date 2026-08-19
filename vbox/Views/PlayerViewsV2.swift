@@ -3520,6 +3520,16 @@ class PlayerState: ObservableObject {
         let playerItem = AVPlayerItem(asset: asset)
         playerItem.preferredForwardBufferDuration = urlObj.host == "127.0.0.1" ? 0.5 : 10.0
 
+        // 修复舞台声：在创建 AVPlayer 之前配置 AVAudioSession，
+        // 确保音频输出到扬声器而非听筒。与 MDK/MPV 引擎保持一致。
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback, options: .mixWithOthers)
+            try session.setActive(true)
+        } catch {
+            self.log("[PlayerV2] ⚠️ AVAudioSession 激活失败: \(error.localizedDescription)")
+        }
+
         var localStatusObserver: AnyCancellable?
         localStatusObserver = playerItem.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
@@ -3530,6 +3540,12 @@ class PlayerState: ObservableObject {
                 case .readyToPlay:
                     if isQuarkLocalProxy || isQuarkM3U8LocalProxy {
                         self.quarkFallbackTimeoutTask?.cancel()
+                    }
+                    // 修复舞台声：播放就绪后强制音频输出到扬声器，防止路由到听筒
+                    do {
+                        try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+                    } catch {
+                        self.log("[PlayerV2] ⚠️ overrideOutputAudioPort 失败: \(error.localizedDescription)")
                     }
                     let size = playerItem.presentationSize
                     let elapsed = Int(Date().timeIntervalSince(playStartTime) * 1000)
