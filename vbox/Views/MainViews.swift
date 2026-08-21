@@ -887,6 +887,18 @@ struct HomeSearchBar: View {
                     .foregroundColor(.primary)
             }
             .buttonStyle(.plain)
+
+            // AI 按钮 - 跳转到系统默认浏览器打开 Lobster-APP 仓库
+            Button {
+                if let url = URL(string: "https://github.com/vbox-Ai/Lobster-APP") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18))
+                    .foregroundColor(Color(hex: "8AB4F8"))
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
