@@ -6821,6 +6821,7 @@ struct PlayerTopBarView: View {
     @ObservedObject var playerState: PlayerState
     var onTogglePiP: () -> Void
     var onDismiss: () -> Void
+    var onTogglePortrait: (() -> Void)?
 
     // 时间+电量
     @State private var currentDate = Date()
@@ -6939,6 +6940,18 @@ struct PlayerTopBarView: View {
                     Spacer()
                     if !playerState.isOrientationLocked {
                         HStack(spacing: 0) {
+                        // 切换到竖屏
+                        Button(action: {
+                            onTogglePortrait?()
+                        }) {
+                            Image(systemName: "rotate.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
                         if playerState.pipEnabled {
                             Button(action: { onTogglePiP() }) {
                                 Image(systemName: playerState.pipButtonSystemImage)
@@ -7464,7 +7477,21 @@ struct PlayerControlsView: View {
                 videoName: playerState.episodeItems.isEmpty ? video.vodName : (playerState.currentEpisodeIndex < playerState.episodeItems.count ? playerState.episodeItems[playerState.currentEpisodeIndex].name : video.vodName),
                 playerState: playerState,
                 onTogglePiP: { togglePiP() },
-                onDismiss: { dismiss() }
+                onDismiss: { dismiss() },
+                onTogglePortrait: {
+                    OrientationHelper.lockOrientation(.portrait)
+                    playerState.isPortrait = true
+                    playerState.showEpisodePicker = false
+                    playerState.showSettings = false
+                    playerState.showQualityPicker = false
+                    playerState.showEnginePicker = false
+                    playerState.showToolsMenu = false
+                    playerState.showSkipSettings = false
+                    playerState.showDanmakuSearch = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        OrientationHelper.allowAllOrientations()
+                    }
+                }
             )
 
             Spacer()
