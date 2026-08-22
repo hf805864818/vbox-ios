@@ -1338,6 +1338,113 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
+    // MARK: - 阿里云盘原生扫码登录
+    // 官方 API: passport.aliyundrive.com
+    //  1. generate.do → 拿 ck, t, codeContent (二维码 URL)
+    //  2. query.do → 轮询扫码状态 (NEW → SCANED → CONFIRMED)
+    //  3. 解码 bizExt → 获取 refresh_token + access_token
+
+    struct AliQrLoginToken {
+        let ck: String
+        let t: Int64
+        let qrURL: String
+    }
+
+    enum AliQrPollResult {
+        case pending
+        case scanned
+        case confirmed(refreshToken: String, accessToken: String, nickName: String)
+        case expired
+        case failed(message: String)
+    }
+
+    /// 第一步：生成阿里云盘扫码登录二维码
+    func aliCreateQrToken() async throws -> AliQrLoginToken {
+        var components = URLComponents(string: "https://passport.aliyundrive.com/newlogin/qrcode/generate.do")!
+        components.queryItems = [
+            URLQueryItem(name: "appName", value: "aliyun_drive"),
+            URLQueryItem(name: "fromSite", value: "52"),
+            URLQueryItem(name: "appEntrance", value: "web"),
+            URLQueryItem(name: "isMobile", value: "false"),
+            URLQueryItem(name: "lang", value: "zh_CN"),
+            URLQueryItem(name: "returnUrl", value: ""),
+            URLQueryItem(name: "bizParams", value: ""),
+            URLQueryItem(name: "_bx-v", value: "2.0.31")
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw DriveError.noPlayURL("阿里: 生成二维码 HTTP 失败")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? [String: Any],
+              let dataObj = content["data"] as? [String: Any],
+              let ck = dataObj["ck"] as? String,
+              let t = dataObj["t"] as? Int64,
+              let codeContent = dataObj["codeContent"] as? String else {
+            throw DriveError.noPlayURL("阿里: 二维码生成响应解析失败")
+        }
+
+        return AliQrLoginToken(ck: ck, t: t, qrURL: codeContent)
+    }
+
+    /// 第二步：轮询扫码状态
+    func aliPollQrStatus(token: AliQrLoginToken) async throws -> AliQrPollResult {
+        var request = URLRequest(url: URL(string: "https://passport.aliyundrive.com/newlogin/qrcode/query.do")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+
+        let body = "t=\(token.t)&ck=\(token.ck)&appName=aliyun_drive&appEntrance=web&isMobile=false&lang=zh_CN&returnUrl=&fromSite=52&bizParams=&navlanguage=zh-CN&navPlatform=MacIntel"
+        request.httpBody = body.data(using: .utf8)
+
+        let (data, _) = try await session.data(for: request)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? [String: Any],
+              let dataObj = content["data"] as? [String: Any] else {
+            throw DriveError.invalidResponse
+        }
+
+        let status = dataObj["qrCodeStatus"] as? String ?? ""
+        let tip = dataObj["tip"] as? String ?? ""
+
+        switch status {
+        case "CONFIRMED":
+            if let bizExt = dataObj["bizExt"] as? String,
+               let decodedData = Data(base64Encoded: bizExt),
+               let bizData = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
+               let pds = bizData["pds_login_result"] as? [String: Any],
+               let refreshToken = pds["refresh_token"] as? String,
+               let accessToken = pds["access_token"] as? String {
+                let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+                return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            }
+            return .failed(message: "阿里: bizExt 解析失败")
+        case "EXPIRED":
+            return .expired
+        case "CANCELED":
+            return .failed(message: "阿里: 用户取消扫码")
+        case "SCANED":
+            return .scanned
+        default:
+            return .pending
+        }
+    }
+
+    /// 保存阿里云盘 Token 到授权中心
+    func aliSaveQrToken(refreshToken: String, accessToken: String, nickName: String) async throws {
+        try await CloudDriveAuthManager.shared.saveAliCredential(
+            refreshToken: refreshToken,
+            accessToken: accessToken,
+            nickName: nickName
+        )
+    }
+
     // MARK: - 阿里云盘
 
     func resolveAliPlayURL(shareURL: String, refreshToken: String) async throws -> PlayResult {

@@ -214,8 +214,8 @@ final class CloudDriveAuthManager: ObservableObject {
         throw AuthError.invalidResponse("阿里云盘 OpenList 换取 token 失败 (HTTP \(httpStatus))")
     }
 
-    /// 保存阿里云盘凭证
-    private func saveAliCredential(refreshToken: String, accessToken: String?) {
+    /// 保存阿里云盘凭证（支持 nickName 参数）
+    func saveAliCredential(refreshToken: String, accessToken: String?, nickName: String = "阿里云盘用户") {
         let credential = CloudDriveCredential(
             driveType: CloudDriveManager.DriveType.ali.rawValue,
             authType: .qr,
@@ -224,13 +224,13 @@ final class CloudDriveAuthManager: ObservableObject {
             cookie: nil,
             driveId: nil,
             userId: nil,
-            userName: "阿里云盘用户",
+            userName: nickName,
             avatar: nil,
             expiresAt: nil,
             updatedAt: Date(),
             lastCheckedAt: Date(),
             state: .valid,
-            statusMessage: "阿里云盘 OpenList 扫码登录成功",
+            statusMessage: "阿里云盘扫码登录成功",
             extra: [:]
         )
         saveCredential(credential)
