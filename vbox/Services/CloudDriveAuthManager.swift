@@ -274,7 +274,23 @@ final class CloudDriveAuthManager: ObservableObject {
             throw AuthError.notAuthorized("阿里云盘未授权")
         }
 
-        // 尝试 OpenList 刷新（GET 方式）
+        // 优先使用阿里官方 API 刷新（auth.aliyundrive.com/v2/account/token）
+        do {
+            let result = try await refreshAliViaOfficialAPI(refreshToken: refreshToken)
+            credential.accessToken = result.accessToken
+            credential.refreshToken = result.refreshToken
+            credential.state = .valid
+            credential.statusMessage = "阿里 token 已刷新（官方 API）"
+            credential.lastCheckedAt = Date()
+            credential.updatedAt = Date()
+            saveCredential(credential)
+            print("[Ali Official] ✅ refresh 成功，access_token 长度=\(result.accessToken?.count ?? 0)")
+            return credential
+        } catch {
+            print("[Ali Official] ⚠️ 官方 API 刷新失败: \(error.localizedDescription)")
+        }
+
+        // 兜底：尝试 OpenList 刷新（GET 方式）
         do {
             let result = try await refreshAliViaOpenList(refreshToken: refreshToken, usePost: false)
             credential.accessToken = result.accessToken
@@ -290,7 +306,7 @@ final class CloudDriveAuthManager: ObservableObject {
             print("[Ali OpenList] ⚠️ GET 刷新失败: \(error.localizedDescription)")
         }
 
-        // 尝试 OpenList 刷新（POST 方式，兜底）
+        // 兜底：尝试 OpenList 刷新（POST 方式）
         do {
             let result = try await refreshAliViaOpenList(refreshToken: refreshToken, usePost: true)
             credential.accessToken = result.accessToken
@@ -309,6 +325,33 @@ final class CloudDriveAuthManager: ObservableObject {
         // 所有刷新方式均失败，标记凭证失效
         markInvalid(.ali, reason: "token 已过期，请重新授权")
         throw AuthError.remoteError("阿里云盘 token 已过期，请在网盘授权中心重新授权阿里云盘")
+    }
+
+    /// 使用阿里官方 API 刷新 Token
+    private func refreshAliViaOfficialAPI(refreshToken: String) async throws -> (accessToken: String?, refreshToken: String) {
+        var request = URLRequest(url: URL(string: "https://auth.aliyundrive.com/v2/account/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+
+        let body: [String: Any] = [
+            "refresh_token": refreshToken,
+            "client_id": "5f6b9c8e3f8a4b2c9e1d7a3f5b8c2e4d",
+            "client_secret": "8c7e2a1f3d5b4c6e9a8f2d3c1b4e5a6f",
+            "grant_type": "refresh_token"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AuthError.remoteError("阿里官方 API 刷新失败: HTTP \(http?.statusCode ?? 0)")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let accessToken = json["access_token"] as? String,
+              let newRefreshToken = json["refresh_token"] as? String else {
+            throw AuthError.remoteError("阿里官方 API 刷新响应解析失败")
+        }
+        return (accessToken: accessToken, refreshToken: newRefreshToken)
     }
 
     /// OpenList 刷新阿里云盘 token 的具体实现
