@@ -3691,7 +3691,7 @@ struct NativeCloudQRLoginView: View {
     var body: some View {
         NavigationView {
             Group {
-                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei || driveType == .ali {
+                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei {
                     VStack(spacing: 0) {
                         if driveType == .one15 {
                             Pan115WebView(webView: pan115Helper.webView)
@@ -3707,9 +3707,6 @@ struct NativeCloudQRLoginView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else if driveType == .xunlei {
                             XunleiWebView(webView: xunleiHelper.webView)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else if driveType == .ali {
-                            AliOpenListWebView(webView: aliOpenListHelper.webView)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
 
@@ -3768,12 +3765,9 @@ struct NativeCloudQRLoginView: View {
                 if driveType == .one15 {
                     pan115Helper.cleanup()
                 }
-                if driveType == .ali {
-                    aliOpenListHelper.cleanup()
-                }
             }
             .onAppear {
-                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei || driveType == .ali {
+                if driveType == .one15 || driveType == .pan123 || driveType == .pan139 || driveType == .pan189 || driveType == .xunlei {
                     Task { await startLoginFlow() }
                 }
             }
@@ -3810,11 +3804,6 @@ struct NativeCloudQRLoginView: View {
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
             } else if driveType == .one15 {
                 Pan115WebView(webView: pan115Helper.webView)
-                    .frame(height: 320)
-                    .cornerRadius(16)
-                    .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
-            } else if driveType == .ali {
-                AliOpenListWebView(webView: aliOpenListHelper.webView)
                     .frame(height: 320)
                     .cornerRadius(16)
                     .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
