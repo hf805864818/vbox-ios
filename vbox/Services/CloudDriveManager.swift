@@ -1386,11 +1386,13 @@ class CloudDriveManager: ObservableObject {
         }
         print("[Ali] generate response: \(json)")
         guard let content = json["content"] as? [String: Any],
-              let dataObj = content["data"] as? [String: Any],
-              let ck = dataObj["ck"] as? String,
+              let dataObj = content["data"] as? [String: Any] else {
+            throw DriveError.noPlayURL("阿里: 二维码生成响应解析失败")
+        }
+        guard let ck = dataObj["ck"] as? String,
               let t = dataObj["t"] as? Int64,
               let codeContent = dataObj["codeContent"] as? String else {
-            throw DriveError.noPlayURL("阿里: 二维码生成响应解析失败，keys: \(Array(dataObj.keys))")
+            throw DriveError.noPlayURL("阿里: 二维码字段解析失败，keys: \(Array(dataObj.keys))")
         }
 
         return AliQrLoginToken(ck: ck, t: t, qrURL: codeContent)
