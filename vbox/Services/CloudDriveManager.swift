@@ -1428,50 +1428,59 @@ class CloudDriveManager: ObservableObject {
             print("[Ali] 非成功响应: resultCode=\(resultCode), titleMsg='\(titleMsg)'")
         }
 
-        // 新结构：status 在顶层，dataObj 直接包含 token 字段
-        // 格式：{"content":{"data":{"qrCodeStatus":"NEW","resultCode":100,...}},"status":0,"success":true}
-        // 扫码后格式：{"content":{"data":{"qrCodeStatus":"CONFIRMED","refresh_token":"...",...}},"status":0,"success":true}
-        if let status = dataObj["qrCodeStatus"] as? String {
-            switch status {
-            case "NEW":
-                return .pending
-            case "SCANED":
-                return .scanned
-            case "CONFIRMED":
-                // 直接从 dataObj 获取 token
-                if let refreshToken = dataObj["refresh_token"] as? String,
-                   let accessToken = dataObj["access_token"] as? String {
-                    let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
-                    return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
-                }
-                // 尝试 bizExt
-                if let bizExt = dataObj["bizExt"] as? String {
-                    if let result = parseAliBizExt(bizExt) {
-                        return result
-                    }
-                }
-                // 打印所有字段调试
-                for (key, value) in dataObj {
-                    print("[Ali] CONFIRMED key='\(key)' value=\(String(describing: value).prefix(100))")
-                }
-                return .failed(message: "阿里: CONFIRMED 但未找到 Token，keys=\(Array(dataObj.keys.sorted()))")
-            case "EXPIRED":
-                return .expired
-            case "CANCELED":
-                return .failed(message: "阿里: 用户取消扫码")
-            default:
-                return .pending
-            }
+        // 打印所有字段用于调试
+        for (key, value) in dataObj {
+            print("[Ali] key='\(key)' value=\(String(describing: value).prefix(200))")
         }
 
-        // 兜底：尝试其他方式
+        // 检查 qrCodeStatus
+        let status = dataObj["qrCodeStatus"] as? String ?? ""
+
+        // processFinished 状态 - 已扫码确认
+        if status == "processFinished" || status == "CONFIRMED" {
+            // 方式1：直接从 dataObj 获取
+            if let refreshToken = dataObj["refresh_token"] as? String,
+               let accessToken = dataObj["access_token"] as? String {
+                let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
+                print("[Ali] 直接获取 Token 成功")
+                return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            }
+            // 方式2：从 loginSucResultAction 获取
+            if let loginAction = dataObj["loginSucResultAction"] as? String,
+               !loginAction.isEmpty {
+                print("[Ali] loginSucResultAction: \(loginAction.prefix(200))")
+            }
+            // 方式3：尝试 bizExt
+            if let bizExt = dataObj["bizExt"] as? String {
+                if let result = parseAliBizExt(bizExt) {
+                    return result
+                }
+            }
+            return .failed(message: "阿里: 已扫码但未找到 Token，keys=\(Array(dataObj.keys.sorted()))")
+        }
+
+        // NEW/SCANED 状态
+        if status == "NEW" {
+            return .pending
+        }
+        if status == "SCANED" {
+            return .scanned
+        }
+        if status == "EXPIRED" {
+            return .expired
+        }
+        if status == "CANCELED" {
+            return .failed(message: "阿里: 用户取消扫码")
+        }
+
+        // 兜底：尝试直接获取 Token
         if let refreshToken = dataObj["refresh_token"] as? String,
            let accessToken = dataObj["access_token"] as? String {
             let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
             return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
         }
 
-        return .failed(message: "阿里: 无法识别响应格式，keys=\(Array(dataObj.keys.sorted()))")
+        return .pending
     }
 
     /// 解析 bizExt：支持多种编码格式
