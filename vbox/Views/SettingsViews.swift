@@ -3928,7 +3928,7 @@ struct NativeCloudQRLoginView: View {
     }
 
     @MainActor
-    private func pollAliNativeQR(_ token: AliQrLoginToken) async {
+    private func pollAliNativeQR(_ token: CloudDriveManager.AliQrLoginToken) async {
         var consecutiveErrors = 0
         while isPolling && pollCount < 90 {
             pollCount += 1
