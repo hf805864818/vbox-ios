@@ -1418,19 +1418,9 @@ class CloudDriveManager: ObservableObject {
 
         print("[Ali] query response keys: \(Array(dataObj.keys))")
 
-        // 检查是否有状态码和状态
-        let status = dataObj["qrCodeStatus"] as? String ?? ""
-        let resultCode = dataObj["resultCode"] as? Int ?? 0
-
-        // 如果 resultCode != 100，可能是错误
-        if resultCode != 100, resultCode != 0 {
-            let titleMsg = dataObj["titleMsg"] as? String ?? ""
-            print("[Ali] 非成功响应: resultCode=\(resultCode), titleMsg='\(titleMsg)'")
-        }
-
         // 打印所有字段用于调试
         for (key, value) in dataObj {
-            print("[Ali] key='\(key)' value=\(String(describing: value).prefix(200))")
+            print("[Ali] key='\(key)' value=\(String(describing: value).prefix(500))")
         }
 
         // 检查 qrCodeStatus
@@ -1438,13 +1428,6 @@ class CloudDriveManager: ObservableObject {
 
         // processFinished 状态 - 已扫码确认
         if status == "processFinished" || status == "CONFIRMED" {
-            // 打印所有字段用于调试
-            print("[Ali] === processFinished 响应 ===")
-            for (key, value) in dataObj {
-                print("[Ali] key='\(key)' value=\(String(describing: value).prefix(500))")
-            }
-            print("[Ali] =========================")
-
             // 方式1：直接从 dataObj 获取
             if let refreshToken = dataObj["refresh_token"] as? String,
                let accessToken = dataObj["access_token"] as? String {
