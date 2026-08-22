@@ -1438,6 +1438,13 @@ class CloudDriveManager: ObservableObject {
 
         // processFinished 状态 - 已扫码确认
         if status == "processFinished" || status == "CONFIRMED" {
+            // 打印所有字段用于调试
+            print("[Ali] === processFinished 响应 ===")
+            for (key, value) in dataObj {
+                print("[Ali] key='\(key)' value=\(String(describing: value).prefix(500))")
+            }
+            print("[Ali] =========================")
+
             // 方式1：直接从 dataObj 获取
             if let refreshToken = dataObj["refresh_token"] as? String,
                let accessToken = dataObj["access_token"] as? String {
@@ -1448,7 +1455,7 @@ class CloudDriveManager: ObservableObject {
             // 方式2：从 loginSucResultAction 获取
             if let loginAction = dataObj["loginSucResultAction"] as? String,
                !loginAction.isEmpty {
-                print("[Ali] loginSucResultAction: \(loginAction.prefix(200))")
+                print("[Ali] loginSucResultAction: \(loginAction)")
             }
             // 方式3：尝试 bizExt
             if let bizExt = dataObj["bizExt"] as? String {
