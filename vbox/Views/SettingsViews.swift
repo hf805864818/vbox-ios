@@ -1774,7 +1774,7 @@ struct CloudAuthCenterView: View {
             HStack(spacing: 10) {
                 if type == .ali {
                     Button(action: { showAliNativeQR = true }) {
-                        authButtonLabel("网页登录授权", icon: "globe")
+                        authButtonLabel("原生扫码", icon: "qrcode")
                     }
                 } else if type == .uc {
                     Button(action: { showUCNativeQR = true }) {
@@ -3885,7 +3885,7 @@ struct NativeCloudQRLoginView: View {
         case .baidu:
             return "请使用百度 App 扫码并确认。百度扫码登录用于获取 BDUSS/STOKEN/bdstoken，分享风控仍保留 WebView 兜底。"
         case .ali:
-            return "请在页面中登录阿里云盘（扫码或账号密码）。登录成功后自动获取 refresh_token，用于解析播放文件链接。"
+            return "请使用阿里云盘 App 扫码并确认。扫码成功后自动获取 refresh_token，用于解析播放文件链接。"
         case .pan139:
             return "请使用中国移动云盘 App 扫码并确认。扫码成功后自动获取 Cookie，用于解析播放云盘分享链接。"
         case .pan189:
