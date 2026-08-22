@@ -1415,14 +1415,31 @@ class CloudDriveManager: ObservableObject {
 
         switch status {
         case "CONFIRMED":
-            if let bizExt = dataObj["bizExt"] as? String,
-               let decodedData = Data(base64Encoded: bizExt),
-               let bizData = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
-               let pds = bizData["pds_login_result"] as? [String: Any],
-               let refreshToken = pds["refresh_token"] as? String,
-               let accessToken = pds["access_token"] as? String {
-                let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
-                return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            if let bizExt = dataObj["bizExt"] as? String {
+                // 尝试多种方式解析 bizExt
+                let bizData: [String: Any]?
+                if let directData = bizExt.data(using: .utf8),
+                   let directJson = try? JSONSerialization.jsonObject(with: directData) as? [String: Any] {
+                    bizData = directJson
+                } else if let decodedData = Data(base64Encoded: bizExt),
+                          let decodedJson = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
+                    bizData = decodedJson
+                } else if let urlDecoded = bizExt.removingPercentEncoding,
+                          let urlData = urlDecoded.data(using: .utf8),
+                          let urlJson = try? JSONSerialization.jsonObject(with: urlData) as? [String: Any] {
+                    bizData = urlJson
+                } else {
+                    bizData = nil
+                }
+
+                if let bizData,
+                   let pds = bizData["pds_login_result"] as? [String: Any],
+                   let refreshToken = pds["refresh_token"] as? String,
+                   let accessToken = pds["access_token"] as? String {
+                    let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+                    return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+                }
+                print("[Ali] bizExt 原始值: \(bizExt.prefix(200))")
             }
             return .failed(message: "阿里: bizExt 解析失败")
         case "EXPIRED":
