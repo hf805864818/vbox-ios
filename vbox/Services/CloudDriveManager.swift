@@ -1415,7 +1415,10 @@ class CloudDriveManager: ObservableObject {
 
         switch status {
         case "CONFIRMED":
+            // 打印 dataObj 所有键，便于调试
+            print("[Ali] CONFIRMED dataObj 键: \(dataObj.keys.sorted())")
             if let bizExt = dataObj["bizExt"] as? String {
+                print("[Ali] bizExt 类型=String, 长度=\(bizExt.count), 前缀=\(bizExt.prefix(40))")
                 // 尝试多种方式解析 bizExt
                 let bizData: [String: Any]?
                 if let directData = bizExt.data(using: .utf8),
@@ -1441,7 +1444,13 @@ class CloudDriveManager: ObservableObject {
                 }
                 return .failed(message: "阿里: bizExt 解析失败，原始值: \(bizExt.prefix(200))")
             }
-            return .failed(message: "阿里: bizExt 解析失败")
+            // 尝试从 dataObj 直接获取 Token
+            if let refreshToken = dataObj["refresh_token"] as? String,
+               let accessToken = dataObj["access_token"] as? String {
+                let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
+                return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            }
+            return .failed(message: "阿里: 未找到 bizExt 或 Token 字段，dataObj 键: \(dataObj.keys.sorted())")
         case "EXPIRED":
             return .expired
         case "CANCELED":
