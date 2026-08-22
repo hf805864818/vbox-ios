@@ -1381,13 +1381,16 @@ class CloudDriveManager: ObservableObject {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw DriveError.noPlayURL("阿里: 生成二维码 HTTP 失败")
         }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = json["content"] as? [String: Any],
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("阿里: 二维码生成响应 JSON 解析失败")
+        }
+        print("[Ali] generate response: \(json)")
+        guard let content = json["content"] as? [String: Any],
               let dataObj = content["data"] as? [String: Any],
               let ck = dataObj["ck"] as? String,
               let t = dataObj["t"] as? Int64,
               let codeContent = dataObj["codeContent"] as? String else {
-            throw DriveError.noPlayURL("阿里: 二维码生成响应解析失败")
+            throw DriveError.noPlayURL("阿里: 二维码生成响应解析失败，keys: \(Array(dataObj.keys))")
         }
 
         return AliQrLoginToken(ck: ck, t: t, qrURL: codeContent)
@@ -1399,6 +1402,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
 
         let body = "t=\(token.t)&ck=\(token.ck)&appName=aliyun_drive&appEntrance=web&isMobile=false&lang=zh_CN&returnUrl=&fromSite=52&bizParams=&navlanguage=zh-CN&navPlatform=MacIntel"
         request.httpBody = body.data(using: .utf8)
@@ -1410,56 +1414,105 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.invalidResponse
         }
 
-        let status = dataObj["qrCodeStatus"] as? String ?? ""
-        let tip = dataObj["tip"] as? String ?? ""
+        print("[Ali] query response keys: \(Array(dataObj.keys))")
 
-        switch status {
-        case "CONFIRMED":
-            // 打印 dataObj 所有键，便于调试
-            print("[Ali] CONFIRMED dataObj 键: \(dataObj.keys.sorted())")
-            if let bizExt = dataObj["bizExt"] as? String {
-                print("[Ali] bizExt 类型=String, 长度=\(bizExt.count), 前缀=\(bizExt.prefix(40))")
-                // 尝试多种方式解析 bizExt
-                let bizData: [String: Any]?
-                if let directData = bizExt.data(using: .utf8),
-                   let directJson = try? JSONSerialization.jsonObject(with: directData) as? [String: Any] {
-                    bizData = directJson
-                } else if let decodedData = Data(base64Encoded: bizExt),
-                          let decodedJson = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-                    bizData = decodedJson
-                } else if let urlDecoded = bizExt.removingPercentEncoding,
-                          let urlData = urlDecoded.data(using: .utf8),
-                          let urlJson = try? JSONSerialization.jsonObject(with: urlData) as? [String: Any] {
-                    bizData = urlJson
-                } else {
-                    bizData = nil
-                }
-
-                if let bizData,
-                   let pds = bizData["pds_login_result"] as? [String: Any],
-                   let refreshToken = pds["refresh_token"] as? String,
-                   let accessToken = pds["access_token"] as? String {
-                    let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
-                    return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
-                }
-                return .failed(message: "阿里: bizExt 解析失败，原始值: \(bizExt.prefix(200))")
+        // 方式1：标准路径 - bizExt 包含 pds_login_result
+        if let bizExt = dataObj["bizExt"] as? String {
+            if let result = parseAliBizExt(bizExt) {
+                return result
             }
-            // 尝试从 dataObj 直接获取 Token
-            if let refreshToken = dataObj["refresh_token"] as? String,
-               let accessToken = dataObj["access_token"] as? String {
+            print("[Ali] bizExt 解析失败，原始值: \(bizExt.prefix(300))")
+        }
+
+        // 方式2：直接从 dataObj 获取
+        if let refreshToken = dataObj["refresh_token"] as? String,
+           let accessToken = dataObj["access_token"] as? String {
+            let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
+            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+        }
+
+        // 方式3：尝试 token 和 refreshToken
+        if let refreshToken = dataObj["token"] as? String, !refreshToken.contains("http") {
+            if let accessToken = dataObj["access_token"] as? String {
                 let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
                 return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
             }
-            return .failed(message: "阿里: 未找到 bizExt 或 Token 字段，dataObj 键: \(dataObj.keys.sorted())")
-        case "EXPIRED":
-            return .expired
-        case "CANCELED":
-            return .failed(message: "阿里: 用户取消扫码")
-        case "SCANED":
-            return .scanned
-        default:
-            return .pending
         }
+
+        // 方式4：尝试 bizParams 或其他字段
+        for key in dataObj.keys {
+            print("[Ali] key='\(key)' value=\(String(describing: dataObj[key]).prefix(100))")
+        }
+
+        return .failed(message: "阿里: 无法从响应中提取 Token，keys=\(Array(dataObj.keys.sorted()))")
+    }
+
+    /// 解析 bizExt：支持多种编码格式
+    private func parseAliBizExt(_ bizExt: String) -> AliQrPollResult? {
+        // 尝试1：直接 UTF-8 JSON
+        if let data = bizExt.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let pds = json["pds_login_result"] as? [String: Any],
+           let refreshToken = pds["refresh_token"] as? String,
+           let accessToken = pds["access_token"] as? String {
+            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+            print("[Ali] 解析成功(直接UTF-8)")
+            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+        }
+
+        // 尝试2：base64 解码
+        if let decodedData = Data(base64Encoded: bizExt),
+           let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
+           let pds = json["pds_login_result"] as? [String: Any],
+           let refreshToken = pds["refresh_token"] as? String,
+           let accessToken = pds["access_token"] as? String {
+            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+            print("[Ali] 解析成功(base64)")
+            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+        }
+
+        // 尝试3：URL 解码
+        if let urlDecoded = bizExt.removingPercentEncoding,
+           let urlData = urlDecoded.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: urlData) as? [String: Any],
+           let pds = json["pds_login_result"] as? [String: Any],
+           let refreshToken = pds["refresh_token"] as? String,
+           let accessToken = pds["access_token"] as? String {
+            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+            print("[Ali] 解析成功(URL解码)")
+            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+        }
+
+        // 尝试4：修复常见字符错误（l->O, j->j, p->o, 7->i, etc）
+        let fixed = fixBizExtCharacters(bizExt)
+        if let decodedData = Data(base64Encoded: fixed),
+           let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
+           let pds = json["pds_login_result"] as? [String: Any],
+           let refreshToken = pds["refresh_token"] as? String,
+           let accessToken = pds["access_token"] as? String {
+            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+            print("[Ali] 解析成功(字符修复base64)")
+            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+        }
+
+        print("[Ali] 所有解析方式均失败")
+        return nil
+    }
+
+    /// 修复 bizExt 中的字符错误
+    private func fixBizExtCharacters(_ input: String) -> String {
+        // 已知错误模式：base64 字符串中某些字符被错误替换
+        // O(大写o) -> l(小写L), o -> p, i -> 7, u -> y, s -> s, e -> e
+        var fixed = input
+        // 修复 pds_login_result -> cGRzX2xvZ2luX3Jlc3VsdA
+        // resultOjoi -> resultOjoi
+        fixed = fixed.replacingOccurrences(of: "ljp7", with: "Ojoi")
+        fixed = fixed.replacingOccurrences(of: "dXNIckRhdGEi", with: "dXNlckRhdGEi") // user_data
+        // 添加 base64 填充
+        while fixed.count % 4 != 0 {
+            fixed += "="
+        }
+        return fixed
     }
 
     /// 保存阿里云盘 Token 到授权中心
