@@ -343,8 +343,11 @@ final class CloudDriveAuthManager: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw AuthError.remoteError("阿里官方 API 刷新失败: HTTP \(http?.statusCode ?? 0)")
+        guard let http = response as? HTTPURLResponse else {
+            throw AuthError.remoteError("阿里官方 API 刷新失败: 无效响应")
+        }
+        guard http.statusCode == 200 else {
+            throw AuthError.remoteError("阿里官方 API 刷新失败: HTTP \(http.statusCode)")
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let accessToken = json["access_token"] as? String,
