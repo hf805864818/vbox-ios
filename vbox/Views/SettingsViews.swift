@@ -3902,6 +3902,105 @@ struct NativeCloudQRLoginView: View {
     }
 
     @MainActor
+    private func startAliNativeQRLogin() async {
+        isGenerating = true
+        isPolling = false
+        pollCount = 0
+        errorText = ""
+        detailText = ""
+        qrImage = nil
+        statusText = "正在生成二维码..."
+
+        do {
+            let token = try await CloudDriveManager.shared.aliCreateQrToken()
+            qrImage = makeQRCode(from: token.qrURL)
+            statusText = "等待阿里云盘扫码确认"
+            detailText = "每 2 秒轮询一次扫码状态。"
+            isGenerating = false
+            isPolling = true
+            await pollAliNativeQR(token)
+        } catch {
+            isGenerating = false
+            isPolling = false
+            statusText = "生成二维码失败"
+            errorText = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func pollAliNativeQR(_ token: AliQrLoginToken) async {
+        var consecutiveErrors = 0
+        while isPolling && pollCount < 90 {
+            pollCount += 1
+            do {
+                let result = try await CloudDriveManager.shared.aliPollQrStatus(token: token)
+                consecutiveErrors = 0
+                switch result {
+                case .pending:
+                    statusText = "等待阿里云盘扫码确认"
+                    detailText = "请使用阿里云盘 App 扫码。"
+                case .scanned:
+                    statusText = "已扫码，等待确认"
+                    detailText = "请在手机端确认登录。"
+                case .confirmed(let refreshToken, let accessToken, let nickName):
+                    isPolling = false
+                    statusText = "已确认，正在保存 Token"
+                    detailText = ""
+                    do {
+                        try await CloudDriveManager.shared.aliSaveQrToken(
+                            refreshToken: refreshToken,
+                            accessToken: accessToken,
+                            nickName: nickName
+                        )
+                        statusText = "阿里云盘扫码登录成功"
+                        detailText = "Token 已保存到授权中心。"
+                    } catch {
+                        statusText = "保存 Token 失败"
+                        errorText = error.localizedDescription
+                    }
+                    return
+                case .expired:
+                    isPolling = false
+                    statusText = "二维码已过期"
+                    detailText = "请重新生成二维码。"
+                    return
+                case .failed(let message):
+                    isPolling = false
+                    statusText = "轮询失败"
+                    detailText = message
+                    return
+                }
+            } catch {
+                consecutiveErrors += 1
+                let nsError = error as NSError
+                let isNetworkError = nsError.domain == NSURLErrorDomain &&
+                    (nsError.code == NSURLErrorNetworkConnectionLost ||
+                     nsError.code == NSURLErrorNotConnectedToInternet ||
+                     nsError.code == NSURLErrorTimedOut ||
+                     nsError.code == NSURLErrorCannotConnectToHost ||
+                     nsError.code == NSURLErrorCannotFindHost ||
+                     nsError.code == NSURLErrorDNSLookupFailed ||
+                     nsError.code == NSURLErrorSecureConnectionFailed)
+                if isNetworkError && consecutiveErrors < 5 {
+                    detailText = "网络波动，正在重试…（\(consecutiveErrors)/5）"
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    continue
+                }
+                isPolling = false
+                statusText = "轮询异常"
+                errorText = consecutiveErrors >= 5 ? "网络连接异常，已重试\(consecutiveErrors)次" : error.localizedDescription
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        if pollCount >= 90 {
+            isPolling = false
+            statusText = "登录超时"
+            detailText = "二维码已超过 3 分钟有效期，请重新生成。"
+        }
+    }
+
+    @MainActor
     private func startLoginFlow() async {
         isGenerating = true
         isPolling = false
@@ -3979,12 +4078,8 @@ struct NativeCloudQRLoginView: View {
                 await pollPan115()
             case .ali:
                 aliOpenListHelper.cleanup()
-                aliOpenListHelper.startLogin()
-                isGenerating = false
-                isPolling = true
-                statusText = aliOpenListHelper.statusText
-                detailText = ""
-                await pollAliOpenList()
+                // 使用原生扫码登录（官方 API），替代 OpenList 网页授权
+                await startAliNativeQRLogin()
             default:
                 throw AuthError.remoteError("暂不支持 \(driveType.displayName) 原生扫码")
             }
