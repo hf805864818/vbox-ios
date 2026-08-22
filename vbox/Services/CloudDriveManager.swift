@@ -1439,7 +1439,7 @@ class CloudDriveManager: ObservableObject {
                     let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
                     return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
                 }
-                print("[Ali] bizExt 原始值: \(bizExt.prefix(200))")
+                return .failed(message: "阿里: bizExt 解析失败，原始值: \(bizExt.prefix(200))")
             }
             return .failed(message: "阿里: bizExt 解析失败")
         case "EXPIRED":
