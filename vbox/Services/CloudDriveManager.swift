@@ -1523,8 +1523,11 @@ class CloudDriveManager: ObservableObject {
 
     /// 解析 bizExt：支持多种编码格式
     private func parseAliBizExt(_ bizExt: String) -> AliQrPollResult? {
+        // 清理空格和换行符
+        let cleaned = bizExt.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
+
         // 尝试1：直接 UTF-8 JSON
-        if let data = bizExt.data(using: .utf8),
+        if let data = cleaned.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let pds = json["pds_login_result"] as? [String: Any],
            let refreshToken = pds["refresh_token"] as? String,
@@ -1535,7 +1538,7 @@ class CloudDriveManager: ObservableObject {
         }
 
         // 尝试2：base64 解码
-        if let decodedData = Data(base64Encoded: bizExt),
+        if let decodedData = Data(base64Encoded: cleaned),
            let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
            let pds = json["pds_login_result"] as? [String: Any],
            let refreshToken = pds["refresh_token"] as? String,
