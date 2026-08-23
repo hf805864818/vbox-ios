@@ -1473,6 +1473,18 @@ class CloudDriveManager: ObservableObject {
                 if let result = parseAliBizExt(bizExt) {
                     return result
                 }
+                // 尝试直接 base64 解码
+                if let decodedData = Data(base64Encoded: bizExt),
+                   let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
+                    print("[Ali] bizExt 解码成功: \(json)")
+                    if let pds = json["pds_login_result"] as? [String: Any],
+                       let refreshToken = pds["refresh_token"] as? String,
+                       let accessToken = pds["access_token"] as? String {
+                        let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+                        print("[Ali] 从 bizExt 解析成功")
+                        return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+                    }
+                }
             }
             // 方式4：尝试 loginResult
             if let loginResult = dataObj["loginResult"] as? String {
