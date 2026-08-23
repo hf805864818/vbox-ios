@@ -30,6 +30,16 @@ class CloudDriveManager: ObservableObject {
             NotificationCenter.default.post(name: .cloudDriveLog, object: message)
         }
     }
+
+    private func typeString(for value: Any) -> String {
+        if value is String { return "String" }
+        if value is Int { return "Int" }
+        if value is Double { return "Double" }
+        if value is Bool { return "Bool" }
+        if value is [String] { return "[String]" }
+        if value is [String: Any] { return "[String: Any]" }
+        return type(of: value).description()
+    }
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
     // 严格对齐 iBox 百度路链：分享文件先转存到固定目录，再从用户网盘路径取链播放。
     // 注意：百度 API 的真实根路径是 "/"；App 里看到的“我的资源”是 UI 分类名，不应写进 API path。
@@ -1428,6 +1438,13 @@ class CloudDriveManager: ObservableObject {
 
         // processFinished 状态 - 已扫码确认
         if status == "processFinished" || status == "CONFIRMED" {
+            // 打印所有字段用于调试
+            print("[Ali] === processFinished 完整响应 ===")
+            for (key, value) in dataObj {
+                print("[Ali] key='\(key)' type='\(typeString(for: value))' value=\(String(describing: value).prefix(500))")
+            }
+            print("[Ali] =========================")
+
             // 方式1：直接从 dataObj 获取
             if let refreshToken = dataObj["refresh_token"] as? String,
                let accessToken = dataObj["access_token"] as? String {
@@ -1435,16 +1452,31 @@ class CloudDriveManager: ObservableObject {
                 print("[Ali] 直接获取 Token 成功")
                 return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
             }
-            // 方式2：从 loginSucResultAction 获取
+            // 方式2：从 loginSucResultAction 获取（可能是 URL 格式）
             if let loginAction = dataObj["loginSucResultAction"] as? String,
                !loginAction.isEmpty {
                 print("[Ali] loginSucResultAction: \(loginAction)")
+                // 尝试从 URL 中提取 token
+                if let url = URL(string: loginAction) {
+                    let components = URLComponents(url: url, resolvingAgainstBaseURL: true)
+                    if let refreshToken = components?.queryItems?.first(where: { $0.name == "refresh_token" })?.value,
+                       let accessToken = components?.queryItems?.first(where: { $0.name == "access_token" })?.value {
+                        let nickName = components?.queryItems?.first(where: { $0.name == "nick_name" })?.value ?? "阿里云盘用户"
+                        print("[Ali] 从 loginSucResultAction URL 中提取 Token 成功")
+                        return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+                    }
+                }
             }
             // 方式3：尝试 bizExt
             if let bizExt = dataObj["bizExt"] as? String {
+                print("[Ali] bizExt: \(bizExt.prefix(200))")
                 if let result = parseAliBizExt(bizExt) {
                     return result
                 }
+            }
+            // 方式4：尝试 loginResult
+            if let loginResult = dataObj["loginResult"] as? String {
+                print("[Ali] loginResult: \(loginResult.prefix(200))")
             }
             return .failed(message: "阿里: 已扫码但未找到 Token，keys=\(Array(dataObj.keys.sorted()))")
         }
