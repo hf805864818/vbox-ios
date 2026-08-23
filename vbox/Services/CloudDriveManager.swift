@@ -38,7 +38,7 @@ class CloudDriveManager: ObservableObject {
         if value is Bool { return "Bool" }
         if value is [String] { return "[String]" }
         if value is [String: Any] { return "[String: Any]" }
-        return type(of: value).description()
+        return String(describing: type(of: value))
     }
     private static let baiduPCSUserAgent = "Mozilla/5.0 (Linux; Android 12; HD1900 Build/SKQ1.211113.001) AppleWebKit/537.36 (KHTML, like Gecko)&channel=android_12_HD1900_bdnetdisktv_1025538l&version=1.21.1&network_type=wifi&app_id=250528&size=c1080_u1600"
     // 严格对齐 iBox 百度路链：分享文件先转存到固定目录，再从用户网盘路径取链播放。
