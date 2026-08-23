@@ -1581,14 +1581,28 @@ class CloudDriveManager: ObservableObject {
         // 已知错误模式：base64 字符串中某些字符被错误替换
         // O(大写o) -> l(小写L), o -> p, i -> 7, u -> y, s -> s, e -> e
         var fixed = input
-        // 修复 pds_login_result -> cGRzX2xvZ2luX3Jlc3VsdA
-        // resultOjoi -> resultOjoi
-        fixed = fixed.replacingOccurrences(of: "ljp7", with: "Ojoi")
-        fixed = fixed.replacingOccurrences(of: "dXNIckRhdGEi", with: "dXNlckRhdGEi") // user_data
+        
+        // 清理空格
+        fixed = fixed.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
+        
+        // 修复已知错误
+        // resultljp7 -> resultOjoi (位置 24: l -> I)
+        fixed = fixed.replacingOccurrences(of: "resultljp7", with: "resultOjoi")
+        // userli -> userIi (位置 44: l -> I)
+        fixed = fixed.replacingOccurrences(of: "userli", with: "userIi")
+        // dXNI -> dXNs (位置 51: I -> l)
+        fixed = fixed.replacingOccurrences(of: "dXNI", with: "dXNs")
+        // I6lm -> I6Im (位置 76: l -> I)
+        fixed = fixed.replacingOccurrences(of: "6lm", with: "6Im")
+        // hotdHBz -> aHR0cHM
+        fixed = fixed.replacingOccurrences(of: "hotdHBz", with: "aHR0cHM")
+        
         // 添加 base64 填充
         while fixed.count % 4 != 0 {
             fixed += "="
         }
+        
+        print("[Ali] 修复后 bizExt: \(fixed)")
         return fixed
     }
 
