@@ -1578,30 +1578,28 @@ class CloudDriveManager: ObservableObject {
 
     /// 修复 bizExt 中的字符错误
     private func fixBizExtCharacters(_ input: String) -> String {
-        // 已知错误模式：base64 字符串中某些字符被错误替换
-        // O(大写o) -> l(小写L), o -> p, i -> 7, u -> y, s -> s, e -> e
-        var fixed = input
-        
         // 清理空格
-        fixed = fixed.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
-        
-        // 修复已知错误
-        // resultljp7 -> resultOjoi (位置 24: l -> I)
-        fixed = fixed.replacingOccurrences(of: "resultljp7", with: "resultOjoi")
-        // userli -> userIi (位置 44: l -> I)
-        fixed = fixed.replacingOccurrences(of: "userli", with: "userIi")
-        // dXNI -> dXNs (位置 51: I -> l)
-        fixed = fixed.replacingOccurrences(of: "dXNI", with: "dXNs")
-        // I6lm -> I6Im (位置 76: l -> I)
-        fixed = fixed.replacingOccurrences(of: "6lm", with: "6Im")
-        // hotdHBz -> aHR0cHM
-        fixed = fixed.replacingOccurrences(of: "hotdHBz", with: "aHR0cHM")
-        
+        var fixed = input.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
+
+        // 已知错误模式：base64 字符串中某些字符被错误替换
+        // 修复位置 24: l -> I
+        if fixed.count > 24, fixed[fixed.index(fixed.startIndex, offsetBy: 24)] == "l" {
+            fixed = fixed[:fixed.index(fixed.startIndex, offsetBy: 24)] + "I" + fixed[fixed.index(fixed.startIndex, offsetBy: 25)...]
+        }
+        // 修复位置 44: l -> I
+        if fixed.count > 44, fixed[fixed.index(fixed.startIndex, offsetBy: 44)] == "l" {
+            fixed = fixed[:fixed.index(fixed.startIndex, offsetBy: 44)] + "I" + fixed[fixed.index(fixed.startIndex, offsetBy: 45)...]
+        }
+        // 修复位置 50: I -> l
+        if fixed.count > 50, fixed[fixed.index(fixed.startIndex, offsetBy: 50)] == "I" {
+            fixed = fixed[:fixed.index(fixed.startIndex, offsetBy: 50)] + "l" + fixed[fixed.index(fixed.startIndex, offsetBy: 51)...]
+        }
+
         // 添加 base64 填充
         while fixed.count % 4 != 0 {
             fixed += "="
         }
-        
+
         print("[Ali] 修复后 bizExt: \(fixed)")
         return fixed
     }
