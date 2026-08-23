@@ -1478,7 +1478,11 @@ class CloudDriveManager: ObservableObject {
             if let loginResult = dataObj["loginResult"] as? String {
                 print("[Ali] loginResult: \(loginResult.prefix(200))")
             }
-            return .failed(message: "阿里: 已扫码但未找到 Token，keys=\(Array(dataObj.keys.sorted()))")
+            // 收集所有可能包含 token 的字段
+            let loginAction = dataObj["loginSucResultAction"] as? String ?? ""
+            let bizExt = dataObj["bizExt"] as? String ?? ""
+            let loginResult = dataObj["loginResult"] as? String ?? ""
+            return .failed(message: "阿里: 已扫码但未找到 Token, loginAction='\(loginAction.prefix(100))', bizExt='\(bizExt.prefix(100))', loginResult='\(loginResult.prefix(100))'")
         }
 
         // NEW/SCANED 状态
