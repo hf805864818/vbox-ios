@@ -1600,6 +1600,32 @@ class CloudDriveManager: ObservableObject {
             let idx = fixed.index(fixed.startIndex, offsetBy: 50)
             fixed = String(fixed.prefix(upTo: idx)) + "l" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
         }
+        // 修复位置 65: G -> m
+        if fixed.count > 65, fixed.index(fixed.startIndex, offsetBy: 65, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 65)] == "G" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 65)
+            fixed = String(fixed.prefix(upTo: idx)) + "m" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
+        }
+        // 修复位置 69: O -> G
+        if fixed.count > 69, fixed.index(fixed.startIndex, offsetBy: 69, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 69)] == "O" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 69)
+            fixed = String(fixed.prefix(upTo: idx)) + "G" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
+        }
+        // 修复位置 70: R -> l
+        if fixed.count > 70, fixed.index(fixed.startIndex, offsetBy: 70, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 70)] == "R" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 70)
+            fixed = String(fixed.prefix(upTo: idx)) + "l" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
+        }
+        // 修复位置 71: p -> u
+        if fixed.count > 71, fixed.index(fixed.startIndex, offsetBy: 71, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 71)] == "p" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 71)
+            fixed = String(fixed.prefix(upTo: idx)) + "u" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
+        }
+        // 修复 hotdHBz -> aHR0cHM
+        fixed = fixed.replacingOccurrences(of: "hotdHBz", with: "aHR0cHM")
 
         // 添加 base64 填充
         while fixed.count % 4 != 0 {
