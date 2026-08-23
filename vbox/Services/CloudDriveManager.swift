@@ -1583,16 +1583,22 @@ class CloudDriveManager: ObservableObject {
 
         // 已知错误模式：base64 字符串中某些字符被错误替换
         // 修复位置 24: l -> I
-        if fixed.count > 24, fixed[fixed.index(fixed.startIndex, offsetBy: 24)] == "l" {
-            fixed = fixed[:fixed.index(fixed.startIndex, offsetBy: 24)] + "I" + fixed[fixed.index(fixed.startIndex, offsetBy: 25)...]
+        if fixed.count > 24, fixed.index(fixed.startIndex, offsetBy: 24, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 24)] == "l" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 24)
+            fixed = String(fixed.prefix(upTo: idx)) + "I" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
         }
         // 修复位置 44: l -> I
-        if fixed.count > 44, fixed[fixed.index(fixed.startIndex, offsetBy: 44)] == "l" {
-            fixed = fixed[:fixed.index(fixed.startIndex, offsetBy: 44)] + "I" + fixed[fixed.index(fixed.startIndex, offsetBy: 45)...]
+        if fixed.count > 44, fixed.index(fixed.startIndex, offsetBy: 44, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 44)] == "l" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 44)
+            fixed = String(fixed.prefix(upTo: idx)) + "I" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
         }
         // 修复位置 50: I -> l
-        if fixed.count > 50, fixed[fixed.index(fixed.startIndex, offsetBy: 50)] == "I" {
-            fixed = fixed[:fixed.index(fixed.startIndex, offsetBy: 50)] + "l" + fixed[fixed.index(fixed.startIndex, offsetBy: 51)...]
+        if fixed.count > 50, fixed.index(fixed.startIndex, offsetBy: 50, limitedBy: fixed.endIndex) != nil,
+           fixed[fixed.index(fixed.startIndex, offsetBy: 50)] == "I" {
+            let idx = fixed.index(fixed.startIndex, offsetBy: 50)
+            fixed = String(fixed.prefix(upTo: idx)) + "l" + String(fixed.suffix(from: fixed.index(idx, offsetBy: 1)))
         }
 
         // 添加 base64 填充
