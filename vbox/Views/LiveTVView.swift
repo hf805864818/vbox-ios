@@ -1090,6 +1090,9 @@ struct FullScreenPlayerView: View {
 
     @State private var hideTimer: Timer?
 
+    // 横屏/竖屏状态：进入全屏默认横屏
+    @State private var isLandscape = true
+
     private let speedOptions: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
     var body: some View {
@@ -1135,6 +1138,27 @@ struct FullScreenPlayerView: View {
                         }
                         .buttonStyle(PlainButtonStyle())
                         Spacer()
+                        // 横屏/竖屏切换按钮
+                        Button(action: {
+                            if isLandscape {
+                                OrientationHelper.lockOrientation(.portrait)
+                                isLandscape = false
+                            } else {
+                                OrientationHelper.rotateToLandscape()
+                                isLandscape = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    OrientationHelper.allowAllOrientations()
+                                }
+                            }
+                            resetHideTimer()
+                        }) {
+                            Image(systemName: isLandscape ? "rectangle.portrait" : "rectangle")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
                     .padding(.top, 50)
                     .padding(.horizontal, 12)
@@ -1278,8 +1302,20 @@ struct FullScreenPlayerView: View {
             }
         }
         .statusBar(hidden: true)
-        .onAppear { resetHideTimer() }
-        .onDisappear { hideTimer?.invalidate() }
+        .onAppear {
+            resetHideTimer()
+            // 进入全屏：强制横屏，随后允许自动跟随设备方向
+            OrientationHelper.rotateToLandscape()
+            isLandscape = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                OrientationHelper.allowAllOrientations()
+            }
+        }
+        .onDisappear {
+            hideTimer?.invalidate()
+            // 退出全屏：恢复竖屏
+            OrientationHelper.lockOrientation(.portrait)
+        }
     }
 
     private func resetHideTimer() {
