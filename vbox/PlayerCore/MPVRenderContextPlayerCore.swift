@@ -145,12 +145,14 @@ final class MPVRenderContextPlayerCore: NSObject {
         setFlag(MPVKitProperty.pause, false)
         state.isPlaying = true
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = true
     }
 
     func pause() {
         setFlag(MPVKitProperty.pause, true)
         state.isPlaying = false
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func stop() {
@@ -158,6 +160,7 @@ final class MPVRenderContextPlayerCore: NSObject {
         state.isPlaying = false
         state.currentTime = 0
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func teardown() {

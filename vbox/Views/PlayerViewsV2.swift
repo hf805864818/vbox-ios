@@ -1538,6 +1538,7 @@ class PlayerState: ObservableObject {
         if let player {
             isPlaying ? player.pause() : player.play()
             isPlaying.toggle()
+            updateIdleTimer()
             return
         }
         guard compatibilityURL != nil else { return }
@@ -1551,6 +1552,15 @@ class PlayerState: ObservableObject {
             NotificationCenter.default.post(name: playNotification, object: nil)
         }
         isPlaying.toggle()
+        updateIdleTimer()
+    }
+
+    /// 更新屏幕自动锁屏状态
+    /// 播放中禁用自动锁屏，暂停/停止时恢复
+    /// 注：主要防锁屏逻辑已迁移至 SwiftUI .onChange(of: isPlaying) 统一管理，
+    /// 此方法保留作为 togglePlayback 的同步兜底
+    private func updateIdleTimer() {
+        UIApplication.shared.isIdleTimerDisabled = isPlaying
     }
 
     func changePlaybackSpeed(_ speed: Double) {
@@ -2516,6 +2526,9 @@ class PlayerState: ObservableObject {
         if !backgroundPlay {
             player?.pause()
             isPlaying = false
+            // 显式恢复锁屏：.onChange 会同步设置，但后台场景下系统可能重置 idle timer，
+            // 在此显式确保暂停播放时恢复自动锁屏
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         // 进度保存移到后台队列，避免 SQLite 操作阻塞主线程触发 watchdog
         let videoToSave = currentVideo
@@ -2592,6 +2605,9 @@ class PlayerState: ObservableObject {
                 if self.player?.currentItem != nil, self.player?.rate == 0 {
                     self.player?.play()
                     self.isPlaying = true
+                    // 显式重新禁用锁屏：isPlaying 可能后台时已为 true（后台播放模式），
+                    // .onChange 不会触发，需在此手动恢复防锁屏状态
+                    UIApplication.shared.isIdleTimerDisabled = true
                     self.log("[PlayerV2] 回到前台，已恢复播放")
                 }
             }
@@ -2612,6 +2628,8 @@ class PlayerState: ObservableObject {
         danmakuTask?.cancel()
         danmakuTask = nil
         savePlaybackProgress(force: true)
+        // 恢复自动锁屏
+        UIApplication.shared.isIdleTimerDisabled = false
         quarkFallbackTimeoutTask?.cancel()
         quarkFallbackTimeoutTask = nil
         quarkFallbackURL = nil
@@ -6656,6 +6674,10 @@ struct PlayerContainerView: View {
             }
         }
         .onChange(of: playerState.isPlaying) { newValue in
+            // 播放时禁用自动锁屏，暂停/停止时恢复
+            // 统一在此处管理 idle timer，覆盖所有 isPlaying 变更路径
+            // （初始加载、自动恢复、前台返回、手动切换、引擎切换等）
+            UIApplication.shared.isIdleTimerDisabled = newValue
             if newValue && playerState.showControls {
                 resetAutoHideTimer()
             }
