@@ -8078,6 +8078,7 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 解析指定 UC 文件的播放地址（切换集数使用）
+    /// 三层容错：刷新Cookie → stoken失效重试 → 清晰错误提示
     func resolveUCPlayURLForFile(shareURL: String, cookie: String, fileFid: String, shareFidToken: String) async throws -> PlayResult {
         print("[UC] 切集解析: fid=\(fileFid)")
         let (pwdId, passcode) = ucExtractShareInfo(from: shareURL)
@@ -8086,10 +8087,27 @@ class CloudDriveManager: ObservableObject {
         var authCookie = cookie
         let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
         authCookie = folder.cookie
-        let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+        var stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
 
+        // 获取文件列表，stoken 失效时刷新重试一次
         var files: [UCShareFile] = []
-        try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie, result: &files)
+        do {
+            try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie, result: &files)
+        } catch let error as DriveError {
+            let errMsg = error.localizedDescription
+            guard errMsg.contains("非法token") || errMsg.contains("token") else { throw error }
+            // stoken 失效，刷新后重试
+            self.log("[CloudDrive] ⚠️ UC 切集 stoken 失效，刷新重试...")
+            stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+            do {
+                try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie, result: &files)
+                self.log("[CloudDrive] ✅ UC 切集 stoken 刷新成功")
+            } catch {
+                self.log("[CloudDrive] ❌ UC Cookie 已过期，请重新扫码登录")
+                throw DriveError.noPlayURL("UC Cookie 已过期，请重新扫码登录")
+            }
+        }
+
         guard let sourceFile = files.first(where: { $0.fid == fileFid }) else {
             throw DriveError.noPlayURL("UC 未找到指定文件，无法转存")
         }
@@ -8498,15 +8516,46 @@ class CloudDriveManager: ObservableObject {
     // MARK: - UC 网盘完整文件列表获取（选集用）
 
     /// 获取 UC 分享链接中所有可播放文件（供选集列表使用）
+    /// 三层容错：刷新Cookie → stoken失效重试 → 清晰错误提示
     func ucGetFileList(shareURL: String, cookie: String) async throws -> [UCShareFile] {
         let (pwdId, passcode) = ucExtractShareInfo(from: shareURL)
         guard !pwdId.isEmpty else { throw DriveError.invalidShareURL }
 
-        let shareToken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: cookie)
+        // 第一层：通过 ucEnsureFolderWithCookie 刷新 Cookie（补全外围 session）
+        var authCookie = cookie
+        do {
+            let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
+            authCookie = folder.cookie
+        } catch {
+            // Cookie 刷新失败（可能核心 session 已过期），继续用原始 Cookie 尝试
+            self.log("[CloudDrive] ⚠️ UC ensureFolder 失败，用原始 Cookie 继续: \(error.localizedDescription)")
+        }
 
+        let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+
+        // 正常路径
         var allPlayable: [UCShareFile] = []
-        try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: shareToken, pdirFid: "0", cookie: cookie, result: &allPlayable)
-        return allPlayable
+        do {
+            try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: stoken, pdirFid: "0", cookie: authCookie, result: &allPlayable)
+            return allPlayable
+        } catch let error as DriveError {
+            let errMsg = error.localizedDescription
+
+            // 第二层：stoken 失效，刷新后重试一次
+            guard errMsg.contains("非法token") || errMsg.contains("token") else { throw error }
+            self.log("[CloudDrive] ⚠️ UC 文件列表 stoken 失效，刷新重试...")
+            let newStoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
+            var retryFiles: [UCShareFile] = []
+            do {
+                try await ucCollectAllPlayableFiles(pwdId: pwdId, stoken: newStoken, pdirFid: "0", cookie: authCookie, result: &retryFiles)
+                self.log("[CloudDrive] ✅ UC stoken 刷新重试成功")
+                return retryFiles
+            } catch {
+                // 第三层：都失败了，给出清晰提示
+                self.log("[CloudDrive] ❌ UC Cookie 可能已过期，请重新扫码登录")
+                throw DriveError.noPlayURL("UC Cookie 已过期，请重新扫码登录")
+            }
+        }
     }
 
     /// 递归收集 UC 分享中所有可播放文件（支持分页和子目录）
