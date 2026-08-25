@@ -6216,15 +6216,31 @@ class CloudDriveManager: ObservableObject {
             cookie: cookie
         )
 
-        guard let pickCode = snapResult.pickCode else { throw DriveError.noPlayURL("115: snap 未返回 pick_code") }
-        print("[115] 选中资源：\(snapResult.fileName ?? "未知文件"), pickCode=\(pickCode)")
-        let downloadURL = try await one15GetDownloadURL(pickCode: pickCode, cookie: cookie)
+        let pickCode = snapResult.pickCode
+        let fileId = snapResult.cid
+        print("[115] 选中资源：\(snapResult.fileName ?? "未知文件"), pickCode=\(pickCode ?? "nil"), fid=\(fileId ?? "nil")")
+
+        let (downloadURL, extraCookie) = try await one15GetDownloadURL(
+            pickCode: pickCode,
+            cookie: cookie,
+            shareCode: shareCode,
+            receiveCode: receiveCode,
+            fileId: fileId
+        )
+
+        // 合并 Set-Cookie 到播放头（115 CDN 要求带下载凭证 cookie）
+        var headers = one15PlaybackHeaders(cookie: cookie)
+        if let extra = extraCookie, !extra.isEmpty {
+            let combined = "\(cookie); \(extra)"
+            headers["Cookie"] = combined
+            print("[115] 合并 Set-Cookie 到播放头")
+        }
 
         return PlayResult(
             url: downloadURL,
-            headers: one15PlaybackHeaders(cookie: cookie),
+            headers: headers,
             driveType: .one15,
-            source: "share-snap-downurl"
+            source: "m115-multi-endpoint"
         )
     }
 
@@ -6401,59 +6417,92 @@ class CloudDriveManager: ObservableObject {
             isDir = false
         }
         guard name != nil || pick != nil || itemCid != nil else { return nil }
-        // 如果 pick_code 为空但 fid 存在，尝试从其他字段推导
-        var finalPick = pick
-        if finalPick == nil, let fid = itemCid, !fid.isEmpty {
-            // 某些 115 API 版本中 pick_code 可能为空，但 fid 可用于直接下载
-            print("[115] ⚠️ 文件 '\(name ?? "?")' 无 pick_code，fid=\(fid)，将尝试用 fid 获取下载链接")
-            finalPick = fid
+        // pick_code 为空时保留 nil，不再用 fid 冒充（fid ≠ pickcode，会导致下载 API 返回 state:false）
+        // fid 仍保留在 cid 字段中，供 share/downurl 兜底端点使用
+        let finalPick = pick
+        if finalPick == nil {
+            print("[115] ⚠️ 文件 '\(name ?? "?")' 无 pick_code，fid=\(itemCid ?? "?")，将走 share/downurl 兜底端点")
         }
         return One15SnapResult(pickCode: finalPick, cid: itemCid, fileName: name, isDir: isDir)
     }
 
-    private func one15GetDownloadURL(pickCode: String, cookie: String) async throws -> String {
-        // 115 网盘下载接口可能因风控/版本更迭失效，按优先级尝试多个端点
-        let endpoints: [(url: String, source: String)] = [
-            ("https://proapi.115.com/app/chrome/downurl", "chrome/downurl"),
-            ("https://proapi.115.com/android/2.0/ufile/download", "android/ufile/download"),
-            ("https://webapi.115.com/files/download", "webapi/files/download"),
-        ]
-
+    /// 获取 115 下载直链（4 端点策略，与 aliproxy 一致）
+    ///
+    /// 端点优先级:
+    /// 1. m3u8 流媒体（115.com/api/video/m3u8/）— 视频首选，AVPlayer HLS
+    /// 2. chrome/downurl + RSA（proapi.115.com/app/chrome/downurl）— 通用，M115Cipher
+    /// 3. files/video（webapi.115.com/files/video）— 视频信息
+    /// 4. share/downurl（proapi.115.com/app/share/downurl）— 分享兜底，用 fid
+    private func one15GetDownloadURL(
+        pickCode: String?,
+        cookie: String,
+        shareCode: String,
+        receiveCode: String,
+        fileId: String?
+    ) async throws -> (url: String, extraCookie: String?) {
         var lastError: Error?
-        for (baseURL, source) in endpoints {
+
+        // 端点 1: m3u8 流媒体（不需要 RSA，视频播放首选）
+        if let pc = pickCode, !pc.isEmpty {
             do {
-                let url = try await one15FetchDownloadURL(
-                    from: baseURL,
-                    pickCode: pickCode,
-                    cookie: cookie,
-                    source: source
-                )
-                print("[115] ✅ 下载链接获取成功（\(source)），host=\(URL(string: url)?.host ?? "unknown")")
-                return url
+                let url = try await one15TryM3U8Stream(pickCode: pc, cookie: cookie)
+                print("[115] ✅ m3u8 获取成功，host=\(URL(string: url)?.host ?? "unknown")")
+                return (url, nil)
             } catch {
-                print("[115] ❌ \(source) 失败: \(error.localizedDescription)")
+                print("[115] ❌ m3u8 失败: \(error.localizedDescription)")
                 lastError = error
             }
         }
-        throw lastError ?? DriveError.noPlayURL("115: 所有下载接口均失败")
-    }
 
-    /// 尝试从单个端点获取下载链接
-    private func one15FetchDownloadURL(
-        from baseURL: String,
-        pickCode: String,
-        cookie: String,
-        source: String
-    ) async throws -> String {
-        var components = URLComponents(string: baseURL)!
-        components.queryItems = [URLQueryItem(name: "pickcode", value: pickCode)]
-        // webapi.115.com/files/download 需要时间戳参数
-        if source == "webapi/files/download" {
-            components.queryItems?.append(URLQueryItem(name: "_", value: String(Int(Date().timeIntervalSince1970 * 1000))))
+        // 端点 2: chrome/downurl + RSA
+        if let pc = pickCode, !pc.isEmpty {
+            do {
+                let (url, extra) = try await one15TryChromeDownurl(pickCode: pc, cookie: cookie)
+                print("[115] ✅ chrome/downurl(RSA) 获取成功，host=\(URL(string: url)?.host ?? "unknown")")
+                return (url, extra)
+            } catch {
+                print("[115] ❌ chrome/downurl(RSA) 失败: \(error.localizedDescription)")
+                lastError = error
+            }
         }
 
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "GET"
+        // 端点 3: files/video（不需要 RSA）
+        if let pc = pickCode, !pc.isEmpty {
+            do {
+                let url = try await one15TryFilesVideo(pickCode: pc, cookie: cookie)
+                print("[115] ✅ files/video 获取成功，host=\(URL(string: url)?.host ?? "unknown")")
+                return (url, nil)
+            } catch {
+                print("[115] ❌ files/video 失败: \(error.localizedDescription)")
+                lastError = error
+            }
+        }
+
+        // 端点 4: share/downurl 兜底（用 fid，不需要 RSA）
+        if let fid = fileId, !fid.isEmpty {
+            do {
+                let url = try await one15TryShareDownurl(
+                    shareCode: shareCode, receiveCode: receiveCode,
+                    fileId: fid, cookie: cookie
+                )
+                print("[115] ✅ share/downurl 获取成功，host=\(URL(string: url)?.host ?? "unknown")")
+                return (url, nil)
+            } catch {
+                print("[115] ❌ share/downurl 失败: \(error.localizedDescription)")
+                lastError = error
+            }
+        }
+
+        throw lastError ?? DriveError.noPlayURL("115: 所有下载接口均失败（无 pick_code 和 fid）")
+    }
+
+    // MARK: - 端点 1: m3u8 流媒体
+
+    /// 115 官方 m3u8 流媒体端点（aliproxy 使用的端点，不需要 RSA）
+    /// GET https://115.com/api/video/m3u8/{pickcode}
+    private func one15TryM3U8Stream(pickCode: String, cookie: String) async throws -> String {
+        let urlStr = "https://115.com/api/video/m3u8/\(pickCode)"
+        var request = URLRequest(url: URL(string: urlStr)!)
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
         request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
@@ -6461,40 +6510,205 @@ class CloudDriveManager: ObservableObject {
         let (data, response) = try await session.data(for: request)
         let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
 
-        // 某些端点可能返回 302 重定向到直链，检查 response URL
-        if let finalURL = response.url, finalURL.absoluteString.hasPrefix("http"),
-           !finalURL.absoluteString.contains("proapi.115.com"),
-           !finalURL.absoluteString.contains("webapi.115.com") {
-            print("[115] \(source) 返回重定向直链: \(finalURL.host ?? "")")
+        // 302 重定向到 CDN m3u8
+        if let finalURL = response.url, finalURL.absoluteString.contains(".m3u8") {
+            print("[115] m3u8 302 重定向到: \(finalURL.host ?? "")")
             return finalURL.absoluteString
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            let bodyPreview = String(data: data.prefix(200), encoding: .utf8) ?? "(binary)"
-            print("[115] \(source) 响应非 JSON (HTTP \(httpStatus)): \(bodyPreview)")
-            throw DriveError.invalidResponse
+        // 200 返回 m3u8 内容
+        if httpStatus == 200 {
+            let body = String(data: data.prefix(100), encoding: .utf8) ?? ""
+            if body.contains("#EXTM3U") {
+                return urlStr  // 直接返回 URL，AVPlayer 自行请求
+            }
+            // 可能返回 JSON 包含 m3u8 URL
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let m3u8 = json["url"] as? String, m3u8.hasPrefix("http") { return m3u8 }
+                if let videoUrl = json["video_url"] as? String, videoUrl.hasPrefix("http") { return videoUrl }
+            }
         }
 
-        if let state = json["state"] as? Bool, state == false {
-            let message = json["error"] as? String ?? json["message"] as? String ?? "115 \(source) 失败"
-            print("[115] \(source) state=false: \(message), HTTP \(httpStatus)")
-            throw DriveError.noPlayURL("115: \(message)")
+        throw DriveError.noPlayURL("115: m3u8 端点不可用 (HTTP \(httpStatus))")
+    }
+
+    // MARK: - 端点 2: chrome/downurl + RSA（M115Cipher）
+
+    /// 115 chrome/downurl 端点（aliproxy 使用的端点，POST + RSA 加解密）
+    /// POST https://proapi.115.com/app/chrome/downurl?t={timestamp}
+    /// Body: data=RSA_encrypt({"pickcode":"xxx"})
+    private func one15TryChromeDownurl(pickCode: String, cookie: String) async throws -> (url: String, extraCookie: String?) {
+        let cipher = try M115Cipher()
+
+        // 1. 加密请求: {"pickcode":"xxx"}
+        let plainText = "{\"pickcode\":\"\(pickCode)\"}"
+        let encryptedData = try cipher.encrypt(Array(plainText.utf8))
+
+        // 2. POST 请求
+        let timestamp = String(Int(Date().timeIntervalSince1970))
+        var components = URLComponents(string: "https://proapi.115.com/app/chrome/downurl")!
+        components.queryItems = [URLQueryItem(name: "t", value: timestamp)]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+        request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let bodyStr = "data=\(encryptedData)"
+        request.httpBody = bodyStr.data(using: .utf8)
+
+        let (data, response) = try await session.data(for: request)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+        // 捕获 Set-Cookie
+        var extraCookie: String? = nil
+        if let setCookie = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Set-Cookie") {
+            extraCookie = setCookie
         }
 
-        // 尝试从 data 字典中提取 URL
-        if let dataObj = json["data"] as? [String: Any] {
-            for (_, value) in dataObj {
-                if let fileInfo = value as? [String: Any],
-                   let url = one15ExtractURL(from: fileInfo) {
-                    return url
+        print("[115] chrome/downurl: HTTP \(httpStatus), bytes=\(data.count)")
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("115: chrome/downurl 响应非 JSON")
+        }
+
+        guard json["state"] as? Bool == true else {
+            let msg = json["error"] as? String ?? "chrome/downurl state=false"
+            throw DriveError.noPlayURL("115: \(msg)")
+        }
+
+        // 响应格式: {"state":true, "data": {"<pickcode>": "<RSA_encrypted_base64>"}}
+        guard let dataDict = json["data"] as? [String: Any] else {
+            throw DriveError.noPlayURL("115: chrome/downurl 缺少 data 字段")
+        }
+
+        // 查找加密的响应值（key 是 pickcode）
+        var encryptedResponse: String?
+        for (key, value) in dataDict {
+            if key == pickCode, let str = value as? String {
+                encryptedResponse = str
+                break
+            }
+        }
+        // 兜底: 取第一个字符串值
+        if encryptedResponse == nil {
+            for (_, value) in dataDict {
+                if let str = value as? String, !str.isEmpty {
+                    encryptedResponse = str
+                    break
                 }
             }
         }
-        // 尝试从顶层提取 URL（如 file_url 字段）
-        if let url = one15ExtractURL(from: json) { return url }
 
-        print("[115] \(source) 未找到下载地址，响应 keys: \(json.keys.sorted())")
-        throw DriveError.noPlayURL("115: \(source) 未获取到下载地址")
+        guard let encResp = encryptedResponse else {
+            throw DriveError.noPlayURL("115: chrome/downurl 未找到加密响应")
+        }
+
+        // 3. RSA 解密响应
+        let decryptedBytes = try cipher.decrypt(encResp)
+        let decryptedStr = String(bytes: decryptedBytes, encoding: .utf8) ?? ""
+        print("[115] chrome/downurl 解密结果: \(decryptedStr.prefix(200))")
+
+        // 4. 从解密 JSON 提取下载 URL
+        guard let decJson = try? JSONSerialization.jsonObject(
+            with: Data(decryptedBytes)
+        ) as? [String: Any] else {
+            throw DriveError.noPlayURL("115: chrome/downurl 解密结果非 JSON")
+        }
+
+        // 格式: {"file_name":"...", "url": {"url":"https://cdn...", ...}}
+        if let urlDict = decJson["url"] as? [String: Any],
+           let url = urlDict["url"] as? String, url.hasPrefix("http") {
+            return (url, extraCookie)
+        }
+        // 兜底递归搜索
+        if let url = one15ExtractURL(from: decJson) {
+            return (url, extraCookie)
+        }
+
+        throw DriveError.noPlayURL("115: chrome/downurl 解密结果中未找到 URL")
+    }
+
+    // MARK: - 端点 3: files/video
+
+    /// 115 files/video 端点（aliproxy 使用的端点，不需要 RSA）
+    /// GET https://webapi.115.com/files/video?pick_code={pc}
+    private func one15TryFilesVideo(pickCode: String, cookie: String) async throws -> String {
+        var components = URLComponents(string: "https://webapi.115.com/files/video")!
+        components.queryItems = [URLQueryItem(name: "pick_code", value: pickCode)]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+        request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("115: files/video 响应非 JSON")
+        }
+
+        // video_url 字段包含下载直链
+        if let videoUrl = json["video_url"] as? String, videoUrl.hasPrefix("http") {
+            return videoUrl
+        }
+        // 兜底搜索
+        if let url = one15ExtractURL(from: json) {
+            return url
+        }
+
+        throw DriveError.noPlayURL("115: files/video 未返回 video_url")
+    }
+
+    // MARK: - 端点 4: share/downurl 兜底
+
+    /// 115 share/downurl 端点（aliproxy 使用的端点，不需要 RSA，用 fid 而非 pickcode）
+    /// GET https://proapi.115.com/app/share/downurl?share_code=x&receive_code=x&file_id=x
+    private func one15TryShareDownurl(
+        shareCode: String, receiveCode: String,
+        fileId: String, cookie: String
+    ) async throws -> String {
+        var components = URLComponents(string: "https://proapi.115.com/app/share/downurl")!
+        components.queryItems = [
+            URLQueryItem(name: "share_code", value: shareCode),
+            URLQueryItem(name: "receive_code", value: receiveCode),
+            URLQueryItem(name: "file_id", value: fileId),
+            URLQueryItem(name: "app_ver", value: "27.0.5.7")
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        request.setValue("https://115.com/", forHTTPHeaderField: "Referer")
+        request.setValue(Self.one15UA, forHTTPHeaderField: "User-Agent")
+
+        let (data, _) = try await session.data(for: request)
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("115: share/downurl 响应非 JSON")
+        }
+
+        guard json["state"] as? Bool == true else {
+            let msg = json["error"] as? String ?? "share/downurl state=false"
+            throw DriveError.noPlayURL("115: \(msg)")
+        }
+
+        // 响应格式: {state:true, data:{url:{url:"https://cdn...", ...}}}
+        if let dataDict = json["data"] as? [String: Any] {
+            if let urlDict = dataDict["url"] as? [String: Any],
+               let url = urlDict["url"] as? String, url.hasPrefix("http") {
+                return url
+            }
+            if let url = one15ExtractURL(from: dataDict) {
+                return url
+            }
+        }
+        if let url = one15ExtractURL(from: json) {
+            return url
+        }
+
+        throw DriveError.noPlayURL("115: share/downurl 未返回下载 URL")
     }
 
     private func one15ExtractURL(from value: Any) -> String? {
@@ -6517,8 +6731,9 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    /// 115 网盘统一 User-Agent（API 调用 + 播放代理均使用此 UA，确保 Cookie 与 UA 一致）
-    private static let one15UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    /// 115 网盘统一 User-Agent
+    /// 使用 115Browser UA（与 aliproxy 一致），115 API 对 UA 敏感
+    private static let one15UA = "Mozilla/5.0 115Browser/27.0.5.7"
 
     private func normalize115Cookie(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6611,11 +6826,25 @@ class CloudDriveManager: ObservableObject {
         self.log("[CloudDrive] [115] 解析文件: \(fileName)")
 
         let cookie = normalize115Cookie(cid)
-        let downloadURL = try await one15GetDownloadURL(pickCode: pickCode, cookie: cookie)
+        // 提取 shareCode/receiveCode 供兜底端点使用
+        let (shareCode, receiveCode) = (try? await extract115ShareCode(from: shareURL)) ?? ("", "")
+
+        let (downloadURL, extraCookie) = try await one15GetDownloadURL(
+            pickCode: pickCode,
+            cookie: cookie,
+            shareCode: shareCode,
+            receiveCode: receiveCode,
+            fileId: nil
+        )
+
+        var headers = one15PlaybackHeaders(cookie: cookie)
+        if let extra = extraCookie, !extra.isEmpty {
+            headers["Cookie"] = "\(cookie); \(extra)"
+        }
 
         return PlayResult(
             url: downloadURL,
-            headers: one15PlaybackHeaders(cookie: cookie),
+            headers: headers,
             driveType: .one15,
             source: fileName
         )
