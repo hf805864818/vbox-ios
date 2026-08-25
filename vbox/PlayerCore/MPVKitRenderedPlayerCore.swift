@@ -61,12 +61,14 @@ final class MPVKitRenderedPlayerCore {
         setFlag(MPVKitProperty.pause, false)
         state.isPlaying = true
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = true
     }
 
     func pause() {
         setFlag(MPVKitProperty.pause, true)
         state.isPlaying = false
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func stop() {
@@ -74,6 +76,7 @@ final class MPVKitRenderedPlayerCore {
         state.isPlaying = false
         state.currentTime = 0
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func seek(to seconds: Double) {

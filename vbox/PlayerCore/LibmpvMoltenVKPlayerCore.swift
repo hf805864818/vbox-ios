@@ -496,6 +496,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         state.isPlaying = true
         state.isEnded = false
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = true
     }
 
     func pause() {
@@ -505,6 +506,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         setFlag(MPVKitProperty.pause, true)
         state.isPlaying = false
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func stop() {
@@ -515,6 +517,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         state.isPlaying = false
         state.currentTime = 0
         emitState()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     func seek(to seconds: Double) {
