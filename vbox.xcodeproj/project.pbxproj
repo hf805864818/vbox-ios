@@ -112,7 +112,6 @@
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
-		A10150 /* M115Cipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10150 /* M115Cipher.swift */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
 		A10018 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* UpdateManager.swift */; };
@@ -413,7 +412,6 @@
 		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
-		B10150 /* M115Cipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M115Cipher.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
 		B10019 /* SpiderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpiderManager.swift; sourceTree = "<group>"; };
@@ -769,7 +767,7 @@
 				B10015 /* SubscriptionManager.swift */,
 				B10135 /* BaiduWebViewBridge.swift */,
 				B10016 /* CloudDriveManager.swift */,
-				B10150 /* M115Cipher.swift */,
+				B10150 /* DoubanCategoryBrowserView.swift */,
 				C1A000000000000000000001 /* CloudDriveSortManager.swift */,
 				B10024 /* LogVarDanmakuService.swift */,
 				B10026 /* DoubanService.swift */,
@@ -1099,7 +1097,7 @@
 				A10012 /* QuickJSBridge.m in Sources */,
 				A10026 /* SubscriptionManager.swift in Sources */,
 				A10014 /* CloudDriveManager.swift in Sources */,
-				A10150 /* M115Cipher.swift in Sources */,
+				A10150 /* DoubanCategoryBrowserView.swift in Sources */,
 				C1A000000000000000000003 /* CloudDriveSortManager.swift in Sources */,
 				A10017 /* SpiderManager.swift in Sources */,
 				A1F0C0010000000000000001 /* SpiderEngineFactory.swift in Sources */,
