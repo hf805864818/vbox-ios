@@ -10386,12 +10386,19 @@ struct RSABigInt {
     init(bigEndianBytes: [UInt8]) {
         var bytes = bigEndianBytes
         while bytes.count % 4 != 0 { bytes.insert(0, at: 0) }
-        words = stride(from: bytes.count - 4, through: 0, by: -4).map { i in
-            UInt32(bytes[i]) << 24
-                | UInt32(bytes[i + 1]) << 16
-                | UInt32(bytes[i + 2]) << 8
-                | UInt32(bytes[i + 3])
+        var result: [UInt32] = []
+        let count = bytes.count
+        var i = count - 4
+        while i >= 0 {
+            let b0 = UInt32(bytes[i])
+            let b1 = UInt32(bytes[i + 1])
+            let b2 = UInt32(bytes[i + 2])
+            let b3 = UInt32(bytes[i + 3])
+            let word = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
+            result.append(word)
+            i -= 4
         }
+        words = result
         normalize()
     }
 
@@ -10439,7 +10446,9 @@ struct RSABigInt {
             } else {
                 result.append(diff2)
             }
-            borrow = (overflow1 ? 1 : 0) + (overflow2 ? 1 : 0)
+            let b1: UInt32 = overflow1 ? 1 : 0
+            let b2: UInt32 = overflow2 ? 1 : 0
+            borrow = b1 + b2
         }
         return RSABigInt(words: result)
     }
@@ -10455,18 +10464,19 @@ struct RSABigInt {
             var carry: UInt64 = 0
             let ai = UInt64(words[i])
             for j in 0..<bLen {
-                let product = ai * UInt64(other.words[j])
-                    &+ UInt64(result[i + j])
-                    &+ carry
-                result[i + j] = UInt32(product & 0xFFFF_FFFF)
-                carry = product >> 32
+                let bj = UInt64(other.words[j])
+                let prod = ai * bj
+                let cur = UInt64(result[i + j])
+                let sum = prod &+ cur &+ carry
+                result[i + j] = UInt32(sum & 0xFFFF_FFFF)
+                carry = sum >> 32
             }
             // 传播进位
             var k = i + bLen
             while carry > 0 && k < result.count {
-                let sum = UInt64(result[k]) &+ carry
-                result[k] = UInt32(sum & 0xFFFF_FFFF)
-                carry = sum >> 32
+                let s = UInt64(result[k]) &+ carry
+                result[k] = UInt32(s & 0xFFFF_FFFF)
+                carry = s >> 32
                 k += 1
             }
         }
