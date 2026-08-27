@@ -8159,6 +8159,11 @@ struct LibmpvMoltenVKPlayerRepresentableV2: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        // 修复: 先同步移除所有子视图，避免 UIKit 在 CA commit 延迟清理时
+        // 触发 UISplitViewControllerPanelImpl → UINavigationController → UIViewController
+        // 级联 dealloc 时访问已释放的子视图控制器（Use-After-Free）
+        uiView.subviews.forEach { $0.removeFromSuperview() }
+        uiView.layoutIfNeeded()
         coordinator.stop()
     }
 

@@ -38,6 +38,7 @@ struct MDKPlayerRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        uiView.subviews.forEach { $0.removeFromSuperview() }
         coordinator.stop()
     }
 
