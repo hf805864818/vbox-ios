@@ -89,6 +89,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         if _renderView == nil {
             guard let ctx = eaglContext else {
                 // EAGLContext 创建失败（设备不支持或上下文冲突），返回空视图避免崩溃
+                // 注意: fallback GLKView 不设置 context，后续 attach() 会检查 eaglContext == nil 并提前返回
                 let fallback = GLKView()
                 fallback.backgroundColor = .black
                 _renderView = fallback
@@ -102,6 +103,12 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             _renderView = view
         }
         return _renderView!
+    }
+
+    /// 判断 renderView 是否拥有有效的 EAGLContext（非 fallback 视图）
+    private var renderViewHasContext: Bool {
+        guard let view = _renderView else { return false }
+        return view.context != nil
     }
 
     /// 画面拉伸模式观察者
@@ -430,6 +437,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         defer { attachLock.unlock() }
         guard !isShuttingDown else { return }
         containerView = view
+
+        // ★ 修复切换到 MPV 闪退（GPU 驱动崩溃）：
+        // 先清除可能残留的 OpenGL ES current context，避免从 IJKPlayer/MDK 切换过来时
+        // 旧引擎的 EAGLContext 仍为 current → 新 EAGLContext 创建时 GPU 驱动冲突。
+        if EAGLContext.current() != nil {
+            EAGLContext.setCurrent(nil)
+        }
+
         if renderView.superview !== view {
             renderView.removeFromSuperview()
             renderView.frame = view.bounds
@@ -443,8 +458,19 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             fail("EAGLContext创建失败")
             return
         }
-        renderView.context = ctx
-        renderView.delegate = self
+        // 修复: 如果 renderView 是无 context 的 fallback 视图，重建为带 context 的 GLKView
+        // 避免 GLKView 在创建后通过 .context 属性设置新 context 导致 GPU 驱动崩溃
+        if !renderViewHasContext {
+            _renderView?.removeFromSuperview()
+            _renderView = nil
+            // 强制重建 renderView，这次 eaglContext 已创建成功，会走带 context 的分支
+            _ = renderView
+            renderView.frame = view.bounds
+            renderView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            if renderView.superview !== view {
+                view.addSubview(renderView)
+            }
+        }
         EAGLContext.setCurrent(ctx)
 
         // 注册画面拉伸模式观察者（首次 attach 时注册）
@@ -463,6 +489,9 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         if mpv == nil {
             setupMPV()
         }
+
+        // setupMPV() 完成后设置 delegate，此时 renderContext 已创建
+        renderView.delegate = self
     }
 
     func load(url: URL, headers: [String: String] = [:], profile explicitProfile: PlaybackProfile? = nil) {
@@ -592,6 +621,15 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             self.renderContext = nil
         }
 
+        // ★ 修复: 确保 OpenGL ES 操作全部完成后再释放 EAGLContext
+        // glFinish() 阻塞直到 GPU 执行完所有排队命令，防止异步 GPU 操作在
+        // EAGLContext 释放后访问已释放的 GPU 资源导致驱动崩溃
+        if let ctx = _eaglContext {
+            EAGLContext.setCurrent(ctx)
+            glFinish()
+            EAGLContext.setCurrent(nil)
+        }
+
         // ★ 修复切换内核闪退（死锁）：不再用 eventQueue.sync 销毁 mpv。
         // 之前 eventQueue.sync 在持有 attachLock 时等待 eventQueue 空闲，而 eventQueue 里的
         // readEvents 任务又需要 attachLock 才能检查 isShuttingDown 并退出 → 死锁，
@@ -631,11 +669,13 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
     private func setupMPV() {
         guard mpv == nil, containerView != nil else { return }
         isShuttingDown = false
+        log("[MPV] 开始 mpv_create()...")
         guard let handle = mpv_create() else {
             fail("mpv_create失败")
             return
         }
         mpv = handle
+        log("[MPV] mpv_create() 成功，开始设置选项...")
 
         #if DEBUG
         check(mpv_request_log_messages(handle, "info"), context: "request_log_messages")
@@ -659,6 +699,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         setOption("subs-match-os-language", "yes")
         setOption("subs-fallback", "yes")
 
+        log("[MPV] 开始 mpv_initialize()...")
         let code = mpv_initialize(handle)
         guard code >= 0 else {
             fail("mpv_initialize失败：\(String(cString: mpv_error_string(code)))")
@@ -666,6 +707,7 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             mpv = nil
             return
         }
+        log("[MPV] mpv_initialize() 成功，开始创建 render context...")
 
         // 创建 mpv_render_context（OpenGL ES）
         guard createRenderContext(handle: handle) else {
@@ -700,6 +742,12 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
             return false
         }
         EAGLContext.setCurrent(ctx)
+        // 诊断: 确认 EAGLContext 已正确设置
+        guard EAGLContext.current() === ctx else {
+            fail("EAGLContext.setCurrent 失败，无法创建 render context")
+            return false
+        }
+        log("[MPV] 开始创建 render context（OpenGL ES）")
 
         var advancedControl: CInt = 1
         var initParams = mpv_opengl_init_params(
@@ -746,10 +794,14 @@ final class LibmpvMoltenVKPlayerCore: NSObject {
         attachLock.lock()
         defer { attachLock.unlock() }
         guard let renderContext, let eaglContext else { return }
+        // 修复: 跳过零尺寸视图的渲染，避免 GPU 驱动在无效 framebuffer 上操作导致崩溃
+        guard renderView.bounds.width > 0, renderView.bounds.height > 0 else { return }
         EAGLContext.setCurrent(eaglContext)
 
         var framebuffer: GLint = 0
         glGetIntegerv(GLenum(GL_FRAMEBUFFER_BINDING), &framebuffer)
+        // 修复: framebuffer 为 0 表示 GLKView drawable 尚未就绪，跳过渲染避免 GPU 崩溃
+        guard framebuffer > 0 else { return }
 
         let scale = renderView.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         let width = max(1, Int32(renderView.bounds.width * scale))
