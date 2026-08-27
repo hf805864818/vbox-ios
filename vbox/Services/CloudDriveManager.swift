@@ -1445,12 +1445,12 @@ class CloudDriveManager: ObservableObject {
             }
             print("[Ali] =========================")
 
-            // 方式1：直接从 dataObj 获取
-            if let refreshToken = dataObj["refresh_token"] as? String,
-               let accessToken = dataObj["access_token"] as? String {
-                let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
+            // 方式1：直接从 dataObj 获取（兼容 snake_case 和 camelCase）
+            if let rt = dataObj["refresh_token"] as? String ?? dataObj["refreshToken"] as? String,
+               let at = dataObj["access_token"] as? String ?? dataObj["accessToken"] as? String {
+                let nickName = dataObj["nick_name"] as? String ?? dataObj["nickName"] as? String ?? "阿里云盘用户"
                 print("[Ali] 直接获取 Token 成功")
-                return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+                return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
             }
             // 方式2：从 loginSucResultAction 获取（可能是 URL 格式）
             if let loginAction = dataObj["loginSucResultAction"] as? String,
@@ -1478,11 +1478,11 @@ class CloudDriveManager: ObservableObject {
                    let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
                     print("[Ali] bizExt 解码成功: \(json)")
                     if let pds = json["pds_login_result"] as? [String: Any],
-                       let refreshToken = pds["refresh_token"] as? String,
-                       let accessToken = pds["access_token"] as? String {
-                        let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+                       let rt = pds["refresh_token"] as? String ?? pds["refreshToken"] as? String,
+                       let at = pds["access_token"] as? String ?? pds["accessToken"] as? String {
+                        let nickName = pds["nick_name"] as? String ?? pds["nickName"] as? String ?? "阿里云盘用户"
                         print("[Ali] 从 bizExt 解析成功")
-                        return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+                        return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
                     }
                 }
             }
@@ -1511,11 +1511,11 @@ class CloudDriveManager: ObservableObject {
             return .failed(message: "阿里: 用户取消扫码")
         }
 
-        // 兜底：尝试直接获取 Token
-        if let refreshToken = dataObj["refresh_token"] as? String,
-           let accessToken = dataObj["access_token"] as? String {
-            let nickName = dataObj["nick_name"] as? String ?? "阿里云盘用户"
-            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+        // 兜底：尝试直接获取 Token（兼容 snake_case 和 camelCase）
+        if let rt = dataObj["refresh_token"] as? String ?? dataObj["refreshToken"] as? String,
+           let at = dataObj["access_token"] as? String ?? dataObj["accessToken"] as? String {
+            let nickName = dataObj["nick_name"] as? String ?? dataObj["nickName"] as? String ?? "阿里云盘用户"
+            return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
         }
 
         return .pending
@@ -1530,22 +1530,22 @@ class CloudDriveManager: ObservableObject {
         if let data = cleaned.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let pds = json["pds_login_result"] as? [String: Any],
-           let refreshToken = pds["refresh_token"] as? String,
-           let accessToken = pds["access_token"] as? String {
-            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+           let rt = pds["refresh_token"] as? String ?? pds["refreshToken"] as? String,
+           let at = pds["access_token"] as? String ?? pds["accessToken"] as? String {
+            let nickName = pds["nick_name"] as? String ?? pds["nickName"] as? String ?? "阿里云盘用户"
             print("[Ali] 解析成功(直接UTF-8)")
-            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
         }
 
         // 尝试2：base64 解码
         if let decodedData = Data(base64Encoded: cleaned),
            let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
            let pds = json["pds_login_result"] as? [String: Any],
-           let refreshToken = pds["refresh_token"] as? String,
-           let accessToken = pds["access_token"] as? String {
-            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+           let rt = pds["refresh_token"] as? String ?? pds["refreshToken"] as? String,
+           let at = pds["access_token"] as? String ?? pds["accessToken"] as? String {
+            let nickName = pds["nick_name"] as? String ?? pds["nickName"] as? String ?? "阿里云盘用户"
             print("[Ali] 解析成功(base64)")
-            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
         }
 
         // 尝试3：URL 解码
@@ -1553,11 +1553,11 @@ class CloudDriveManager: ObservableObject {
            let urlData = urlDecoded.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: urlData) as? [String: Any],
            let pds = json["pds_login_result"] as? [String: Any],
-           let refreshToken = pds["refresh_token"] as? String,
-           let accessToken = pds["access_token"] as? String {
-            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+           let rt = pds["refresh_token"] as? String ?? pds["refreshToken"] as? String,
+           let at = pds["access_token"] as? String ?? pds["accessToken"] as? String {
+            let nickName = pds["nick_name"] as? String ?? pds["nickName"] as? String ?? "阿里云盘用户"
             print("[Ali] 解析成功(URL解码)")
-            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
         }
 
         // 尝试4：修复常见字符错误（l->O, j->j, p->o, 7->i, etc）
@@ -1565,11 +1565,11 @@ class CloudDriveManager: ObservableObject {
         if let decodedData = Data(base64Encoded: fixed),
            let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any],
            let pds = json["pds_login_result"] as? [String: Any],
-           let refreshToken = pds["refresh_token"] as? String,
-           let accessToken = pds["access_token"] as? String {
-            let nickName = pds["nick_name"] as? String ?? "阿里云盘用户"
+           let rt = pds["refresh_token"] as? String ?? pds["refreshToken"] as? String,
+           let at = pds["access_token"] as? String ?? pds["accessToken"] as? String {
+            let nickName = pds["nick_name"] as? String ?? pds["nickName"] as? String ?? "阿里云盘用户"
             print("[Ali] 解析成功(字符修复base64)")
-            return .confirmed(refreshToken: refreshToken, accessToken: accessToken, nickName: nickName)
+            return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
         }
 
         print("[Ali] 所有解析方式均失败")
