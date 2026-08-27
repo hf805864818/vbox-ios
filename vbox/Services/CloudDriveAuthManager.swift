@@ -819,7 +819,10 @@ final class CloudDriveAuthManager: ObservableObject {
             statusMessage: "UC 扫码登录成功",
             extra: [:]
         )
-        saveCredential(credential)
+        // 修复: 同步 syncLegacyToken 会触发 CloudDriveManager.addOrReplaceToken 修改 @Published savedTokens，
+        // 导致 CloudAuthCenterView 深度嵌套 body 在同一调用栈内同步求值 → 栈溢出崩溃 (EXC_BAD_ACCESS/SIGBUS)。
+        // 百度登录同样使用 syncLegacyToken: false 规避此问题。
+        saveCredential(credential, syncLegacyToken: false)
         print("[VBox UC Exchange] ✅ 已保存 UC Cookie (source: \(source)): \(cookie)")
     }
 
