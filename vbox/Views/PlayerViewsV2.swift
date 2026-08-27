@@ -1281,28 +1281,49 @@ class PlayerState: ObservableObject {
 
         // 如果正在播放网盘资源（夸克/百度），切换内核后立即用新引擎重新播放当前资源
         if oldPreference != preference, isPlaying || compatibilityURL != nil || player != nil {
-            // ★ 修复切换内核闪退：使用 deferred engine switch。
-            // 直接修改 compatibilityEngineName 会触发 SwiftUI 立即重建视图（dismantle 旧内核 +
-            // attach 新内核在同一事务中），导致 Metal/OpenGL ES 上下文竞态 → GPU driver 崩溃。
-            // 改为：等一个 runloop tick 后再更新引擎名，让 SwiftUI 先完成旧内核的 dismantle，
-            // 再在新事务中创建新内核，避免并发 GPU 上下文冲突。
+            // ★ 修复切换内核闪退（GPU 驱动崩溃、无崩溃日志）：
+            // 之前的方案只改 compatibilityEngineName 但保留 compatibilityURL，
+            // SwiftUI 会在同一个视图更新周期内同时 dismantle 旧内核 + create 新内核，
+            // 导致旧内核 GPU 资源（Metal device / OpenGL ES context）尚未完全释放时
+            // 新内核就创建 EAGLContext → GPU 驱动冲突 → 进程被系统杀死（无 crash log）。
+            //
+            // 正确做法分三步：
+            // 1. 先清空 compatibilityURL → SwiftUI 只 dismantle 旧内核，不创建新内核
+            // 2. 等一个 runloop tick + 额外延迟，确保旧内核 GPU 资源完全释放
+            // 3. 再同时设置新引擎名 + URL → SwiftUI 创建新内核，此时 GPU 已干净
             currentTask?.cancel()
             currentTask = Task { [weak self] in
                 guard let self else { return }
-                // 第 1 步：仅更新引擎名（不设置 URL），触发 SwiftUI 重建视图
-                // 此时 compatibilityURL 未变，SwiftUI 只会拆解旧内核视图（无 attach 新内核）
+                let oldURLString = self.compatibilityURL?.absoluteString ?? ""
                 let engineName = self.preferredCompatibilityEngineName(
                     for: self.compatibilityURL
                 ) ?? "VLC"
+
+                // 第 1 步：清空 compatibilityURL，触发 SwiftUI 拆解旧内核视图（不创建新内核）
                 await MainActor.run {
-                    self.compatibilityEngineName = engineName
+                    self.compatibilityURL = nil
                 }
-                // 等待第 1 批 SwiftUI 更新完成（旧内核 teardown 完成）
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-                // 第 2 步：设置新 URL（引擎名已是新内核），触发新一批更新
-                // 此时旧内核已完全 teardown，新内核 attach 安全
+                // 等待 SwiftUI 完成 dismantle + GPU 驱动清理
+                // dismantleUIView → stop() → teardown() 是同步调用，但 GPU 资源释放可能延迟
+                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+
+                // 第 2 步：设置新引擎名 + URL，触发 SwiftUI 创建新内核视图
+                // 此时旧内核 GPU 资源已完全释放，新内核 attach 安全
                 await MainActor.run {
-                    self.compatibilityURL = URL(string: self.compatibilityURL?.absoluteString ?? "")
+                    guard !Task.isCancelled else { return }
+                    self.compatibilityEngineName = engineName
+                    if let url = URL(string: oldURLString) {
+                        self.compatibilityURL = url
+                    }
+                    self.loadingMessage = "正在切换 \(engineName)..."
+                    self.isLoading = true
+                }
+                // 等待新内核完成初始化
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+
+                // 第 3 步：用新引擎重新播放当前资源
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     self.restartCurrentResourceWithNewEngine()
                 }
             }
