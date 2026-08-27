@@ -3641,6 +3641,8 @@ class PlayerState: ObservableObject {
                 currentPiPStrategy = compatibilityPiPStrategy(engineName: engineName, url: urlObj)
                 detectVideoQuality(from: urlObj.absoluteString)
                 isPlaying = true
+                // 修复: 显式禁用自动锁屏，防止 isPlaying 初始值为 true 时 .onChange 不触发
+                UIApplication.shared.isIdleTimerDisabled = true
                 isLoading = false
                 isSwitchingEpisode = false
                 stopPlaybackWatchdog()
@@ -3824,6 +3826,8 @@ class PlayerState: ObservableObject {
             player = p
             currentPiPStrategy = .system
             isPlaying = true
+            // 修复: 显式禁用自动锁屏（网盘 AVPlayer 路径）
+            UIApplication.shared.isIdleTimerDisabled = true
             // 修复竞态：await MainActor.run 挂起期间，本地代理响应极快可能导致
             // playerItem.status 已变为 .readyToPlay，观察者已在主队列回调中设置了 isLoading=false。
             // 此处若盲目覆盖为 true，status 不再变化，观察者不会再次触发，界面永久卡在"正在缓冲首帧..."。
@@ -4174,6 +4178,8 @@ class PlayerState: ObservableObject {
         playbackEngineMode = .compatibility
         compatibilityHint = reason
         isPlaying = true
+        // 修复: 显式禁用自动锁屏（百度回退兼容内核路径）
+        UIApplication.shared.isIdleTimerDisabled = true
         isLoading = false
         isSwitchingEpisode = false
         loadError = nil
@@ -4201,6 +4207,8 @@ class PlayerState: ObservableObject {
         playbackEngineMode = .compatibility
         compatibilityHint = "系统内核无视频画面"
         isPlaying = true
+        // 修复: 显式禁用自动锁屏（切 MPV 路径，MPV play() 也会设置但提前设置更安全）
+        UIApplication.shared.isIdleTimerDisabled = true
         isLoading = true
         isSwitchingEpisode = false
         loadingMessage = "正在切换 MPV-MoltenVK..."
@@ -5570,6 +5578,8 @@ class PlayerState: ObservableObject {
             playbackEngineMode = .compatibility
             compatibilityHint = "MKV / 复杂封装"
             isPlaying = true
+            // 修复: 显式禁用自动锁屏（直链 MPV 分流路径）
+            UIApplication.shared.isIdleTimerDisabled = true
             isLoading = true
             isSwitchingEpisode = false
             loadingMessage = "正在启动 MPV-MoltenVK..."
@@ -5774,6 +5784,9 @@ class PlayerState: ObservableObject {
         self.player = p
         self.currentPiPStrategy = .system
         self.isPlaying = true
+        // 修复: 显式禁用自动锁屏（普通/蜘蛛资源 AVPlayer 路径）
+        // isPlaying 初始值为 true，设置 true 不触发 .onChange，须显式设置
+        UIApplication.shared.isIdleTimerDisabled = true
         // 修复竞态：await/async 期间 playerItem.status 可能已变为 .readyToPlay，
         // 观察者已在主队列回调中设置了 isLoading=false。
         // 此处若盲目覆盖为 true，status 不再变化，观察者不会再次触发，
@@ -5929,6 +5942,8 @@ class PlayerState: ObservableObject {
         compatibilityHeaders = [:]
         currentPiPStrategy = .system
         isPlaying = false
+        // 修复: 显式恢复自动锁屏（失败路径，确保不依赖 .onChange）
+        UIApplication.shared.isIdleTimerDisabled = false
         isSeeking = false
         showControls = false
         showSettings = false
