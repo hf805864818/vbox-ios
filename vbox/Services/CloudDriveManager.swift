@@ -7963,7 +7963,7 @@ class CloudDriveManager: ObservableObject {
         cred.updatedAt = Date()
         cred.lastCheckedAt = Date()
         cred.state = .valid
-        CloudDriveAuthManager.shared.saveCredential(cred, syncLegacyToken: true)
+        CloudDriveAuthManager.shared.saveCredential(cred, syncLegacyToken: false)
         self.log("[CloudDrive] ✅ UC Cookie 已自动刷新并持久化")
     }
 
