@@ -7953,6 +7953,20 @@ class CloudDriveManager: ObservableObject {
 
     // MARK: - UC 网盘
 
+    /// 将刷新后的 Cookie 持久化回 UC 凭证，防止下次请求仍用过期 Cookie
+    private func ucPersistRefreshedCookie(_ refreshedCookie: String) {
+        guard !refreshedCookie.isEmpty,
+              var cred = CloudDriveAuthManager.shared.credential(for: .uc) else { return }
+        // 仅当 Cookie 确实变化时才写入，避免无谓的磁盘 I/O
+        guard cred.cookie != refreshedCookie else { return }
+        cred.cookie = refreshedCookie
+        cred.updatedAt = Date()
+        cred.lastCheckedAt = Date()
+        cred.state = .valid
+        CloudDriveAuthManager.shared.saveCredential(cred, syncLegacyToken: true)
+        self.log("[CloudDrive] ✅ UC Cookie 已自动刷新并持久化")
+    }
+
     func resolveUCPlayURL(shareURL: String, cookie: String) async throws -> PlayResult {
         print("[UC] 开始解析: \(shareURL)")
         let (pwdId, passcode) = ucExtractShareInfo(from: shareURL)
@@ -7961,6 +7975,7 @@ class CloudDriveManager: ObservableObject {
         var authCookie = cookie
         let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
         authCookie = folder.cookie
+        ucPersistRefreshedCookie(authCookie)
         let stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
 
         // 尝试获取文件列表，stoken 失效时自动刷新
@@ -8087,6 +8102,7 @@ class CloudDriveManager: ObservableObject {
         var authCookie = cookie
         let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
         authCookie = folder.cookie
+        ucPersistRefreshedCookie(authCookie)
         var stoken = try await ucGetShareToken(pwdId: pwdId, passcode: passcode, cookie: authCookie)
 
         // 获取文件列表，stoken 失效时刷新重试一次
@@ -8526,6 +8542,7 @@ class CloudDriveManager: ObservableObject {
         do {
             let folder = try await ucEnsureFolderWithCookie(cookie: authCookie)
             authCookie = folder.cookie
+            ucPersistRefreshedCookie(authCookie)
         } catch {
             // Cookie 刷新失败（可能核心 session 已过期），继续用原始 Cookie 尝试
             self.log("[CloudDrive] ⚠️ UC ensureFolder 失败，用原始 Cookie 继续: \(error.localizedDescription)")
