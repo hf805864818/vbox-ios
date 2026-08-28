@@ -2347,7 +2347,8 @@ class CloudDriveManager: ObservableObject {
         let finalURL = GoProxyManager.shared.registerQuarkStream(
             upstreamURL: playURL,
             cookie: authCookie,
-            deviceID: quarkDeviceID
+            deviceID: quarkDeviceID,
+            source: source
         )
         // 代理已处理鉴权头注入；降级（代理未启动）时保留完整 headers
         let playbackHeaders: [String: String]
@@ -2365,7 +2366,8 @@ class CloudDriveManager: ObservableObject {
                 let fbProxyURL = GoProxyManager.shared.registerQuarkStream(
                     upstreamURL: fallbackURL,
                     cookie: authCookie,
-                    deviceID: quarkDeviceID
+                    deviceID: quarkDeviceID,
+                    source: fallbackSource ?? ""
                 )
                 _ = fbProxyURL
                 fallbackHeaders = [:]

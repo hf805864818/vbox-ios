@@ -99,11 +99,13 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         // [优化3] m3u8 走 VT 硬解（H264 原生支持），仅 download_url 降级 FFmpeg 软解
         // 原因：m3u8 转码流为 H264，VT 硬解 CPU 占用降 80%，不再卡首帧
         let urlString = route.url.absoluteString.lowercased()
+        // m3u8 流检测：原始 m3u8 URL 或 Go 代理标记为 quark-m3u8 的 URL
         let isQuarkM3U8 = urlString.contains("media.m3u8")
             || urlString.contains("drive.quark.cn/qv/")
-            || urlString.contains("127.0.0.1") && urlString.contains("/play?id=")  // 走 Go 代理的 m3u8
-        let isQuarkDownload = urlString.contains("dl-")
-            && urlString.contains("drive.quark.cn")
+            || (urlString.contains("127.0.0.1") && urlString.contains("quark-m3u8"))
+        // download_url 直链检测：原始 dl- 域名或 Go 代理标记为 quark-stream 的 URL
+        let isQuarkDownload = (urlString.contains("dl-") && urlString.contains("drive.quark.cn"))
+            || (urlString.contains("127.0.0.1") && urlString.contains("quark-stream"))
         if isQuarkM3U8 {
             // m3u8 H264 走 VT 硬解，FFmpeg 兜底
             player.videoDecoders = ["VT", "FFmpeg"]
