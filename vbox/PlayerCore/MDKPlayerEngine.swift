@@ -122,6 +122,19 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.videoDecoders = ["VT", "FFmpeg"]
         }
 
+        // [优化6] 缓冲预热：对齐 iBox 的 SetBuffer/cacheZone 机制
+        // 预加载更多数据后再开始播放，减少首帧后的卡顿
+        if isQuarkM3U8 || isQuarkDownload {
+            // 增大 I/O 缓冲区，减少频繁的小数据包回传
+            player.setProperty(name: "avio.buffer_size", value: "262144") // 256KB
+            // HLS 预读缓冲：提前读取更多分片数据
+            player.setProperty(name: "readahead", value: "8.0") // 预读 8 秒
+            // 降低首帧延迟（尽快出画面）
+            player.setProperty(name: "avformat.analyzeduration", value: "1000000") // 1s
+            // 允许在缓冲不足时降低帧率而非卡死
+            player.setProperty(name: "framedrop", value: "1")
+        }
+
         // 绑定状态回调
         player.onStateChanged { [weak self] newState in
             guard let self else { return }

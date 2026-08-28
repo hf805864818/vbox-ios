@@ -92,3 +92,18 @@ func resolveURL(raw string, baseURL string) string {
 	}
 	return base.ResolveReference(u).String()
 }
+
+// extractSegmentURLs 从 m3u8 内容中提取所有分片的绝对 URL（按顺序）
+func extractSegmentURLs(content string, baseURL string) []string {
+	lines := strings.Split(content, "\n")
+	var urls []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		absoluteURL := resolveURL(trimmed, baseURL)
+		urls = append(urls, absoluteURL)
+	}
+	return urls
+}
