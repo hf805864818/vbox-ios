@@ -25,7 +25,9 @@ unless target
 end
 
 # 检查是否已链接
-existing = target.frameworks_build_phases.files.find do |f|
+# 使用 frameworks_build_phase (单数) 而非 frameworks_build_phases (复数)
+# 单数版本在 phase 不存在时自动创建，复数版本返回 nil 会导致 NoMethodError
+existing = target.frameworks_build_phase.files.find do |f|
   f.display_name.include?('Quarkproxy')
 end
 
