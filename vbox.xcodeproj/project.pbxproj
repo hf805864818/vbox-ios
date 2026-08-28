@@ -62,6 +62,7 @@
 		53873C0B408C557A4B2E8906 /* Libavdevice.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 39F2CEFFD0ECBE055433E9B6 /* Libavdevice.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		53A4EEAAFB85002511F0912D /* Libuchardet.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 06A354B9169FFA77009AD1AF /* Libuchardet.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5C7128A19FE75B033241A8CC /* IOSurface.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CFF33E1BB4E9046F17208D3E /* IOSurface.framework */; };
+		5C8054E12A423104F7A17FDC /* Quarkproxy.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7028D056D191B25749035E8F /* Quarkproxy.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		5CCD32EF8BCC5461BECAB1DA /* MDTVService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AEA5E3D59D5893B8304746 /* MDTVService.swift */; };
 		5D994F6D0D7A4F6A8CE6FB66 /* DuckVideoService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D62F6461A137466FAE5F133B /* DuckVideoService.swift */; };
 		62663452B1AB391EC8909810 /* Libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -211,6 +212,7 @@
 		AABBCC001122334455667724 /* WelfareJSSpiderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667714 /* WelfareJSSpiderService.swift */; };
 		AABBCC001122334455667725 /* WelfarePythonSpiderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667715 /* WelfarePythonSpiderService.swift */; };
 		AABBCC001122334455667726 /* WelfareResultMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC001122334455667716 /* WelfareResultMapper.swift */; };
+		ABABD2C4F0E0072E46AA20CF /* GoProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7EBD2C90B3F6CBF65CAB8DB /* GoProxyManager.swift */; };
 		ABB13BF2925FA912EC7FAB88 /* MPVKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B13001 /* MPVKit.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		AC4348006826F8DFDB9F42A0 /* WelfareDomainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC91A90E8DDD26C7B6E001A /* WelfareDomainStore.swift */; };
 		B60A16AF3AE059A789479BAF /* MDTVViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C15E736105CF390FD2313 /* MDTVViews.swift */; };
@@ -358,6 +360,7 @@
 		619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = MoltenVK.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework; sourceTree = SOURCE_ROOT; };
 		62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswscale.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswscale.xcframework; sourceTree = SOURCE_ROOT; };
 		67242B53662EFB908D1D24B3 /* IJKPlayerRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IJKPlayerRepresentable.swift; sourceTree = "<group>"; };
+		7028D056D191B25749035E8F /* Quarkproxy.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; name = Quarkproxy.xcframework; path = ../Quarkproxy.xcframework; sourceTree = "<group>"; };
 		73C8EB5BB682575EC87A171A /* PythonSpiderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonSpiderEngine.swift; sourceTree = "<group>"; };
 		789ABCDEF0123456789012345 /* KanliaoHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanliaoHomeView.swift; sourceTree = "<group>"; };
 		7B95E909348334896A68F812 /* PythonBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonBridge.h; sourceTree = "<group>"; };
@@ -542,6 +545,7 @@
 		F6789ABCDEF0123456789012 /* KanliaoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanliaoService.swift; sourceTree = "<group>"; };
 		F73C15E736105CF390FD2313 /* MDTVViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVViews.swift; sourceTree = "<group>"; };
 		F7C31058EC526C283B217997 /* libiconv.tbd */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
+		F7EBD2C90B3F6CBF65CAB8DB /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		F804EDDCDA642682760842DD /* Libavutil.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavutil.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavutil.xcframework; sourceTree = SOURCE_ROOT; };
 		F9F633EFD2AD36D0E63D84ED /* Libavcodec.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libavcodec.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libavcodec.xcframework; sourceTree = SOURCE_ROOT; };
 		FC18A246CE82EAF037E92E10 /* WelfarePlatformRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfarePlatformRouter.swift; sourceTree = "<group>"; };
@@ -606,6 +610,7 @@
 				2B5C387D5552BAB2763DD550 /* libbz2.tbd in Frameworks */,
 				2E8DE5C3A7C5B07386AA28A8 /* libiconv.tbd in Frameworks */,
 				ED466A8C3381025D33D7B279 /* libc++.tbd in Frameworks */,
+				5C8054E12A423104F7A17FDC /* Quarkproxy.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -685,6 +690,7 @@
 			isa = PBXGroup;
 			children = (
 				20E787CD083E6D335AF26410 /* Libraries */,
+				BF326527AA6AFDB2B9091D44 /* Bridge */,
 			);
 			name = vbox;
 			sourceTree = "<group>";
@@ -711,6 +717,15 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		BF326527AA6AFDB2B9091D44 /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				F7EBD2C90B3F6CBF65CAB8DB /* GoProxyManager.swift */,
+			);
+			name = Bridge;
+			path = Bridge;
+			sourceTree = "<group>";
+		};
 		G10001 = {
 			isa = PBXGroup;
 			children = (
@@ -725,6 +740,7 @@
 				B10014 /* Info.plist */,
 				65F7DF53AC7BE65114CFABCD /* vbox */,
 				835175C81EFA00EEEAF57EC4 /* Frameworks */,
+				7028D056D191B25749035E8F /* Quarkproxy.xcframework */,
 			);
 			path = vbox;
 			sourceTree = "<group>";
@@ -1197,6 +1213,7 @@
 				4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */,
 				12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */,
 				673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */,
+				ABABD2C4F0E0072E46AA20CF /* GoProxyManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
