@@ -617,15 +617,13 @@ struct VideoPlayerViewV2: View {
                                 playerState.exportDebugLogs()
                             }) {
                                 Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(.white.opacity(0.85))
-                                    .frame(width: 18, height: 18)
-                                    .background(Color.white.opacity(0.15))
-                                    .cornerRadius(4)
+                                    .frame(width: 20, height: 20)
                             }
                             .buttonStyle(.plain)
-                            .padding(4)
-                            .help("导出播放日志")
+                            .padding(6)
+                            .zIndex(1)
                         }
 
                         // 右侧锁定按钮预留区
