@@ -96,13 +96,19 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.setProperty(name: "http-header-fields", value: headerFields)
         }
 
-        // iOS 推荐解码器顺序：VT（默认即 0-copy）、FFmpeg 软解兜底。
-        // 不再强制 copy=0，让 VT 自己根据视频格式选择最优输出，避免网盘资源因格式协商失败出现洋红/偏色。
+        // [优化3] m3u8 走 VT 硬解（H264 原生支持），仅 download_url 降级 FFmpeg 软解
+        // 原因：m3u8 转码流为 H264，VT 硬解 CPU 占用降 80%，不再卡首帧
         let urlString = route.url.absoluteString.lowercased()
-        let isQuark = urlString.contains("quark-stream")
-        if isQuark {
-            // 夸克 download_url 实测在 VT 0-copy 硬解下容易卡在首帧/无法起播，
-            // 强制 FFmpeg 软解并放宽网络/探测参数。
+        let isQuarkM3U8 = urlString.contains("media.m3u8")
+            || urlString.contains("drive.quark.cn/qv/")
+            || urlString.contains("127.0.0.1") && urlString.contains("/play?id=")  // 走 Go 代理的 m3u8
+        let isQuarkDownload = urlString.contains("dl-")
+            && urlString.contains("drive.quark.cn")
+        if isQuarkM3U8 {
+            // m3u8 H264 走 VT 硬解，FFmpeg 兜底
+            player.videoDecoders = ["VT", "FFmpeg"]
+        } else if isQuarkDownload {
+            // download_url (HEVC MKV) 仍用 FFmpeg 软解 + 网络放宽
             player.videoDecoders = ["FFmpeg"]
             player.setProperty(name: "avformat.fflags", value: "+fastseek")
             player.setProperty(name: "avformat.reconnect", value: "1")

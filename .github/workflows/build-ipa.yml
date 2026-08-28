@@ -33,6 +33,49 @@ jobs:
           done
           xcodebuild -version
 
+      - name: 🐹 Setup Go + gomobile + 构建 Quarkproxy.xcframework
+        run: |
+          set -euo pipefail
+          # 安装 Go
+          if ! command -v go &>/dev/null; then
+            curl -sL https://go.dev/dl/go1.22.5.darwin-amd64.tar.gz -o /tmp/go.tar.gz
+            sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+            rm /tmp/go.tar.gz
+            echo "/usr/local/go/bin" >> $GITHUB_PATH
+          fi
+          export PATH="/usr/local/go/bin:$PATH"
+          go version
+
+          # 安装 gomobile
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init || true
+
+          # 构建 Quarkproxy.xcframework（纯标准库，零外部依赖）
+          cd go-proxy
+          gomobile bind -target=ios/arm64 -o ../Quarkproxy.xcframework . 2>&1 || {
+            echo "⚠️ gomobile bind 失败，尝试仅 arm64"
+            gomobile bind -target=ios -o ../Quarkproxy.xcframework . 2>&1
+          }
+          cd ..
+          if [ -d Quarkproxy.xcframework ]; then
+            echo "✅ Quarkproxy.xcframework 构建成功: $(du -sh Quarkproxy.xcframework | cut -f1)"
+          else
+            echo "⚠️ Quarkproxy.xcframework 构建失败，将跳过 Go 代理"
+          fi
+
+      - name: 🔗 注入 Quarkproxy.xcframework + GoProxyManager.swift 到工程
+        run: |
+          gem install xcodeproj --no-document 2>/dev/null || true
+          ruby scripts/configure_quarkproxy_link.rb
+
+      - name: 📝 添加 NSAllowsLocalNetworking 到 Info.plist
+        run: |
+          # 允许 AVPlayer 访问 127.0.0.1 本地代理
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" vbox/Info.plist 2>/dev/null || true
+          echo "✅ Info.plist: NSAllowsLocalNetworking 已添加"
+
       - name: 🐍 Fetch CPython pre-built artifacts (Release 附件加速)
         id: python_cache
         continue-on-error: true

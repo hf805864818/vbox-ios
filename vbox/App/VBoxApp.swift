@@ -18,6 +18,8 @@ struct VBoxApp: App {
         loadAliyunPlayerIfNeeded()
         DoubanImageProxyServer.shared.start()
         RemuxProxyServer.shared.start()  // 转封装代理（PiP 用，端口 18081）
+        // [优化7] 启动 Go HTTP/2 代理引擎（夸克播放加速）
+        GoProxyManager.shared.start()
         // 触发数据库初始化（建表 + 数据迁移）
         let _ = DatabaseManager.shared
     }
