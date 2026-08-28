@@ -4040,6 +4040,19 @@ class PlayerState: ObservableObject {
 
     private func probeM3U8IfNeeded(url: URL, headers: [String: String]) async -> M3U8PlaylistKind? {
         guard isM3U8URL(url) else { return nil }
+
+        // [优化] 本地代理 m3u8 流直接跳过探测，避免 1.5 秒超时拖慢首帧
+        // 夸克/百度等 Go 代理 m3u8 流的类型是已知的，不需要 HTTP 探测
+        let urlString = url.absoluteString.lowercased()
+        if urlString.contains("127.0.0.1") && urlString.contains("quark-m3u8") {
+            log("[EngineResolver] quark-m3u8 本地代理，跳过探测（TS 分片）")
+            return .ts
+        }
+        if urlString.contains("127.0.0.1") && urlString.contains("baidu-m3u8") {
+            log("[EngineResolver] baidu-m3u8 本地代理，跳过探测（TS 分片）")
+            return .ts
+        }
+
         let key = url.absoluteString
         if let cached = m3u8ProbeCache[key], cached.expiresAt > Date() {
             log("[EngineResolver] m3u8探测缓存命中：\(cached.kind.rawValue)")
