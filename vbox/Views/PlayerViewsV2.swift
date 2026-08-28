@@ -591,24 +591,42 @@ struct VideoPlayerViewV2: View {
                         // 左侧返回按钮预留区
                         Spacer().frame(width: 96)
 
-                        ScrollView(showsIndicators: true) {
-                            LazyVStack(alignment: .leading, spacing: 2) {
-                                ForEach(Array(playerState.debugLogs.enumerated()), id: \.offset) { idx, log in
-                                    Text(log)
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundColor(.green.opacity(0.9))
-                                        .id(idx)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                        ZStack(alignment: .topTrailing) {
+                            ScrollView(showsIndicators: true) {
+                                LazyVStack(alignment: .leading, spacing: 2) {
+                                    ForEach(Array(playerState.debugLogs.enumerated()), id: \.offset) { idx, log in
+                                        Text(log)
+                                            .font(.system(size: 9, design: .monospaced))
+                                            .foregroundColor(.green.opacity(0.9))
+                                            .id(idx)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
                                 }
+                                .padding(6)
+                                .padding(.trailing, 22) // 右侧留出按钮空间
                             }
-                            .padding(6)
+                            .frame(maxWidth: 560)
+                            .frame(height: 126)
+                            .background(Color.black.opacity(0.75))
+                            .cornerRadius(6)
+                            .contentShape(Rectangle())
+                            .allowsHitTesting(true)
+
+                            // 右上角导出按钮
+                            Button(action: {
+                                playerState.exportDebugLogs()
+                            }) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.85))
+                                    .frame(width: 18, height: 18)
+                                    .background(Color.white.opacity(0.15))
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(4)
+                            .help("导出播放日志")
                         }
-                        .frame(maxWidth: 560)
-                        .frame(height: 126)
-                        .background(Color.black.opacity(0.75))
-                        .cornerRadius(6)
-                        .contentShape(Rectangle())
-                        .allowsHitTesting(true)
 
                         // 右侧锁定按钮预留区
                         Spacer().frame(width: 96)
@@ -2220,6 +2238,42 @@ class PlayerState: ObservableObject {
                     self?.debugLogs.removeFirst(100)
                 }
             }
+        }
+    }
+
+    /// 导出调试日志到文件并弹出分享面板
+    func exportDebugLogs() {
+        let content = debugLogs.joined(separator: "\n")
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        let fileName = "playback_debug_\(dateFormatter.string(from: Date())).log"
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent(fileName)
+
+        do {
+            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            log("[PlayerV2] 日志已导出: \(fileName) (\(content.count) bytes)")
+
+            // 弹出系统分享面板
+            let activityVC = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+            activityVC.completionWithItemsHandler = { _, _, _, _ in
+                // 分享完成后清理临时文件
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                // iPad 上需要设置 popover 源
+                if let popover = activityVC.popoverPresentationController {
+                    popover.sourceView = rootVC.view
+                    popover.sourceRect = CGRect(x: rootVC.view.bounds.midX, y: rootVC.view.bounds.midY, width: 0, height: 0)
+                    popover.permittedArrowDirections = []
+                }
+                rootVC.present(activityVC, animated: true)
+            }
+        } catch {
+            log("[PlayerV2] 日志导出失败: \(error.localizedDescription)")
         }
     }
 
