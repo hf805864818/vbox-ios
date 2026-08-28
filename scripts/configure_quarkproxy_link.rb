@@ -40,11 +40,8 @@ else
   end
 
   # 添加到 Frameworks build phase (Embed & Sign)
-  build_file = framework_ref.build_files.new(
-    target: target,
-    file_ref: framework_ref
-  )
-  target.frameworks_build_phase.add_file_reference(framework_ref)
+  # fix: 使用正确的 xcodeproj API - new_file_reference 一步完成创建和添加
+  build_file = target.frameworks_build_phase.new_file_reference(framework_ref)
   # 设置为 Embed & Sign
   build_file.settings = { 'ATTRIBUTES' => ['CodeSignOnCopy', 'RemoveHeadersOnCopy'] } if build_file.respond_to?(:settings=)
 
