@@ -1176,7 +1176,9 @@ class PlayerState: ObservableObject {
         guard isMDKBuildAvailable else { return false }
         guard let url else { return false }
         let text = url.absoluteString.lowercased()
-        // 夸克直链优先 MPV，不再走 MDK
+        // 夸克 Go 代理流（m3u8 转码 + download_url 直链）优先 MDK
+        // MDK 已针对夸克流配置 VT 硬解(m3u8)/FFmpeg软解(download_url) + 缓冲预热
+        if text.contains("quark-m3u8") || text.contains("quark-stream") { return true }
         if text.contains("baidu-stream") { return true }
         if text.contains(".mkv") || text.contains("mkv") { return true }
         return false
@@ -3549,9 +3551,10 @@ class PlayerState: ObservableObject {
         }
         guard await MainActor.run(body: { self.playbackSessionId == sessionId }) else { return }
 
-        // 夸克直链和m3u8：优先 IJKPlayer，其次 MPV/MDK/VLC。
-        // AliPlayer 对本地代理 URL（127.0.0.1:18080/quark-stream）兼容性差，自动模式下不优先选择，
-        // 仍保留在手动选择中用于普通网络视频。
+        // 夸克 m3u8 转码流（Go 代理）：优先 MDK（VT 硬解 + 缓冲预热），其次 MPV/VLC。
+        // 夸克直链 download_url（Go 代理）：优先 MDK（FFmpeg 软解 + 重连），其次 MPV/VLC。
+        // MDK 已针对夸克流做了专项优化（VT 硬解/FFmpeg 软解/readahead/avio buffer），
+        // 必须优先使用以发挥性能。AliPlayer 对本地代理 URL 兼容性差，不优先选择。
         if (isQuarkLocalProxy || isQuarkM3U8LocalProxy) && enginePreference == .auto {
             let proxyType = isQuarkLocalProxy ? "quark-stream" : "quark-m3u8"
             await MainActor.run {
@@ -3559,18 +3562,18 @@ class PlayerState: ObservableObject {
                 playbackEngineMode = .compatibility
                 compatibilityHint = isQuarkLocalProxy ? "夸克网盘直链" : "夸克网盘转码"
             }
-            if isIJKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "\(proxyType) 优先 IJKPlayer")
-                log("[Quark] 自动模式下\(proxyType)优先使用 IJKPlayer")
+            if isMDKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "\(proxyType) 优先 MDK（VT硬解+缓冲预热）")
+                log("[Quark] 自动模式下\(proxyType)优先使用 MDK（VT硬解+缓冲预热）")
             } else if isMPVBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "\(proxyType)（IJKPlayer 不可用）")
-                log("[Quark] IJKPlayer 不可用，\(proxyType)降级使用 MPV-MoltenVK")
-            } else if isMDKBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MDK", reason: "\(proxyType)（IJK/MPV 不可用）")
-                log("[Quark] IJK/MPV 不可用，\(proxyType)降级使用 MDK")
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "MPV-MoltenVK", reason: "\(proxyType)（MDK 不可用）")
+                log("[Quark] MDK 不可用，\(proxyType)降级使用 MPV-MoltenVK")
+            } else if isIJKBuildAvailable {
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "IJKPlayer", reason: "\(proxyType)（MDK/MPV 不可用）")
+                log("[Quark] MDK/MPV 不可用，\(proxyType)降级使用 IJKPlayer")
             } else if isVLCBuildAvailable {
-                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "\(proxyType) IJK/MPV/MDK 均不可用")
-                log("[Quark] IJK/MPV/MDK 均不可用，\(proxyType)降级使用 VLC")
+                logEngineResolver(resourceName: resourceName, url: urlObj, playlistKind: playlistKind, engine: "VLC", reason: "\(proxyType) MDK/MPV/IJK 均不可用")
+                log("[Quark] MDK/MPV/IJK 均不可用，\(proxyType)降级使用 VLC")
             }
         } else if (isUCLocalProxy || driveType == .uc || isUCPlaybackURL(url)) && enginePreference == .auto {
             // UC网盘资源（直连或本地代理）：一律优先兼容内核，禁止 AVPlayer。
