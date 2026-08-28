@@ -3996,6 +3996,26 @@ class CloudDriveManager: ObservableObject {
         }
         if let dataObj = json["data"] as? [String: Any],
            let videos = dataObj["video_list"] as? [[String: Any]] {
+            // [优化] 优先选择最低码率的可用转码流，保证秒开和流畅播放
+            // 夸克 video_list 按清晰度从高到低排列(4k→super→high→normal→low)
+            // 普通会员限速下，low(480p/400kbps) 最流畅，normal/high 码率高容易卡
+            let qualityOrder = ["low", "normal", "high", "super", "2k", "4k"]
+            for quality in qualityOrder {
+                for item in videos {
+                    guard let info = item["video_info"] as? [String: Any],
+                          let res = info["resolution"] as? String,
+                          res == quality else { continue }
+                    guard (item["accessable"] as? Bool) != false,
+                          let url = info["url"] as? String,
+                          !url.isEmpty else { continue }
+                    let bitrate = (info["bitrate"] as? Double) ?? 0
+                    let width = (info["width"] as? Int) ?? 0
+                    let height = (info["height"] as? Int) ?? 0
+                    self.log("[Quark] 选中转码流: \(quality) \(width)x\(height) \(Int(bitrate))kbps")
+                    return (url, mergedCookie)
+                }
+            }
+            // 兜底：如果按质量排序没找到，返回第一个可用的
             for item in videos {
                 guard (item["accessable"] as? Bool) != false,
                       let info = item["video_info"] as? [String: Any],
