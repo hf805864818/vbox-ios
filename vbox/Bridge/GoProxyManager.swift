@@ -83,10 +83,12 @@ final class GoProxyManager: ObservableObject {
     ///   - upstreamURL: 夸克返回的 m3u8 或 download_url
     ///   - cookie: 含 Video-Auth 的完整 Cookie
     ///   - deviceID: 设备 ID（可选）
+    ///   - source: 流类型标记（"v2-play-m3u8" 或 "download_url"），用于上层区分解码器
     /// - Returns: 代理地址；代理未运行时返回原始 URL（降级直链）
     func registerQuarkStream(upstreamURL: String,
                                cookie: String,
-                               deviceID: String? = nil) -> String {
+                               deviceID: String? = nil,
+                               source: String = "") -> String {
         guard isRunning else { return upstreamURL }
 
         var headers: [String: String] = [
@@ -109,8 +111,19 @@ final class GoProxyManager: ObservableObject {
         #if canImport(Quarkproxy)
         let proxyURL = QuarkproxyRegisterStream(upstreamURL, headersJSON)
         if proxyURL.hasPrefix("http://127.0.0.1") {
-            print("[GoProxy] ✅ 注册: \(proxyURL)")
-            return proxyURL
+            // 根据流类型在路径中插入格式前缀，使上层（PlayerViewsV2 / MDKPlayerEngine）能正确识别：
+            // - quark-m3u8: 转码 m3u8 流（H264），使用 VT 硬解
+            // - quark-stream: download_url 直链（HEVC MKV），使用 FFmpeg 软解
+            let fmtPrefix: String
+            if source == "v2-play-m3u8" {
+                fmtPrefix = "quark-m3u8"
+            } else {
+                fmtPrefix = "quark-stream"
+            }
+            // 将 /play?id= 替换为 /{fmtPrefix}/play?id=
+            let markedURL = proxyURL.replacingOccurrences(of: "/play?", with: "/\(fmtPrefix)/play?")
+            print("[GoProxy] ✅ 注册: \(markedURL)")
+            return markedURL
         } else {
             print("[GoProxy] ❌ 注册失败: \(proxyURL)")
             return upstreamURL

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -38,6 +39,9 @@ func startServer(port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/proxy", handleHealth)
 	mux.HandleFunc("/play", handlePlay)
+	// 扩展路由：携带格式前缀的 URL，便于上层（PlayerViewsV2 / MDK）识别流类型
+	mux.HandleFunc("/quark-m3u8/play", handlePlay)
+	mux.HandleFunc("/quark-stream/play", handlePlay)
 	mux.HandleFunc("/seg", handleSegment)
 
 	server = &http.Server{
@@ -119,6 +123,9 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 	for k, v := range entry.Headers {
 		upReq.Header.Set(k, v)
 	}
+	// 删除 Accept-Encoding：让 Go HTTP 客户端自动处理 gzip 解压
+	// 确保 m3u8 内容检测能在未压缩的 body 上正常工作
+	upReq.Header.Del("Accept-Encoding")
 	// 透传 Range 请求
 	if rng := r.Header.Get("Range"); rng != "" {
 		upReq.Header.Set("Range", rng)
@@ -170,7 +177,14 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 非 m3u8 内容：透传响应头和流式响应
+	// 跳过压缩相关头：删除 Accept-Encoding 后 Go 客户端自动解压 gzip，
+	// 此时 Content-Encoding/Content-Length 指向压缩前数据，透传会导致播放器解码失败
+	ce := resp.Header.Get("Content-Encoding")
+	isCompressed := ce != "" && !strings.EqualFold(ce, "identity")
 	for k, vs := range resp.Header {
+		if isCompressed && (strings.EqualFold(k, "Content-Encoding") || strings.EqualFold(k, "Content-Length")) {
+			continue
+		}
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
@@ -226,6 +240,8 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	for k, v := range headers {
 		upReq.Header.Set(k, v)
 	}
+	// 删除 Accept-Encoding：让 Go HTTP 客户端自动处理 gzip 解压
+	upReq.Header.Del("Accept-Encoding")
 	// 透传 Range
 	if rng := r.Header.Get("Range"); rng != "" {
 		upReq.Header.Set("Range", rng)
@@ -238,8 +254,13 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// 复制响应头
+	// 复制响应头（跳过压缩相关头）
+	ce := resp.Header.Get("Content-Encoding")
+	isCompressed := ce != "" && !strings.EqualFold(ce, "identity")
 	for k, vs := range resp.Header {
+		if isCompressed && (strings.EqualFold(k, "Content-Encoding") || strings.EqualFold(k, "Content-Length")) {
+			continue
+		}
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
