@@ -2308,27 +2308,29 @@ class CloudDriveManager: ObservableObject {
                 throw DriveError.noPlayURL("夸克 download_url 获取失败：\(errMsg)")
             }
         }
+        // [优化1] 优先使用 m3u8 转码流（480p H264, ~400kbps），download_url 作为原画备选
+        // 原因：m3u8 码率是 download_url (4K HEVC MKV, ~3862kbps) 的 1/10，AVPlayer 原生支持 HLS 秒开
         let playURL: String
         let source: String
-        if !download.url.isEmpty {
+        if !transcodeURL.isEmpty {
+            playURL = transcodeURL
+            source = "v2-play-m3u8"
+            self.log("[Quark] 📥 主线路: v2/play (转码m3u8, 秒开), host=\(URL(string: playURL)?.host ?? "unknown")")
+        } else if !download.url.isEmpty {
             playURL = download.url
             source = "download_url"
-            self.log("[Quark] 📥 主线路: download_url (直链), host=\(URL(string: playURL)?.host ?? "unknown")")
-        } else if !transcodeURL.isEmpty {
-            playURL = transcodeURL
-            source = "v2-play-fallback"
-            self.log("[Quark] 📥 主线路: v2/play (转码m3u8, download_url为空), host=\(URL(string: playURL)?.host ?? "unknown")")
+            self.log("[Quark] 📥 主线路: download_url (直链, m3u8不可用), host=\(URL(string: playURL)?.host ?? "unknown")")
         } else {
             throw DriveError.noPlayURL("夸克: download_url 和转码地址均为空")
         }
         let fallbackURL: String?
         let fallbackSource: String?
-        if source == "download_url", !transcodeURL.isEmpty {
-            fallbackURL = transcodeURL
-            fallbackSource = "v2-play-m3u8"
-        } else if source == "v2-play-fallback", !download.url.isEmpty {
+        if source == "v2-play-m3u8", !download.url.isEmpty {
             fallbackURL = download.url
             fallbackSource = "download_url"
+        } else if source == "download_url", !transcodeURL.isEmpty {
+            fallbackURL = transcodeURL
+            fallbackSource = "v2-play-m3u8"
         } else {
             fallbackURL = nil
             fallbackSource = nil
@@ -2341,15 +2343,46 @@ class CloudDriveManager: ObservableObject {
             self.log("[Quark] ⚠️ 兜底线路暂不可用")
         }
 
-        let playbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
+        // [优化2] 接入 Go HTTP/2 代理引擎：注册到本地代理，统一处理 m3u8 重写 + ts 鉴权 + Range + 连接池
+        let finalURL = GoProxyManager.shared.registerQuarkStream(
+            upstreamURL: playURL,
+            cookie: authCookie,
+            deviceID: quarkDeviceID
+        )
+        // 代理已处理鉴权头注入；降级（代理未启动）时保留完整 headers
+        let playbackHeaders: [String: String]
+        if finalURL.hasPrefix("http://127.0.0.1") {
+            playbackHeaders = [:]  // 走代理，鉴权由 Go 层处理
+            self.log("[Quark] 🔗 Go代理已接管: \(finalURL)")
+        } else {
+            playbackHeaders = quarkPlaybackHeaders(cookie: authCookie)  // 降级直链
+        }
+
+        let fallbackHeaders: [String: String]?
+        if let fallbackURL {
+            if GoProxyManager.shared.isRunning {
+                // 兜底线路也走代理
+                let fbProxyURL = GoProxyManager.shared.registerQuarkStream(
+                    upstreamURL: fallbackURL,
+                    cookie: authCookie,
+                    deviceID: quarkDeviceID
+                )
+                _ = fbProxyURL
+                fallbackHeaders = [:]
+            } else {
+                fallbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
+            }
+        } else {
+            fallbackHeaders = nil
+        }
 
         return PlayResult(
-            url: playURL,
+            url: finalURL,
             headers: playbackHeaders,
             driveType: .quark,
             source: source,
             fallbackURL: fallbackURL,
-            fallbackHeaders: fallbackURL == nil ? nil : playbackHeaders,
+            fallbackHeaders: fallbackHeaders,
             fallbackSource: fallbackSource
         )
     }
@@ -2482,7 +2515,8 @@ class CloudDriveManager: ObservableObject {
             "Referer": "https://pan.quark.cn/",
             "Origin": "https://pan.quark.cn",
             "Accept": "*/*",
-            "Accept-Encoding": "identity",
+            // [优化4] 启用压缩（原 identity 无压缩），对齐 iBox Brotli 优先
+            "Accept-Encoding": "br, gzip, deflate",
             "X-Device-Id": quarkDeviceID,
             "X-Client": "QingmanLslandApp/1.0"
         ]
