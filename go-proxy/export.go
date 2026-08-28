@@ -12,6 +12,10 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	// blank import: 让 go mod tidy 保留 golang.org/x/mobile 依赖
+	// gomobile bind 要求该模块在依赖图中，但源码本身不直接 import
+	_ "golang.org/x/mobile/bind"
 )
 
 var (
