@@ -2260,15 +2260,27 @@ class PlayerState: ObservableObject {
                 try? FileManager.default.removeItem(at: fileURL)
             }
 
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                // iPad 上需要设置 popover 源
-                if let popover = activityVC.popoverPresentationController {
-                    popover.sourceView = rootVC.view
-                    popover.sourceRect = CGRect(x: rootVC.view.bounds.midX, y: rootVC.view.bounds.midY, width: 0, height: 0)
-                    popover.permittedArrowDirections = []
-                }
-                rootVC.present(activityVC, animated: true)
+            // 找到最顶层的 viewController 来 present（避免 rootVC 已有 presentedVC 时 present 失败）
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+                log("[PlayerV2] 日志导出失败: 找不到根视图控制器")
+                return
+            }
+
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController {
+                topVC = presented
+            }
+
+            // iPad 上需要设置 popover 源
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = topVC.view
+                popover.sourceRect = CGRect(x: topVC.view.bounds.midX, y: topVC.view.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+
+            topVC.present(activityVC, animated: true) { [weak self] in
+                self?.log("[PlayerV2] 分享面板已弹出")
             }
         } catch {
             log("[PlayerV2] 日志导出失败: \(error.localizedDescription)")
