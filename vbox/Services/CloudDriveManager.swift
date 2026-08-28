@@ -2247,13 +2247,40 @@ class CloudDriveManager: ObservableObject {
         // v2/play 返回的 m3u8 只作为兜底，避免直接播放 m3u8 时分片未代理导致 403。
         var transcodeURL = ""
         var effectiveFileId = playbackFileId
+        var v2PlayCookie = authCookie
         do {
             let playInfo = try await quarkRefreshVideoAuth(fileId: playbackFileId, cookie: authCookie)
-            authCookie = playInfo.cookie
+            v2PlayCookie = playInfo.cookie
             transcodeURL = playInfo.playURL
-            self.log("[Quark] v2/play 完成 hasVideoAuth=\(authCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
+            self.log("[Quark] v2/play 完成 hasVideoAuth=\(v2PlayCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
         } catch {
-            self.log("[Quark] ⚠️ v2/play 刷新 Video-Auth 失败，继续尝试 download_url: \(error.localizedDescription)")
+            let errMsg = error.localizedDescription
+            self.log("[Quark] ⚠️ v2/play 首次尝试失败(fid=\(playbackFileId)): \(errMsg)")
+            // [修复] v2/play 返回 "not video" 说明 fid 是文件夹（转存的是文件夹不是单个文件）
+            // 需要递归查找文件夹内的实际视频文件 fid，再重试 v2/play
+            if errMsg.contains("not video") {
+                self.log("[Quark] 🔍 v2/play 返回 not video，fid=\(playbackFileId) 是文件夹，递归查找视频文件...")
+                if let videoFid = await quarkFindFirstVideoInFolder(folderId: playbackFileId, cookie: authCookie) {
+                    self.log("[Quark] ✅ 找到实际视频文件 fid=\(videoFid)，重试 v2/play")
+                    do {
+                        let playInfo = try await quarkRefreshVideoAuth(fileId: videoFid, cookie: authCookie)
+                        v2PlayCookie = playInfo.cookie
+                        transcodeURL = playInfo.playURL
+                        playbackFileId = videoFid
+                        effectiveFileId = videoFid
+                        updateCachedPlaybackFileId(videoFid)
+                        self.log("[Quark] v2/play 重试成功 hasVideoAuth=\(v2PlayCookie.contains("Video-Auth=")), transcodeURL=\(transcodeURL.isEmpty ? "空" : "已获取")")
+                    } catch {
+                        self.log("[Quark] ⚠️ v2/play 重试失败: \(error.localizedDescription)")
+                    }
+                } else {
+                    self.log("[Quark] ⚠️ 文件夹内未找到视频文件")
+                }
+            }
+            authCookie = v2PlayCookie
+        }
+        if transcodeURL.isEmpty {
+            self.log("[Quark] ⚠️ v2/play 刷新 Video-Auth 失败，继续尝试 download_url")
         }
 
         var download: (url: String, fileName: String) = ("", "")
@@ -3971,6 +3998,81 @@ class CloudDriveManager: ObservableObject {
     private func quarkGetPlayURL(fileId: String, cookie: String) async throws -> String {
         let info = try await quarkRefreshVideoAuth(fileId: fileId, cookie: cookie)
         return info.playURL
+    }
+
+    /// 递归查找文件夹内的第一个视频文件 fid（BFS，优先第一层）
+    /// 用于 v2/play 返回 "not video" 时，从文件夹 fid 定位到实际视频文件
+    private func quarkFindFirstVideoInFolder(folderId: String, cookie: String) async -> String? {
+        var currentCookie = cookie
+        let videoExts = [".mp4", ".mkv", ".avi", ".ts", ".mov", ".flv", ".wmv", ".m4v", ".3gp", ".webm", ".rmvb", ".rm", ".mpg", ".mpeg"]
+
+        // BFS: 先查第一层，再递归子文件夹
+        var queue: [String] = [folderId]
+        var visited = Set<String>()
+        let maxDepth = 3  // 最多递归 3 层，避免无限循环
+        var depth = 0
+
+        while !queue.isEmpty && depth < maxDepth {
+            let levelCount = queue.count
+            for _ in 0..<levelCount {
+                let fid = queue.removeFirst()
+                guard !visited.contains(fid) else { continue }
+                visited.insert(fid)
+
+                let extra = [
+                    URLQueryItem(name: "pdir_fid", value: fid),
+                    URLQueryItem(name: "_sort", value: "file_type:asc,updated_at:desc"),
+                    URLQueryItem(name: "_page", value: "1"),
+                    URLQueryItem(name: "_size", value: "200"),
+                    URLQueryItem(name: "_fetch_total", value: "1")
+                ]
+                let listURL = quarkAPIURL("/1/clouddrive/file/sort", extra: extra)
+                var request = URLRequest(url: listURL)
+                request.httpMethod = "GET"
+                request.timeoutInterval = 10
+                quarkSetCommonHeaders(&request, cookie: currentCookie)
+
+                guard let (data, response) = try? await session.data(for: request) else { continue }
+                currentCookie = quarkMergeSetCookie(from: response, into: currentCookie)
+
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let dataObj = json["data"] as? [String: Any],
+                      let list = dataObj["list"] as? [[String: Any]] else { continue }
+
+                var subFolders: [String] = []
+
+                for item in list {
+                    let isDir = (item["file_type"] as? Int) == 0 || (item["is_dir"] as? Bool) == true
+                    let name = (item["file_name"] as? String ?? item["name"] as? String ?? "").lowercased()
+
+                    var itemFid = ""
+                    for key in ["fid", "file_id"] {
+                        if let f = item[key] as? String, !f.isEmpty {
+                            itemFid = f
+                            break
+                        } else if let f = item[key] as? Int {
+                            itemFid = String(f)
+                            break
+                        }
+                    }
+                    guard !itemFid.isEmpty else { continue }
+
+                    if isDir {
+                        subFolders.append(itemFid)
+                    } else if videoExts.contains(where: { name.hasSuffix($0) }) {
+                        // 找到视频文件，直接返回
+                        self.log("[Quark] 🎯 找到视频文件: \(name) (fid=\(itemFid))")
+                        return itemFid
+                    }
+                }
+
+                // 本层没找到视频，把子文件夹加入队列
+                queue.append(contentsOf: subFolders)
+            }
+            depth += 1
+        }
+
+        return nil
     }
 
     private func quarkRefreshVideoAuth(fileId: String, cookie: String) async throws -> (playURL: String, cookie: String) {
