@@ -50,12 +50,20 @@ jobs:
           go install golang.org/x/mobile/cmd/gomobile@latest
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
           export PATH="$(go env GOPATH)/bin:$PATH"
+
+          # 在 go-proxy 模块中添加 golang.org/x/mobile 依赖（gomobile bind 要求）
+          cd go-proxy
+          go get golang.org/x/mobile
+          go mod tidy
+          echo "--- go.mod ---"
+          cat go.mod
+
+          # 初始化 gomobile（可能需要 Xcode 工具链）
           gomobile init || true
 
-          # 构建 Quarkproxy.xcframework（纯标准库，零外部依赖）
-          cd go-proxy
+          # 构建 Quarkproxy.xcframework
           gomobile bind -target=ios/arm64 -o ../Quarkproxy.xcframework . 2>&1 || {
-            echo "⚠️ gomobile bind 失败，尝试仅 arm64"
+            echo "⚠️ arm64 失败，尝试通用 target"
             gomobile bind -target=ios -o ../Quarkproxy.xcframework . 2>&1
           }
           cd ..
