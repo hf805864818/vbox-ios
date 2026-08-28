@@ -138,8 +138,14 @@ func ProxyStatus() string {
 		}
 	}
 
-	return fmt.Sprintf("running port=%d streams=%d cached_segments=%d %s",
-		proxyPort, count, cacheCount, roundTripperInfo())
+	prefetchCount := 0
+	prefetchCache.Range(func(_, _ interface{}) bool {
+		prefetchCount++
+		return true
+	})
+
+	return fmt.Sprintf("running port=%d streams=%d cached_segments=%d prefetch=%d %s",
+		proxyPort, count, cacheCount, prefetchCount, roundTripperInfo())
 }
 
 // ClearCache 清空磁盘缓存

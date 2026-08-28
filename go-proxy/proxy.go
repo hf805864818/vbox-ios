@@ -1,6 +1,7 @@
 package quarkproxy
 
 import (
+	"bufio"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -18,13 +19,36 @@ var (
 	proxyPort int
 	streams   sync.Map // map[string]*StreamEntry
 	diskCache *DiskCache
+
+	// 内存预取缓存：key=segURL, value=*prefetchedData
+	// 用于存放后台预取的分片，命中后直接回传，避免重复请求上游
+	prefetchCache sync.Map
+
+	// 预取去重：记录正在预取中的分片 URL，防止重复发起
+	prefetching sync.Map // map[string]bool
+
+	// 预取缓存上限（条数），超出后 LRU 式清理
+	prefetchMaxEntries = 8
+	prefetchEntryCount int
+	prefetchCountMu    sync.Mutex
 )
+
+// prefetchedData 预取的分片数据
+type prefetchedData struct {
+	data       []byte
+	contentType string
+	statusCode  int
+	headers     http.Header
+	fetchedAt   time.Time
+}
 
 // StreamEntry 注册的流条目
 type StreamEntry struct {
-	URL       string            `json:"url"`
-	Headers   map[string]string `json:"headers"`
-	CreatedAt time.Time         `json:"created_at"`
+	URL         string            `json:"url"`
+	Headers     map[string]string `json:"headers"`
+	CreatedAt   time.Time         `json:"created_at"`
+	segmentURLs []string         // m3u8 中的分片 URL 列表（按顺序）
+	segMu       sync.RWMutex     // 保护 segmentURLs 读写
 }
 
 // startServer 启动本地 HTTP 代理服务器
@@ -51,6 +75,10 @@ func startServer(port int) error {
 	}
 
 	go server.Serve(listener)
+
+	// 启动预取缓存清理 goroutine
+	go prefetchCleanupLoop()
+
 	return nil
 }
 
@@ -67,6 +95,15 @@ func stopServer() {
 	// 清理所有流注册
 	streams.Range(func(key, value interface{}) bool {
 		streams.Delete(key)
+		return true
+	})
+	// 清理预取缓存
+	prefetchCache.Range(func(key, value interface{}) bool {
+		prefetchCache.Delete(key)
+		return true
+	})
+	prefetching.Range(func(key, value interface{}) bool {
+		prefetching.Delete(key)
 		return true
 	})
 }
@@ -166,6 +203,14 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 		rest, _ := io.ReadAll(resp.Body)
 		fullContent := string(append(bodyBytes, rest...))
 
+		// 提取并存储分片 URL 列表（用于预取）
+		segURLs := extractSegmentURLs(fullContent, entry.URL)
+		if len(segURLs) > 0 {
+			entry.segMu.Lock()
+			entry.segmentURLs = segURLs
+			entry.segMu.Unlock()
+		}
+
 		// 重写 m3u8：将分片 URL 改写为本地代理地址
 		rewritten := rewriteM3U8(fullContent, id, entry.URL)
 
@@ -212,7 +257,29 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	segURL := string(urlBytes)
 
-	// 检查磁盘缓存
+	// 1. 检查内存预取缓存（最高优先级）
+	if cachedVal, ok := prefetchCache.Load(segURL); ok {
+		pd := cachedVal.(*prefetchedData)
+		// 命中预取缓存，直接回传，零等待
+		prefetchCache.Delete(segURL) // 用后即删，防止内存膨胀
+
+		for k, vs := range pd.headers {
+			if strings.EqualFold(k, "Content-Encoding") || strings.EqualFold(k, "Content-Length") {
+				continue
+			}
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(pd.statusCode)
+		w.Write(pd.data)
+
+		// 异步预取下一个分片
+		go prefetchNextSegment(id, segURL)
+		return
+	}
+
+	// 2. 检查磁盘缓存
 	if diskCache != nil && diskCache.Exists(segURL) {
 		cachedFile, cacheErr := diskCache.Get(segURL)
 		if cacheErr == nil {
@@ -220,18 +287,25 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "video/MP2T")
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 			w.WriteHeader(http.StatusOK)
-			io.Copy(w, cachedFile)
+			// 使用带缓冲的 writer 提高回传效率
+			bufWriter := bufio.NewWriterSize(w, 128*1024)
+			io.Copy(bufWriter, cachedFile)
+			bufWriter.Flush()
+
+			// 异步预取下一个分片
+			go prefetchNextSegment(id, segURL)
 			return
 		}
 	}
 
-	// 从流条目获取鉴权头
+	// 3. 从上游拉取
 	var headers map[string]string
+	var entry *StreamEntry
 	if val, ok := streams.Load(id); ok {
-		headers = val.(*StreamEntry).Headers
+		entry = val.(*StreamEntry)
+		headers = entry.Headers
 	}
 
-	// 构造上游请求
 	upReq, err := http.NewRequestWithContext(r.Context(), "GET", segURL, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -240,9 +314,7 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	for k, v := range headers {
 		upReq.Header.Set(k, v)
 	}
-	// 删除 Accept-Encoding：让 Go HTTP 客户端自动处理 gzip 解压
 	upReq.Header.Del("Accept-Encoding")
-	// 透传 Range
 	if rng := r.Header.Get("Range"); rng != "" {
 		upReq.Header.Set("Range", rng)
 	}
@@ -268,11 +340,144 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(resp.StatusCode)
 
-	// 流式回传，同时缓存到磁盘（仅 200 状态且启用了缓存）
+	// 流式回传 + 磁盘缓存（使用 bufio 提升写入吞吐）
 	if diskCache != nil && resp.StatusCode == http.StatusOK {
-		diskCache.StreamAndCache(segURL, w, resp.Body)
+		bufWriter := bufio.NewWriterSize(w, 128*1024)
+		diskCache.StreamAndCache(segURL, bufWriter, resp.Body)
+		bufWriter.Flush()
 	} else {
-		io.Copy(w, resp.Body)
+		bufWriter := bufio.NewWriterSize(w, 128*1024)
+		io.Copy(bufWriter, resp.Body)
+		bufWriter.Flush()
+	}
+
+	// 异步预取下一个分片
+	go prefetchNextSegment(id, segURL)
+}
+
+// ---- 分片预取 ----
+
+// prefetchNextSegment 预取当前分片的下一个分片（仅预取一个，控制内存）
+func prefetchNextSegment(streamID string, currentSegURL string) {
+	// 防止重复预取
+	if _, loading := prefetching.LoadOrStore(currentSegURL, true); loading {
+		return
+	}
+	defer prefetching.Delete(currentSegURL)
+
+	// 获取流条目
+	val, ok := streams.Load(streamID)
+	if !ok {
+		return
+	}
+	entry := val.(*StreamEntry)
+
+	// 查找当前分片在列表中的索引
+	entry.segMu.RLock()
+	segURLs := entry.segmentURLs
+	entry.segMu.RUnlock()
+
+	currentIdx := -1
+	for i, u := range segURLs {
+		if u == currentSegURL {
+			currentIdx = i
+			break
+		}
+	}
+
+	// 预取下一个分片（如果存在）
+	if currentIdx < 0 || currentIdx+1 >= len(segURLs) {
+		return
+	}
+	nextURL := segURLs[currentIdx+1]
+
+	// 如果已在缓存中，跳过
+	if _, cached := prefetchCache.Load(nextURL); cached {
+		return
+	}
+	if diskCache != nil && diskCache.Exists(nextURL) {
+		return
+	}
+
+	prefetchSegment(nextURL, entry.Headers)
+}
+
+// prefetchSegment 后台预取一个分片并存入内存缓存
+func prefetchSegment(segURL string, headers map[string]string) {
+	// 独立 context，不受播放请求生命周期影响
+	upReq, err := http.NewRequest(http.MethodGet, segURL, nil)
+	if err != nil {
+		return
+	}
+	for k, v := range headers {
+		upReq.Header.Set(k, v)
+	}
+	upReq.Header.Del("Accept-Encoding")
+
+	resp, err := httpClient.Do(upReq)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	// 读取完整分片到内存（ts 分片通常 1-5MB）
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	// 控制缓存大小
+	prefetchCountMu.Lock()
+	if prefetchEntryCount >= prefetchMaxEntries {
+		// 清理最早的缓存条目
+		var oldestKey string
+		var oldestTime time.Time
+		prefetchCache.Range(func(key, value interface{}) bool {
+			pd := value.(*prefetchedData)
+			if oldestKey == "" || pd.fetchedAt.Before(oldestTime) {
+				oldestKey = key.(string)
+				oldestTime = pd.fetchedAt
+			}
+			return true
+		})
+		if oldestKey != "" {
+			prefetchCache.Delete(oldestKey)
+			prefetchEntryCount--
+		}
+	}
+	prefetchEntryCount++
+	prefetchCountMu.Unlock()
+
+	prefetchCache.Store(segURL, &prefetchedData{
+		data:       data,
+		contentType: resp.Header.Get("Content-Type"),
+		statusCode:  resp.StatusCode,
+		headers:     resp.Header.Clone(),
+		fetchedAt:   time.Now(),
+	})
+}
+
+// prefetchCleanupLoop 定期清理过期的预取缓存
+func prefetchCleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		prefetchCache.Range(func(key, value interface{}) bool {
+			pd := value.(*prefetchedData)
+			// 超过 2 分钟的预取缓存视为过期
+			if now.Sub(pd.fetchedAt) > 2*time.Minute {
+				prefetchCache.Delete(key)
+				prefetchCountMu.Lock()
+				prefetchEntryCount--
+				prefetchCountMu.Unlock()
+			}
+			return true
+		})
 	}
 }
 

@@ -13,7 +13,10 @@ import (
 // DiskCache 是基于磁盘的 HLS 分片缓存
 type DiskCache struct {
 	dir string
-	mu  sync.Mutex
+	mu  sync.Mutex // 仅保护元数据操作（目录创建/清理），不锁流式传输
+
+	// 正在写入的文件去重：防止同一分片并发写入冲突
+	writingMu sync.Map // map[string]bool — key=cacheKey
 }
 
 // NewDiskCache 创建磁盘缓存，dir 为缓存目录
@@ -42,12 +45,16 @@ func (c *DiskCache) Get(key string) (io.ReadCloser, error) {
 
 // Set 从 reader 读取数据，同时写入文件和 writer（流式缓存）
 // 返回写入的字节数和错误
+// 注意：此函数不加全局锁，允许多个分片并发缓存
 func (c *DiskCache) StreamAndCache(key string, dest io.Writer, src io.Reader) (int64, error) {
-	c.mu.Lock()
-	cleanKey := key
-	c.mu.Unlock()
+	// 检查是否已有其他 goroutine 在写同一分片
+	if _, loading := c.writingMu.LoadOrStore(key, true); loading {
+		// 已有写入在进行，直接转发不缓存
+		return io.Copy(dest, src)
+	}
+	defer c.writingMu.Delete(key)
 
-	path := c.cachePath(cleanKey)
+	path := c.cachePath(key)
 	tmpPath := path + ".tmp"
 
 	tmpFile, err := os.Create(tmpPath)
@@ -56,7 +63,7 @@ func (c *DiskCache) StreamAndCache(key string, dest io.Writer, src io.Reader) (i
 		return io.Copy(dest, src)
 	}
 
-	// 同时写入客户端和临时文件
+	// 同时写入客户端和临时文件（无锁，不阻塞其他分片）
 	multi := io.MultiWriter(dest, tmpFile)
 	n, err := io.Copy(multi, src)
 	tmpFile.Close()

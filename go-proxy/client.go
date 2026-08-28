@@ -14,35 +14,28 @@ var httpClient *http.Client
 // initClient 初始化 HTTP/2 客户端，支持多路复用和连接池
 func initClient() {
 	transport := &http.Transport{
-		// 强制尝试 HTTP/2（对 HTTPS 自动协商 ALPN h2）
-		ForceAttemptHTTP2: true,
-		// 全局最大空闲连接
-		MaxIdleConns: 100,
-		// 每个 Host 最大空闲连接（连接池核心参数）
-		MaxIdleConnsPerHost: 10,
-		// 每个 Host 最大连接数（0=不限制，允许多路复用）
-		MaxConnsPerHost: 0,
-		// 空闲连接超时
-		IdleConnTimeout: 90 * time.Second,
-		// TLS 握手超时
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   30,
+		MaxConnsPerHost:       0,
+		IdleConnTimeout:       120 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 15 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		// TLS 配置：允许 HTTP/2
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
-		// 拨号配置
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
+			KeepAlive:  60 * time.Second,
 		}).DialContext,
+		WriteBufferSize: 256 * 1024, // 256KB 写缓冲，减少 syscall
+		ReadBufferSize:  256 * 1024, // 256KB 读缓冲
 	}
 
 	httpClient = &http.Client{
 		Transport: transport,
-		// 不设总超时，因为流式传输需要长时间
-		Timeout: 0,
+		Timeout:   0,
 	}
 }
 
