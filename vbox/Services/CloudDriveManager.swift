@@ -5347,7 +5347,7 @@ class CloudDriveManager: ObservableObject {
         throw DriveError.noPlayURL("百度 DLNA 未返回 dlink：\(msg)")
     }
 
-    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String, source: String = "local-locatedownload") async throws -> PlayResult {
+    private func baiduGetLocatedownloadOnDevice(filePath: String, cookie: String, source: String = "local-locatedownload", enableFastestNode: Bool = false) async throws -> PlayResult {
         var components = URLComponents(string: "https://d.pcs.baidu.com/rest/2.0/pcs/file")!
         components.queryItems = [
             URLQueryItem(name: "app_id", value: "250528"),
@@ -5365,7 +5365,7 @@ class CloudDriveManager: ObservableObject {
         request.setValue("https://pan.baidu.com", forHTTPHeaderField: "Origin")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
-        baiduLog("[Baidu-LocalPCS] 本机调用 locatedownload：path=\(filePath), hasBDUSS=\(cookie.lowercased().contains("bduss=")), hasSTOKEN=\(cookie.lowercased().contains("stoken=")), hasPANPSC=\(cookie.lowercased().contains("panpsc=")), hasPTOKEN=\(cookie.lowercased().contains("ptoken"))")
+        baiduLog("[Baidu-LocalPCS] 本机调用 locatedownload：path=\(filePath), hasBDUSS=\(cookie.lowercased().contains("bduss=")), hasSTOKEN=\(cookie.lowercased().contains("stoken=")), hasPANPSC=\(cookie.lowercased().contains("panpsc=")), hasPTOKEN=\(cookie.lowercased().contains("ptoken")), enableFastestNode=\(enableFastestNode)")
         let (data, response) = try await session.data(for: request)
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? -1
@@ -5409,8 +5409,70 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("百度本机取链未返回播放地址")
         }
 
+        // [优化3] 多 CDN 节点测速选优
+        if enableFastestNode, let urlDicts = urls, urlDicts.count > 1 {
+            let allURLs = urlDicts.compactMap { $0["url"] as? String }.filter { !$0.isEmpty }
+            if allURLs.count > 1 {
+                baiduLog("[Baidu-LocalPCS] 🚀 多节点测速：共 \(allURLs.count) 个 CDN 节点，并发 HEAD 探测...")
+                let fastest = await baiduFindFastestNode(urls: allURLs, cookie: cookie)
+                if let fastest, fastest.url != locatedURL {
+                    baiduLog("[Baidu-LocalPCS] ✅ 测速选优：选中节点 \(fastest.index)/\(allURLs.count)，RTT=\(fastest.rtt)ms，原首节点被替换")
+                    return baiduPlayResult(url: fastest.url, cookie: cookie, source: "\(source)-fastest")
+                } else if let fastest {
+                    baiduLog("[Baidu-LocalPCS] ✅ 测速选优：首节点已是最快，RTT=\(fastest.rtt)ms")
+                } else {
+                    baiduLog("[Baidu-LocalPCS] ⚠️ 测速选优：全部节点测速失败，使用首节点")
+                }
+            }
+        }
+
         baiduLog("[Baidu-LocalPCS] ✅ 本机取链成功：\(locatedURL.prefix(80))...")
         return baiduPlayResult(url: locatedURL, cookie: cookie, source: source)
+    }
+
+    // MARK: - [优化3] 多 CDN 节点测速选优
+    private struct BaiduNodeSpeedResult {
+        let url: String
+        let index: Int
+        let rtt: Int // 毫秒
+    }
+
+    private func baiduFindFastestNode(urls: [String], cookie: String) async -> BaiduNodeSpeedResult? {
+        guard !urls.isEmpty else { return nil }
+        let timeoutMs = 3000 // 单节点超时 3 秒
+        return await withTaskGroup(of: (index: Int, url: String, rtt: Int?)?.self) { group in
+            for (idx, urlStr) in urls.enumerated() {
+                group.addTask { [weak self] in
+                    guard let self, let url = URL(string: urlStr) else { return nil }
+                    var req = URLRequest(url: url)
+                    req.httpMethod = "HEAD"
+                    req.timeoutInterval = TimeInterval(timeoutMs) / 1000.0
+                    req.setValue(cookie, forHTTPHeaderField: "Cookie")
+                    req.setValue(Self.baiduPCSUserAgent, forHTTPHeaderField: "User-Agent")
+                    req.setValue("https://pan.baidu.com/", forHTTPHeaderField: "Referer")
+                    let start = Date()
+                    do {
+                        let (_, resp) = try await self.session.data(for: req)
+                        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                        guard status == 200 || status == 206 || (300..<400).contains(status) else {
+                            return nil
+                        }
+                        let rtt = Int(Date().timeIntervalSince(start) * 1000)
+                        return (idx, urlStr, rtt)
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            var results: [BaiduNodeSpeedResult] = []
+            for await result in group {
+                if let r = result, let rtt = r.rtt {
+                    results.append(BaiduNodeSpeedResult(url: r.url, index: r.index, rtt: rtt))
+                }
+            }
+            baiduLog("[Baidu-LocalPCS] 📊 测速结果：成功 \(results.count)/\(urls.count) 个节点，RTT 范围：\(results.map { "\($0.rtt)ms" }.joined(separator: ", "))")
+            return results.min { $0.rtt < $1.rtt }
+        }
     }
 
     private func baiduPlayResult(url: String, cookie: String, source: String? = nil) -> PlayResult {
@@ -5565,7 +5627,22 @@ class CloudDriveManager: ObservableObject {
         recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "开始", detail: "wap/init → verify → share页/yunData → gettemplatevariable → share/list → transfer → api/list → locatedownload → 本地代理", fsId: fsId, fileName: hintFileName)
 
         let pwd = extractBaiduPwd(from: shareURL)
-        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
+        // [优化2] 分享页解析与 bdstoken 获取并行执行，节省首帧时间
+        let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
+        let pureAccountCookie = baiduPureAccountCookie(accountCookie)
+        let startExtract = Date()
+        async let contextAsync = baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
+        async let userBdstokenAsync = baiduFetchUserBdstokenLocal(cookie: pureAccountCookie)
+        let context = try await contextAsync
+        let extractCost = Int(Date().timeIntervalSince(startExtract) * 1000)
+        baiduLog("[Baidu-iBoxRoute] ⏱️ 分享页解析+bdstoken并行耗时：\(extractCost)ms")
+        guard let userBdstoken = await userBdstokenAsync,
+              !userBdstoken.isEmpty else {
+            let message = "百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录"
+            baiduLog("[Baidu-Local] ❌ \(message)")
+            recordBaiduRouteDiagnostic(stage: "主路链", status: "缺少用户态bdstoken", detail: message, fsId: fsId, fileName: hintFileName)
+            throw DriveError.noPlayURL(message)
+        }
         let matched = context.files.first { $0.fsId == fsId }
             ?? context.files.first { $0.fsId.trimmingCharacters(in: .whitespacesAndNewlines) == fsId.trimmingCharacters(in: .whitespacesAndNewlines) }
         let selected: BaiduFileItem?
@@ -5586,8 +5663,6 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("主路链未找到可播放视频")
         }
 
-        let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
-        let pureAccountCookie = baiduPureAccountCookie(accountCookie)
         let mergedCookie = baiduMergeCookieStrings([context.cookie, accountCookie])
         guard !mergedCookie.isEmpty else {
             recordBaiduRouteDiagnostic(stage: "主路链", status: "Cookie缺失", detail: "无法合并 BDUSS/STOKEN Cookie", fsId: fsId, fileName: selected.name)
@@ -5597,13 +5672,7 @@ class CloudDriveManager: ObservableObject {
         do {
             // 严格对齐 iBox：转存/创建/列目录用登录态 bdstoken；分享页 bdstoken 在私域接口会被判越权 errno=-6。
             // 创建目录/列用户网盘目录只能用账号 Cookie；share/transfer 再使用账号 Cookie + BDCLND 的混合 Cookie。
-            guard let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: pureAccountCookie),
-                  !userBdstoken.isEmpty else {
-                let message = "百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录"
-                baiduLog("[Baidu-Local] ❌ \(message)")
-                recordBaiduRouteDiagnostic(stage: "主路链", status: "缺少用户态bdstoken", detail: message, fsId: fsId, fileName: selected.name)
-                throw DriveError.noPlayURL(message)
-            }
+            // [优化2] userBdstoken 已在上方与分享页解析并行获取，此处直接复用
             try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/main")
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
@@ -5633,26 +5702,35 @@ class CloudDriveManager: ObservableObject {
                 scheduleCleanup(drive: .baidu, fileIds: [filePath], token: pureAccountCookie, delay: 60 * 60)
             }
 
-            var mediainfoFallback: PlayResult?
-            do {
-                mediainfoFallback = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-mediainfo")
-                baiduLog("[Baidu-iBoxRoute] ✅ mediainfo 探测完成，继续 locatedownload")
-            } catch {
-                baiduLog("[Baidu-iBoxRoute] ⚠️ mediainfo 探测失败，继续 locatedownload：\(error.localizedDescription)")
-                recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "mediainfo失败", detail: "继续 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
-            }
+            // [优化1] 直接 locatedownload 取原画直链，mediainfo 只在失败时才兜底
+            // 去掉前置串行 mediainfo 探测，节省一次完整 HTTP 请求时间
+            // [优化3] locatedownload 返回多 CDN 节点时，并发 HEAD 测速选最优节点
+            let locatedownloadStart = Date()
             let rawResult: PlayResult
             let source: String
             do {
-                rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-locatedownload")
+                let ldResult = try await baiduGetLocatedownloadOnDevice(
+                    filePath: filePath,
+                    cookie: mergedCookie,
+                    source: "\(sourcePrefix)-locatedownload",
+                    enableFastestNode: true
+                )
+                let ldCost = Int(Date().timeIntervalSince(locatedownloadStart) * 1000)
+                baiduLog("[Baidu-iBoxRoute] ⏱️ locatedownload+测速总耗时：\(ldCost)ms，选中节点：\(ldResult.url.prefix(60))...")
+                rawResult = ldResult
                 source = "\(sourcePrefix)-locatedownload"
             } catch {
-                if let mediainfoFallback {
-                    baiduLog("[Baidu-iBoxRoute] ⚠️ locatedownload 失败，使用 mediainfo dlink 兜底：\(error.localizedDescription)")
+                baiduLog("[Baidu-iBoxRoute] ⚠️ locatedownload 失败，尝试 mediainfo 兜底：\(error.localizedDescription)")
+                do {
+                    let mediainfoResult = try await baiduGetDLNADlinkOnDevice(
+                        filePath: filePath,
+                        cookie: mergedCookie,
+                        source: "\(sourcePrefix)-mediainfo"
+                    )
                     recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "locatedownload失败", detail: "使用 mediainfo dlink 兜底：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
-                    rawResult = mediainfoFallback
+                    rawResult = mediainfoResult
                     source = "\(sourcePrefix)-mediainfo-fallback"
-                } else {
+                } catch {
                     throw error
                 }
             }

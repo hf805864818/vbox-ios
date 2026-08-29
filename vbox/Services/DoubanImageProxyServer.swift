@@ -1305,6 +1305,11 @@ final class DoubanImageProxyServer {
 
     private func preheatStream(item: StreamItem, id: String) {
         guard item.provider == "baidu" else { return }
+        // [优化4] 预热数据从 64KB 增加到 512KB，确保高清视频关键帧能完整缓存
+        // 64KB 对高清视频不够一个关键帧，播放器拿到后还得继续请求才能解码首帧
+        let preheatBytes = 512 * 1024 // 512KB
+        let rangeHeader = "bytes=0-\(preheatBytes - 1)"
+
         var request = URLRequest(url: item.url)
         request.timeoutInterval = 12
         for (key, value) in item.headers {
@@ -1336,10 +1341,11 @@ final class DoubanImageProxyServer {
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         }
         request.setValue("*/*", forHTTPHeaderField: "Accept")
-        request.setValue("bytes=0-65535", forHTTPHeaderField: "Range")
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
 
         let startedAt = Date()
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
             if let error {
                 print("♨️ 本地视频代理预热失败[\(item.provider)]: id=\(id), err=\(error.localizedDescription)")
                 return
@@ -1348,6 +1354,22 @@ final class DoubanImageProxyServer {
             let cost = Int(Date().timeIntervalSince(startedAt) * 1000)
             let bytes = data?.count ?? 0
             print("♨️ 本地视频代理预热完成[\(item.provider)]: id=\(id), status=\(status), cost=\(cost)ms, bytes=\(bytes)")
+
+            // [优化4] 预热数据存入分片缓存，播放器首段请求直接命中
+            // 之前预热只建立连接，数据白拿了；现在缓存后首帧几乎零延迟
+            if item.provider == "baidu",
+               status == 206,
+               let httpResp = response as? HTTPURLResponse,
+               let body = data,
+               !body.isEmpty {
+                self.baiduStreamCache.store(
+                    id: id,
+                    requestedRange: rangeHeader,
+                    response: httpResp,
+                    body: body
+                )
+                print("♨️ 本地视频代理预热已缓存[\(item.provider)]: id=\(id), range=\(rangeHeader), bytes=\(body.count)")
+            }
         }.resume()
     }
 
