@@ -9,13 +9,13 @@ import Foundation
 //   1. App 启动时调用 GoProxyManager.shared.start()
 //   2. 夸克播放时调用 GoProxyManager.shared.registerQuarkStream(...)
 //   3. 获取返回的本地代理 URL 传给播放器
+//   4. 调试用：GoProxyManager.shared.getDebugLogs() / getStats()
 
 #if canImport(Quarkproxy)
 import Quarkproxy
 #endif
 
 final class GoProxyManager: ObservableObject {
-
     static let shared = GoProxyManager()
 
     /// 代理端口（与 iBox 对齐使用 10078）
@@ -110,17 +110,14 @@ final class GoProxyManager: ObservableObject {
 
         #if canImport(Quarkproxy)
         let proxyURL = QuarkproxyRegisterStream(upstreamURL, headersJSON)
+
         if proxyURL.hasPrefix("http://127.0.0.1") {
-            // 根据流类型在路径中插入格式前缀，使上层（PlayerViewsV2 / MDKPlayerEngine）能正确识别：
-            // - quark-m3u8: 转码 m3u8 流（H264），使用 VT 硬解
-            // - quark-stream: download_url 直链（HEVC MKV），使用 FFmpeg 软解
             let fmtPrefix: String
             if source == "v2-play-m3u8" {
                 fmtPrefix = "quark-m3u8"
             } else {
                 fmtPrefix = "quark-stream"
             }
-            // 将 /play?id= 替换为 /{fmtPrefix}/play?id=
             let markedURL = proxyURL.replacingOccurrences(of: "/play?", with: "/\(fmtPrefix)/play?")
             print("[GoProxy] ✅ 注册: \(markedURL)")
             return markedURL
@@ -146,6 +143,37 @@ final class GoProxyManager: ObservableObject {
     func clearCache() {
         #if canImport(Quarkproxy)
         _ = QuarkproxyClearCache()
+        #endif
+    }
+
+    // ===== 诊断接口（新增）=====
+
+    /// 获取 Go 代理的调试日志（JSON 数组字符串）
+    /// 每条格式: {"ts":"14:32:46.123","msg":"seg HIT(prefetch) ...video.ts bytes=123456 ms=15"}
+    func getDebugLogs() -> String {
+        #if canImport(Quarkproxy)
+        return QuarkproxyGetDebugLogs()
+        #else
+        return "[]"
+        #endif
+    }
+
+    /// 获取 Go 代理的统计信息（JSON 字符串）
+    /// 包含: seg_total, seg_prefetch_hit, seg_disk_hit, seg_upstream,
+    ///       upstream_avg_ms, upstream_max_ms, upstream_total_mb,
+    ///       prefetch_attempts, prefetch_success, prefetch_fail
+    func getStats() -> String {
+        #if canImport(Quarkproxy)
+        return QuarkproxyGetStats()
+        #else
+        return "{}"
+        #endif
+    }
+
+    /// 重置 Go 代理的日志缓冲和统计计数器
+    func resetDebug() {
+        #if canImport(Quarkproxy)
+        _ = QuarkproxyResetStats()
         #endif
     }
 
