@@ -2241,7 +2241,28 @@ class PlayerState: ObservableObject {
 
     /// 导出调试日志到文件并弹出分享面板
     func exportDebugLogs() {
-        let content = debugLogs.joined(separator: "\n")
+        var content = debugLogs.joined(separator: "\n")
+
+        // ===== 附加 Go 代理诊断日志 =====
+        let proxyLogs = GoProxyManager.shared.getDebugLogs()
+        let proxyStats = GoProxyManager.shared.getStats()
+        if !proxyLogs.isEmpty && proxyLogs != "[]" {
+            content += "\n\n===== Go代理诊断日志 =====\n"
+            if let data = proxyLogs.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                for entry in arr {
+                    let ts = entry["ts"] as? String ?? ""
+                    let msg = entry["msg"] as? String ?? ""
+                    content += "[\(ts)] \(msg)\n"
+                }
+            } else {
+                content += proxyLogs + "\n"
+            }
+        }
+        if !proxyStats.isEmpty && proxyStats != "{}" {
+            content += "\n===== Go代理统计 =====\n\(proxyStats)\n"
+        }
+
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
         let fileName = "playback_debug_\(dateFormatter.string(from: Date())).log"

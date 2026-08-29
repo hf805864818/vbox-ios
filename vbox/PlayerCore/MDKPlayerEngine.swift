@@ -30,6 +30,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     private var lastLoggedCodec: String = ""
     private var loadStartTime: CFTimeInterval = 0
     private var firstFrameLogged = false
+    private var isQuarkTranscodeStream = false  // 标记是否为夸克转码流（用于检测分辨率不一致）
     #endif
 
     deinit {
@@ -106,6 +107,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             || (urlString.contains("127.0.0.1") && urlString.contains("quark-stream"))
         if isQuarkM3U8 {
             player.videoDecoders = ["VT", "FFmpeg"]
+            isQuarkTranscodeStream = true
             onEvent?(.log("[MDK-Diag] decoder=VT+FFmpeg (m3u8) buffer=256KB readahead=8s"))
         } else if isQuarkDownload {
             player.videoDecoders = ["FFmpeg"]
@@ -280,6 +282,11 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             if codecName != lastLoggedCodec {
                 lastLoggedCodec = codecName
                 onEvent?(.log("[MDK-Diag] codec=\(codecName) \(state.width)x\(state.height) duration=\(Int(total))s"))
+                // ===== 检测转码流分辨率不一致 =====
+                // 如果是夸克 m3u8 转码流但实际分辨率 > 720p，说明转码流可能未生效（返回了原画）
+                if isQuarkTranscodeStream && state.width > 720 {
+                    onEvent?(.log("[MDK-Diag] ⚠️ 转码流分辨率异常: 期望≤720p 实际=\(state.width)x\(state.height)，转码可能未生效，实际播放原画文件"))
+                }
             }
         }
 
@@ -296,10 +303,16 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             }
         }
 
-        // ===== 诊断：每 5 秒输出一次播放状态快照 =====
+        // ===== 诊断：每 5 秒输出一次播放状态快照（含 Go 代理统计）=====
         pollCount += 1
         if pollCount % 10 == 0 {
-            onEvent?(.log("[MDK-Diag] SNAP pos=\(String(format: "%.1f", current))/\(String(format: "%.1f", total))s buf=\(isBuffering ? "Y" : "N")"))
+            var snap = "[MDK-Diag] SNAP pos=\(String(format: "%.1f", current))/\(String(format: "%.1f", total))s buf=\(isBuffering ? "Y" : "N")"
+            // 附带 Go 代理统计快照
+            let stats = GoProxyManager.shared.getStats()
+            if !stats.isEmpty && stats != "{}" {
+                snap += " proxy=\(stats)"
+            }
+            onEvent?(.log(snap))
         }
 
         if !didFinish, total > 1, current >= max(0, total - 0.8) {

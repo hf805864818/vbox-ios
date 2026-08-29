@@ -26,9 +26,10 @@ var (
 	// 预取去重
 	prefetching sync.Map
 
-	prefetchMaxEntries = 8
-	prefetchEntryCount int
-	prefetchCountMu    sync.Mutex
+	prefetchMaxEntries   = 16
+	prefetchEntryCount   int
+	prefetchCountMu      sync.Mutex
+	prefetchAhead        = 3 // 预取后续分片数（从 1 增加到 3，减少缓冲）
 )
 
 // prefetchedData 预取的分片数据
@@ -384,23 +385,29 @@ func prefetchNextSegment(streamID string, currentSegURL string) {
 		}
 	}
 
-	if currentIdx < 0 || currentIdx+1 >= len(segURLs) {
-		// 没有下一个分片或未找到当前分片
-		return
-	}
-	nextURL := segURLs[currentIdx+1]
-
-	if _, cached := prefetchCache.Load(nextURL); cached {
-		return
-	}
-	if diskCache != nil && diskCache.Exists(nextURL) {
+	if currentIdx < 0 {
 		return
 	}
 
-	debugLog("prefetch NEXT idx=%d/%d %s",
-		currentIdx+1, len(segURLs), shortURL(nextURL))
+	// 预取后续 prefetchAhead 个分片（并发）
+	for ahead := 1; ahead <= prefetchAhead; ahead++ {
+		if currentIdx+ahead >= len(segURLs) {
+			break
+		}
+		nextURL := segURLs[currentIdx+ahead]
 
-	prefetchSegment(nextURL, entry.Headers)
+		if _, cached := prefetchCache.Load(nextURL); cached {
+			continue
+		}
+		if diskCache != nil && diskCache.Exists(nextURL) {
+			continue
+		}
+
+		debugLog("prefetch NEXT idx=%d/%d ahead=%d %s",
+			currentIdx+ahead, len(segURLs), ahead, shortURL(nextURL))
+
+		go prefetchSegment(nextURL, entry.Headers)
+	}
 }
 
 func prefetchSegment(segURL string, headers map[string]string) {
