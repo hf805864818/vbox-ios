@@ -5565,19 +5565,7 @@ class CloudDriveManager: ObservableObject {
         recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "开始", detail: "wap/init → verify → share页/yunData → gettemplatevariable → share/list → transfer → api/list → locatedownload → 本地代理", fsId: fsId, fileName: hintFileName)
 
         let pwd = extractBaiduPwd(from: shareURL)
-        // [优化1] 分享页解析与 bdstoken 获取并行，节省首帧时间
-        let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
-        let pureAccountCookie = baiduPureAccountCookie(accountCookie)
-        async let contextAsync = baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
-        async let userBdstokenAsync = baiduFetchUserBdstokenLocal(cookie: pureAccountCookie)
-        let context = try await contextAsync
-        guard let userBdstoken = await userBdstokenAsync,
-              !userBdstoken.isEmpty else {
-            let message = "百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录"
-            baiduLog("[Baidu-Local] ❌ \(message)")
-            recordBaiduRouteDiagnostic(stage: "主路链", status: "缺少用户态bdstoken", detail: message, fsId: fsId, fileName: hintFileName)
-            throw DriveError.noPlayURL(message)
-        }
+        let context = try await baiduExtractShareMeta(shareURL: shareURL, cookie: webCookie, returnAll: true)
         let matched = context.files.first { $0.fsId == fsId }
             ?? context.files.first { $0.fsId.trimmingCharacters(in: .whitespacesAndNewlines) == fsId.trimmingCharacters(in: .whitespacesAndNewlines) }
         let selected: BaiduFileItem?
@@ -5598,6 +5586,8 @@ class CloudDriveManager: ObservableObject {
             throw DriveError.noPlayURL("主路链未找到可播放视频")
         }
 
+        let accountCookie = baiduMergeCookieStrings([webCookie, pcs])
+        let pureAccountCookie = baiduPureAccountCookie(accountCookie)
         let mergedCookie = baiduMergeCookieStrings([context.cookie, accountCookie])
         guard !mergedCookie.isEmpty else {
             recordBaiduRouteDiagnostic(stage: "主路链", status: "Cookie缺失", detail: "无法合并 BDUSS/STOKEN Cookie", fsId: fsId, fileName: selected.name)
@@ -5607,6 +5597,13 @@ class CloudDriveManager: ObservableObject {
         do {
             // 严格对齐 iBox：转存/创建/列目录用登录态 bdstoken；分享页 bdstoken 在私域接口会被判越权 errno=-6。
             // 创建目录/列用户网盘目录只能用账号 Cookie；share/transfer 再使用账号 Cookie + BDCLND 的混合 Cookie。
+            guard let userBdstoken = await baiduFetchUserBdstokenLocal(cookie: pureAccountCookie),
+                  !userBdstoken.isEmpty else {
+                let message = "百度登录态正常，但未取得用户态 bdstoken，无法创建 vbox 转存目录"
+                baiduLog("[Baidu-Local] ❌ \(message)")
+                recordBaiduRouteDiagnostic(stage: "主路链", status: "缺少用户态bdstoken", detail: message, fsId: fsId, fileName: selected.name)
+                throw DriveError.noPlayURL(message)
+            }
             try await baiduEnsureVboxFolderLocal(cookie: pureAccountCookie, bdstoken: userBdstoken, referer: "https://pan.baidu.com/disk/main")
             let existingPath = try await baiduFindExistingVboxPath(fileName: selected.name, cookie: pureAccountCookie)
             let filePath: String
@@ -5636,21 +5633,26 @@ class CloudDriveManager: ObservableObject {
                 scheduleCleanup(drive: .baidu, fileIds: [filePath], token: pureAccountCookie, delay: 60 * 60)
             }
 
-            // [优化2] 直接 locatedownload 取原画直链，mediainfo 只在失败时才兜底
-            // 去掉前置串行 mediainfo 探测，节省一次完整 HTTP 请求时间
+            var mediainfoFallback: PlayResult?
+            do {
+                mediainfoFallback = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-mediainfo")
+                baiduLog("[Baidu-iBoxRoute] ✅ mediainfo 探测完成，继续 locatedownload")
+            } catch {
+                baiduLog("[Baidu-iBoxRoute] ⚠️ mediainfo 探测失败，继续 locatedownload：\(error.localizedDescription)")
+                recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "mediainfo失败", detail: "继续 locatedownload：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
+            }
             let rawResult: PlayResult
             let source: String
             do {
                 rawResult = try await baiduGetLocatedownloadOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-locatedownload")
                 source = "\(sourcePrefix)-locatedownload"
             } catch {
-                baiduLog("[Baidu-iBoxRoute] ⚠️ locatedownload 失败，尝试 mediainfo 兜底：\(error.localizedDescription)")
-                do {
-                    let mediainfoResult = try await baiduGetDLNADlinkOnDevice(filePath: filePath, cookie: mergedCookie, source: "\(sourcePrefix)-mediainfo")
+                if let mediainfoFallback {
+                    baiduLog("[Baidu-iBoxRoute] ⚠️ locatedownload 失败，使用 mediainfo dlink 兜底：\(error.localizedDescription)")
                     recordBaiduRouteDiagnostic(stage: "iBox主路链", status: "locatedownload失败", detail: "使用 mediainfo dlink 兜底：\(error.localizedDescription)", fsId: fsId, fileName: selected.name)
-                    rawResult = mediainfoResult
+                    rawResult = mediainfoFallback
                     source = "\(sourcePrefix)-mediainfo-fallback"
-                } catch {
+                } else {
                     throw error
                 }
             }
