@@ -383,8 +383,16 @@ struct VideoDetailView: View {
                     let name = dt?.displayName ?? driveNameFromLink(link.name)
                     return (url: link.url, name: link.name, driveType: dt, driveName: name)
                 }
-                // 按排序顺序排列 rawCloudLinks
-                let sorted = sortRawCloudLinks(parsed)
+                // 2. 夸克网盘拆成双线路：夸克网盘(原画直链) + 备用夸克(普画转码)
+                var splitLinks: [(url: String, name: String, driveType: CloudDriveManager.DriveType?, driveName: String)] = []
+                for link in parsed {
+                    splitLinks.append(link)
+                    if link.driveType == .quark {
+                        splitLinks.append((url: link.url, name: link.name, driveType: link.driveType, driveName: "备用夸克"))
+                    }
+                }
+                // 3. 按排序顺序排列 rawCloudLinks
+                let sorted = sortRawCloudLinks(splitLinks)
 
                 await MainActor.run {
                     rawCloudLinks = sorted
@@ -440,6 +448,11 @@ struct VideoDetailView: View {
     
     /// 获取网盘排序索引
     private func sortIndex(forDriveType dt: CloudDriveManager.DriveType?, driveName: String) -> Int {
+        // "备用夸克" 紧跟在 "夸克网盘" 后面
+        if driveName == "备用夸克" {
+            let quarkBase = cloudDriveSortManager.displayOrder.firstIndex(of: .quark) ?? 0
+            return quarkBase + 1
+        }
         if let dt, let idx = cloudDriveSortManager.displayOrder.firstIndex(of: dt) {
             return idx
         }
@@ -474,13 +487,19 @@ struct VideoDetailView: View {
             guard let token = CloudDriveManager.shared.tokens(for: .quark).first else {
                 return .failed("未配置夸克网盘账号")
             }
+            // 判断线路偏好："备用夸克"走普画转码，"夸克网盘"走原画直链（默认）
+            let routePref: String? = driveName == "备用夸克" ? "transcode" : "original"
             var allExpanded: [CloudPanLink] = []
             for (linkIndex, link) in links.enumerated() {
                 do {
                     let files = try await CloudDriveManager.shared.quarkGetFileList(shareURL: link.url, cookie: token.value)
                     let items = files.enumerated().map { fileIndex, file in
-                        makeCloudPanLink(
-                            url: appendVboxFragment(to: link.url, params: ["vbox_fid": file.fid]),
+                        var params: [String: String] = ["vbox_fid": file.fid]
+                        if let route = routePref {
+                            params["vbox_route"] = route
+                        }
+                        return makeCloudPanLink(
+                            url: appendVboxFragment(to: link.url, params: params),
                             name: file.fileName,
                             driveType: driveType,
                             driveName: driveName,
