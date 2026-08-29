@@ -997,6 +997,7 @@ class PlayerState: ObservableObject {
     var quarkFileList: [CloudDriveManager.QuarkShareFile] = []
     var quarkShareURL: String = ""
     var quarkCookie: String = ""
+    var quarkRoutePreference: String? = nil     // 线路偏好: "original"(原画) / "transcode"(普画)
     private var currentVideo: VodItem?
 
     /// 当前视频标题（供搜索弹窗预填）
@@ -3046,6 +3047,7 @@ class PlayerState: ObservableObject {
                     quarkFileList = files
                     quarkShareURL = cleanShareURL
                     quarkCookie = token.value
+                    quarkRoutePreference = vboxParams["vbox_route"]
                     currentEpisodeIndex = selectedIndex
                     // 填充通用集数列表
                     episodeItems = files.enumerated().map { idx, f in
@@ -3062,7 +3064,11 @@ class PlayerState: ObservableObject {
 
                 let resolveURL: String
                 if selectedIndex < files.count {
-                    resolveURL = appendVboxFragment(to: cleanShareURL, params: ["vbox_fid": files[selectedIndex].fid])
+                    var resolveParams: [String: String] = ["vbox_fid": files[selectedIndex].fid]
+                    if let route = vboxParams["vbox_route"], !route.isEmpty {
+                        resolveParams["vbox_route"] = route
+                    }
+                    resolveURL = appendVboxFragment(to: cleanShareURL, params: resolveParams)
                 } else {
                     resolveURL = cleanShareURL
                 }
@@ -5391,7 +5397,11 @@ class PlayerState: ObservableObject {
         log("[Quark] 切集播放: \(file.fileName)")
         await MainActor.run { isLoading = true }
         do {
-            let targetURL = appendVboxFragment(to: shareURL, params: ["vbox_fid": file.fid])
+            var resolveParams: [String: String] = ["vbox_fid": file.fid]
+            if let route = quarkRoutePreference, !route.isEmpty {
+                resolveParams["vbox_route"] = route
+            }
+            let targetURL = appendVboxFragment(to: shareURL, params: resolveParams)
             let result = try await CloudDriveManager.shared.resolvePlayURL(from: targetURL)
             await MainActor.run {
                 currentEpisodeIndex = episode.id

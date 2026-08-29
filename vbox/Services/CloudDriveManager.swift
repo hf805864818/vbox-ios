@@ -2161,7 +2161,7 @@ class CloudDriveManager: ObservableObject {
 
     // MARK: - 夸克网盘
 
-    func resolveQuarkPlayURL(shareURL: String, cookie: String, preferredFid: String? = nil) async throws -> PlayResult {
+    func resolveQuarkPlayURL(shareURL: String, cookie: String, preferredFid: String? = nil, routePreference: String? = nil) async throws -> PlayResult {
         self.log("[Quark] 开始解析: \(shareURL)")
         let (pwdId, passcode) = quarkExtractShareInfo(shareURL: shareURL)
         self.log("[Quark] pwdId=\(pwdId), passcode=\(passcode.isEmpty ? "无" : "已传递")")
@@ -2335,15 +2335,20 @@ class CloudDriveManager: ObservableObject {
                 throw DriveError.noPlayURL("夸克 download_url 获取失败：\(errMsg)")
             }
         }
-        // [优化1] 优先使用 m3u8 转码流（480p H264, ~400kbps），download_url 作为原画备选
-        // 原因：m3u8 码率是 download_url (4K HEVC MKV, ~3862kbps) 的 1/10，AVPlayer 原生支持 HLS 秒开
+        // 线路选择：routePreference="original" → 原画(download_url)为主线路；
+        //           routePreference="transcode" → 普画(转码m3u8)为主线路；
+        //           nil → 默认 original（对齐iBox：优先原画直链高速播放）
+        let preferOriginal = routePreference != "transcode"
         let playURL: String
         let source: String
-        if !transcodeURL.isEmpty {
+        if preferOriginal && !download.url.isEmpty {
+            playURL = download.url
+            source = "download_url"
+            self.log("[Quark] 📥 主线路: download_url (原画直链, 高速), host=\(URL(string: playURL)?.host ?? "unknown")")
+        } else if !transcodeURL.isEmpty {
             playURL = transcodeURL
             source = "v2-play-m3u8"
             self.log("[Quark] 📥 主线路: v2/play (转码m3u8, 秒开), host=\(URL(string: playURL)?.host ?? "unknown")")
-            self.log("[Quark] 📥 转码URL路径: \(URL(string: playURL)?.path ?? playURL)")
         } else if !download.url.isEmpty {
             playURL = download.url
             source = "download_url"
@@ -2353,12 +2358,12 @@ class CloudDriveManager: ObservableObject {
         }
         let fallbackURL: String?
         let fallbackSource: String?
-        if source == "v2-play-m3u8", !download.url.isEmpty {
-            fallbackURL = download.url
-            fallbackSource = "download_url"
-        } else if source == "download_url", !transcodeURL.isEmpty {
+        if source == "download_url", !transcodeURL.isEmpty {
             fallbackURL = transcodeURL
             fallbackSource = "v2-play-m3u8"
+        } else if source == "v2-play-m3u8", !download.url.isEmpty {
+            fallbackURL = download.url
+            fallbackSource = "download_url"
         } else {
             fallbackURL = nil
             fallbackSource = nil
@@ -2418,11 +2423,11 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 对齐 iBox parseFile(retry:) 机制：最多重试3次，指数退避（1s/2s/4s）
-    private func resolveQuarkPlayURLWithRetry(shareURL: String, cookie: String, maxRetries: Int = 3, preferredFid: String? = nil) async throws -> PlayResult {
+    private func resolveQuarkPlayURLWithRetry(shareURL: String, cookie: String, maxRetries: Int = 3, preferredFid: String? = nil, routePreference: String? = nil) async throws -> PlayResult {
         var lastError: Error?
         for attempt in 0..<maxRetries {
             do {
-                let result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: cookie, preferredFid: preferredFid)
+                let result = try await resolveQuarkPlayURL(shareURL: shareURL, cookie: cookie, preferredFid: preferredFid, routePreference: routePreference)
                 if attempt > 0 {
                     self.log("[Quark] 🔄 重试第\(attempt)次成功")
                 }
@@ -10100,7 +10105,7 @@ class CloudDriveManager: ObservableObject {
                 case .ali:
                     result = try await resolveAliPlayURL(shareURL: baseURL, refreshToken: token.value)
                 case .quark:
-                    result = try await resolveQuarkPlayURLWithRetry(shareURL: baseURL, cookie: token.value, preferredFid: vboxParams["vbox_fid"])
+                    result = try await resolveQuarkPlayURLWithRetry(shareURL: baseURL, cookie: token.value, preferredFid: vboxParams["vbox_fid"], routePreference: vboxParams["vbox_route"])
                 case .baidu:
                     if let fsId = vboxParams["vbox_fsid"], !fsId.isEmpty {
                         result = try await resolveBaiduPlayURL(shareURL: baseURL, bduss: token.value, fsId: fsId)
