@@ -33,7 +33,48 @@ jobs:
           done
           xcodebuild -version
 
+      - name: 🐹 Fetch Quarkproxy pre-built artifacts (Release 附件加速)
+        id: go_cache
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          TAG="quarkproxy-ios-arm64"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${TAG}.tar.gz"
+
+          echo "🐹 尝试从 Release 下载预编译 Quarkproxy.xcframework: ${TAG}"
+          echo "  URL: ${DOWNLOAD_URL}"
+
+          # 如果仓库中已有 Quarkproxy.xcframework，跳过
+          if [ -d Quarkproxy.xcframework ]; then
+            echo "✅ 仓库中已有 Quarkproxy.xcframework，跳过下载和编译"
+            echo "skip_build=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 尝试下载 (带 3 次重试)
+          TARBALL="/tmp/quarkproxy-artifacts.tar.gz"
+          if curl -L --retry 3 --retry-delay 5 --fail \
+               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -o "$TARBALL" "$DOWNLOAD_URL"; then
+
+            echo "✅ 下载成功 ($(du -h "$TARBALL" | cut -f1))"
+            tar xzf "$TARBALL" -C .
+
+            if [ -d Quarkproxy.xcframework ]; then
+              echo "✅ Quarkproxy.xcframework 已解压: $(du -sh Quarkproxy.xcframework | cut -f1)"
+              echo "skip_build=true" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ 解压后未找到 Quarkproxy.xcframework，将现场编译"
+              echo "skip_build=false" >> $GITHUB_OUTPUT
+            fi
+            rm -f "$TARBALL"
+          else
+            echo "⚠️ Release 下载失败，将回退到现场编译"
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: 🐹 Setup Go + gomobile + 构建 Quarkproxy.xcframework
+        if: steps.go_cache.outputs.skip_build != 'true'
         run: |
           set -euo pipefail
           # 安装 Go
