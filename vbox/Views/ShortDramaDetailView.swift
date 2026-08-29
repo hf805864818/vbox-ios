@@ -201,61 +201,125 @@ struct ShortDramaDetailView: View {
         }
     }
 
+    private var isQuarkDrive: Bool {
+        let playUrl = detailItem?.vodPlayUrl ?? drama.vodPlayUrl ?? ""
+        return playUrl.contains("pan.quark.cn")
+    }
+
     @ViewBuilder
     private var actionButtonsSection: some View {
         if !episodes.isEmpty {
-            HStack(spacing: 12) {
-                // 播放按钮
-                Button(action: {
-                    let ep = episodes[selectedEpisodeIndex]
-                    playerDrama = VodItem(
-                        vodId: drama.vodId,
-                        vodName: "\(drama.vodName) \(ep.number)",
-                        vodPic: detailItem?.vodPic ?? drama.vodPic,
-                        vodRemarks: ep.number,
-                        vodYear: detailItem?.vodYear ?? drama.vodYear,
-                        vodArea: detailItem?.vodArea ?? drama.vodArea,
-                        vodDirector: detailItem?.vodDirector ?? drama.vodDirector,
-                        vodActor: detailItem?.vodActor ?? drama.vodActor,
-                        vodContent: detailItem?.vodContent ?? drama.vodContent,
-                        vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
-                        vodPlayUrl: detailItem?.vodPlayUrl ?? drama.vodPlayUrl,
-                        engineKey: detailItem?.engineKey ?? drama.engineKey
-                    )
-                }) {
-                    HStack {
-                        Image(systemName: "play.fill")
-                        Text("立即播放")
+            if isQuarkDrive {
+                // 夸克网盘：双线路入口（原画 + 普画）+ 下载
+                HStack(spacing: 8) {
+                    // 夸克网盘（原画直链，高速）
+                    Button(action: { startPlayback(routePreference: "original") }) {
+                        HStack {
+                            Image(systemName: "play.fill")
+                            Text("夸克网盘")
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .cornerRadius(12)
                     }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(accentColor)
-                    .cornerRadius(12)
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                // 下载按钮
-                Button(action: {
-                    showDownloadSheet = true
-                }) {
-                    HStack {
-                        Image(systemName: "arrow.down.circle")
-                        Text("下载")
+                    // 备用夸克（普画转码m3u8）
+                    Button(action: { startPlayback(routePreference: "transcode") }) {
+                        HStack {
+                            Image(systemName: "play.circle")
+                            Text("备用夸克")
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.orange.opacity(0.8))
+                        .cornerRadius(12)
                     }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.6))
-                    .cornerRadius(12)
+                    .buttonStyle(.plain)
+
+                    // 下载按钮
+                    Button(action: {
+                        showDownloadSheet = true
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.down.circle")
+                            Text("下载")
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.gray.opacity(0.6))
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+            } else {
+                // 非夸克：保持原有单播放按钮
+                HStack(spacing: 12) {
+                    Button(action: { startPlayback(routePreference: nil) }) {
+                        HStack {
+                            Image(systemName: "play.fill")
+                            Text("立即播放")
+                        }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(accentColor)
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: {
+                        showDownloadSheet = true
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.down.circle")
+                            Text("下载")
+                        }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.gray.opacity(0.6))
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
         }
+    }
+
+    private func startPlayback(routePreference: String?) {
+        let ep = episodes[selectedEpisodeIndex]
+        var playUrl = detailItem?.vodPlayUrl ?? drama.vodPlayUrl ?? ""
+        if let route = routePreference, !playUrl.contains("vbox_route") {
+            playUrl = playUrl.contains("#") ? "\(playUrl)&vbox_route=\(route)" : "\(playUrl)#vbox_route=\(route)"
+        }
+        playerDrama = VodItem(
+            vodId: drama.vodId,
+            vodName: "\(drama.vodName) \(ep.number)",
+            vodPic: detailItem?.vodPic ?? drama.vodPic,
+            vodRemarks: ep.number,
+            vodYear: detailItem?.vodYear ?? drama.vodYear,
+            vodArea: detailItem?.vodArea ?? drama.vodArea,
+            vodDirector: detailItem?.vodDirector ?? drama.vodDirector,
+            vodActor: detailItem?.vodActor ?? drama.vodActor,
+            vodContent: detailItem?.vodContent ?? drama.vodContent,
+            vodPlayFrom: detailItem?.vodPlayFrom ?? drama.vodPlayFrom,
+            vodPlayUrl: playUrl,
+            engineKey: detailItem?.engineKey ?? drama.engineKey
+        )
     }
 
     private func loadDetail() {
