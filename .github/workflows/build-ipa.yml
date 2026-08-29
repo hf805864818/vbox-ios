@@ -33,48 +33,171 @@ jobs:
           done
           xcodebuild -version
 
-      - name: 🐹 Fetch Quarkproxy pre-built artifacts (Release 附件加速)
-        id: go_cache
-        continue-on-error: true
+      # ===== 缓存优化：CocoaPods / MPV / gem 一次缓存，多次复用 =====
+      - name: 💎 Cache Ruby gems (cocoapods / xcodeproj)
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/bundle
+            ~/.gem
+            /Library/Ruby/Gems
+          key: ${{ runner.os }}-gems-${{ hashFiles('Gemfile', 'Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gems-
+
+      - name: 📦 Cache CocoaPods (Pods + Specs Repo)
+        uses: actions/cache@v4
+        with:
+          path: |
+            Pods
+            Podfile.lock
+            ~/.cocoapods/repos
+          key: ${{ runner.os }}-pods-${{ hashFiles('Podfile', 'Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: 🎬 Cache MPV dependencies
+        uses: actions/cache@v4
+        with:
+          path: .mpv-cache
+          key: ${{ runner.os }}-mpv-${{ hashFiles('scripts/fetch_mpv_dependencies.sh', 'scripts/fetch_mpv_external_dependencies.py') }}
+          restore-keys: |
+            ${{ runner.os }}-mpv-
+
+      - name: 💎 一次性安装所有 gem (xcodeproj + cocoapods)
         run: |
           set -euo pipefail
-          TAG="quarkproxy-ios-arm64"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${TAG}.tar.gz"
+          echo "💎 安装 xcodeproj 和 cocoapods..."
+          gem install xcodeproj --no-document 2>/dev/null || true
+          # cocoapods 由 pod install 步骤处理，这里只确保 xcodeproj 就绪
+          echo "✅ gem 安装完成"
 
-          echo "🐹 尝试从 Release 下载预编译 Quarkproxy.xcframework: ${TAG}"
-          echo "  URL: ${DOWNLOAD_URL}"
+      - name: 🚀 Fetch pre-built artifacts in parallel (Go + Python + lxml)
+        id: prebuilt_cache
+        continue-on-error: true
+        run: |
+          set +euo pipefail  # 并行下载允许单个失败
+          GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          REPO="${{ github.repository }}"
 
-          # 如果仓库中已有 Quarkproxy.xcframework，跳过
-          if [ -d Quarkproxy.xcframework ]; then
-            echo "✅ 仓库中已有 Quarkproxy.xcframework，跳过下载和编译"
-            echo "skip_build=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          GO_TAG="quarkproxy-ios-arm64"
+          PYTHON_TAG="python-3.14.6-ios-arm64"
+          LXML_TAG="lxml-5.4.0-ios-arm64"
 
-          # 尝试下载 (带 3 次重试)
-          TARBALL="/tmp/quarkproxy-artifacts.tar.gz"
-          if curl -L --retry 3 --retry-delay 5 --fail \
-               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -o "$TARBALL" "$DOWNLOAD_URL"; then
+          GO_SKIP="false"
+          PYTHON_SKIP="false"
+          LXML_SKIP="false"
 
-            echo "✅ 下载成功 ($(du -h "$TARBALL" | cut -f1))"
-            tar xzf "$TARBALL" -C .
+          # ---- 下载函数 ----
+          download_go() {
+            echo "🐹 [Go] 开始并行下载 Quarkproxy 预编译产物..."
+            local URL="https://github.com/${REPO}/releases/download/${GO_TAG}/${GO_TAG}.tar.gz"
+            local TARBALL="/tmp/quarkproxy-artifacts.tar.gz"
 
             if [ -d Quarkproxy.xcframework ]; then
-              echo "✅ Quarkproxy.xcframework 已解压: $(du -sh Quarkproxy.xcframework | cut -f1)"
-              echo "skip_build=true" >> $GITHUB_OUTPUT
-            else
-              echo "⚠️ 解压后未找到 Quarkproxy.xcframework，将现场编译"
-              echo "skip_build=false" >> $GITHUB_OUTPUT
+              echo "🐹 [Go] 仓库中已有 Quarkproxy.xcframework，跳过"
+              GO_SKIP="true"
+              return 0
             fi
-            rm -f "$TARBALL"
-          else
-            echo "⚠️ Release 下载失败，将回退到现场编译"
-            echo "skip_build=false" >> $GITHUB_OUTPUT
-          fi
+
+            if curl -L --retry 3 --retry-delay 5 --fail \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 -o "$TARBALL" "$URL" 2>/dev/null; then
+              tar xzf "$TARBALL" -C . 2>/dev/null
+              if [ -d Quarkproxy.xcframework ]; then
+                echo "🐹 [Go] 下载成功: $(du -sh Quarkproxy.xcframework | cut -f1)"
+                GO_SKIP="true"
+              else
+                echo "🐹 [Go] 解压后未找到产物"
+              fi
+              rm -f "$TARBALL"
+            else
+              echo "🐹 [Go] 下载失败，将现场编译"
+            fi
+          }
+
+          download_python() {
+            echo "🐍 [Python] 开始并行下载 CPython 预编译产物..."
+            local URL="https://github.com/${REPO}/releases/download/${PYTHON_TAG}/${PYTHON_TAG}.tar.gz"
+            local TARBALL="/tmp/python-artifacts.tar.gz"
+
+            if [ -f vbox/Libraries/python-ios/libpython3.14.a ]; then
+              echo "🐍 [Python] 仓库中已有 libpython3.14.a，跳过"
+              PYTHON_SKIP="true"
+              return 0
+            fi
+
+            if curl -L --retry 3 --retry-delay 5 --fail \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 -o "$TARBALL" "$URL" 2>/dev/null; then
+              mkdir -p /tmp/python-artifacts
+              tar xzf "$TARBALL" -C /tmp/python-artifacts 2>/dev/null
+
+              if [ -d /tmp/python-artifacts/vbox/Libraries/python-ios ]; then
+                mkdir -p vbox/Libraries/python-ios vbox/Resources
+                cp /tmp/python-artifacts/vbox/Libraries/python-ios/libpython3.14.a vbox/Libraries/python-ios/ 2>/dev/null
+                cp -r /tmp/python-artifacts/vbox/Libraries/python-ios/Python.framework vbox/Libraries/python-ios/ 2>/dev/null
+                cp -r /tmp/python-artifacts/vbox/Libraries/python-ios/Headers vbox/Libraries/python-ios/ 2>/dev/null
+                cp -r /tmp/python-artifacts/vbox/Resources/python-stdlib vbox/Resources/ 2>/dev/null
+                echo "🐍 [Python] 下载成功: $(du -sh vbox/Libraries/python-ios/Python.framework 2>/dev/null | cut -f1)"
+                PYTHON_SKIP="true"
+                rm -rf /tmp/python-artifacts "$TARBALL"
+              else
+                echo "🐍 [Python] 解压后未找到产物"
+              fi
+            else
+              echo "🐍 [Python] 下载失败，将现场编译"
+            fi
+          }
+
+          download_lxml() {
+            echo "🐍 [lxml] 开始并行下载 lxml 预编译产物..."
+            local URL="https://github.com/${REPO}/releases/download/${LXML_TAG}/${LXML_TAG}.tar.gz"
+            local TARBALL="/tmp/lxml-artifacts.tar.gz"
+
+            if curl -L --retry 3 --retry-delay 5 --fail \
+                 -H "Authorization: token $GITHUB_TOKEN" \
+                 -o "$TARBALL" "$URL" 2>/dev/null; then
+              mkdir -p /tmp/lxml-artifacts
+              tar xzf "$TARBALL" -C /tmp/lxml-artifacts 2>/dev/null
+              if [ -d /tmp/lxml-artifacts/lxml ]; then
+                echo "🐍 [lxml] 下载成功: $(du -sh /tmp/lxml-artifacts/lxml | cut -f1)"
+                LXML_SKIP="true"
+              else
+                echo "🐍 [lxml] 解压后未找到产物"
+              fi
+              rm -f "$TARBALL"
+            else
+              echo "🐍 [lxml] 下载失败，将现场编译"
+            fi
+          }
+
+          # ---- 并行下载 ----
+          echo "🚀 开始并行下载 3 个预编译产物..."
+          download_go &
+          PID_GO=$!
+          download_python &
+          PID_PY=$!
+          download_lxml &
+          PID_LX=$!
+
+          wait $PID_GO $PID_PY $PID_LX
+          echo "🚀 并行下载完成"
+
+          # ---- 输出结果 ----
+          echo ""
+          echo "=== 下载结果 ==="
+          echo "  Go (Quarkproxy):  $([ "$GO_SKIP" = "true" ] && echo '✅ 缓存命中' || echo '⚠️ 需编译')"
+          echo "  Python (CPython): $([ "$PYTHON_SKIP" = "true" ] && echo '✅ 缓存命中' || echo '⚠️ 需编译')"
+          echo "  lxml:             $([ "$LXML_SKIP" = "true" ] && echo '✅ 缓存命中' || echo '⚠️ 需编译')"
+          echo "================"
+
+          echo "go_skip_build=$GO_SKIP" >> $GITHUB_OUTPUT
+          echo "python_skip_build=$PYTHON_SKIP" >> $GITHUB_OUTPUT
+          echo "lxml_skip_build=$LXML_SKIP" >> $GITHUB_OUTPUT
 
       - name: 🐹 Setup Go + gomobile + 构建 Quarkproxy.xcframework
-        if: steps.go_cache.outputs.skip_build != 'true'
+        if: steps.prebuilt_cache.outputs.go_skip_build != 'true'
         run: |
           set -euo pipefail
           # 安装 Go
@@ -115,9 +238,7 @@ jobs:
           fi
 
       - name: 🔗 注入 Quarkproxy.xcframework + GoProxyManager.swift 到工程
-        run: |
-          gem install xcodeproj --no-document 2>/dev/null || true
-          ruby scripts/configure_quarkproxy_link.rb
+        run: ruby scripts/configure_quarkproxy_link.rb
 
       - name: 📝 添加 NSAllowsLocalNetworking 到 Info.plist
         run: |
@@ -125,54 +246,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" vbox/Info.plist 2>/dev/null || true
           echo "✅ Info.plist: NSAllowsLocalNetworking 已添加"
 
-      - name: 🐍 Fetch CPython pre-built artifacts (Release 附件加速)
-        id: python_cache
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          PYTHON_TAG="python-3.14.6-ios-arm64"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${PYTHON_TAG}/${PYTHON_TAG}.tar.gz"
-
-          echo "🐍 尝试从 Release 下载预编译产物: ${PYTHON_TAG}"
-          echo "  URL: ${DOWNLOAD_URL}"
-
-          # 如果 repo 已有 libpython3.14.a，跳过
-          if [ -f vbox/Libraries/python-ios/libpython3.14.a ]; then
-            echo "✅ 仓库中已有 libpython3.14.a，跳过下载和编译"
-            echo "skip_build=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # 尝试下载 (带 3 次重试)
-          TARBALL="/tmp/python-artifacts.tar.gz"
-          if curl -L --retry 3 --retry-delay 5 --fail \
-               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -o "$TARBALL" "$DOWNLOAD_URL"; then
-
-            echo "✅ 下载成功 ($(du -h "$TARBALL" | cut -f1))"
-            mkdir -p /tmp/python-artifacts
-            tar xzf "$TARBALL" -C /tmp/python-artifacts
-
-            # 复制产物到项目目录
-            mkdir -p vbox/Libraries/python-ios vbox/Resources
-            cp /tmp/python-artifacts/vbox/Libraries/python-ios/libpython3.14.a vbox/Libraries/python-ios/
-            cp -r /tmp/python-artifacts/vbox/Libraries/python-ios/Python.framework vbox/Libraries/python-ios/
-            cp -r /tmp/python-artifacts/vbox/Libraries/python-ios/Headers vbox/Libraries/python-ios/
-            cp -r /tmp/python-artifacts/vbox/Resources/python-stdlib vbox/Resources/
-
-            echo "✅ 产物已解压到项目目录"
-            echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
-            echo "  Python.framework: $(du -sh vbox/Libraries/python-ios/Python.framework | cut -f1)"
-            echo "  python-stdlib: $(du -sh vbox/Resources/python-stdlib | cut -f1)"
-            echo "skip_build=true" >> $GITHUB_OUTPUT
-            rm -rf /tmp/python-artifacts "$TARBALL"
-          else
-            echo "⚠️ Release 下载失败，将回退到现场编译"
-            echo "skip_build=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: 🐍 Build CPython for iOS arm64 (Python-Apple-support)
-        if: steps.python_cache.outputs.skip_build != 'true'
+        if: steps.prebuilt_cache.outputs.python_skip_build != 'true'
         run: |
           set -euo pipefail
           echo "⚠️ 开始现场编译 CPython..."
@@ -247,9 +322,7 @@ jobs:
           python3 scripts/check_mpv_installed_dependencies.py
 
       - name: 🔗 Inject MPVKit Link & Embed
-        run: |
-          gem install xcodeproj --no-document
-          ruby scripts/configure_mpvkit_link.rb
+        run: ruby scripts/configure_mpvkit_link.rb
 
       - name: 🔧 修复 PushPlayView/PushPlayStore 路径 (mpvkit脚本后)
         run: python3 scripts/fix_pushplay_pbxproj.py
@@ -300,17 +373,33 @@ jobs:
 
       - name: 📦 Install CocoaPods dependencies
         run: |
-          sudo gem install cocoapods --no-document
+          set -euo pipefail
+          # 安装 cocoapods (已缓存则很快)
+          if ! command -v pod &>/dev/null; then
+            sudo gem install cocoapods --no-document
+          fi
+          pod --version
+
+          # 判断是否缓存命中：Pods 存在且 Podfile.lock 未变
+          USE_REPO_UPDATE="--repo-update"
+          if [ -d Pods ] && [ -f Podfile.lock ]; then
+            echo "📦 Pods 缓存命中，跳过 repo-update 加速安装"
+            USE_REPO_UPDATE=""
+          else
+            echo "📦 Pods 缓存未命中，执行完整 repo-update"
+          fi
+
           # MobileVLCKit 的下载服务器 download.videolan.org 经常超时，需要重试
           for attempt in 1 2 3 4 5; do
-            echo "📦 第 ${attempt}/5 次尝试 pod install"
-            if pod install --repo-update; then
+            echo "📦 第 ${attempt}/5 次尝试 pod install ${USE_REPO_UPDATE}"
+            if pod install $USE_REPO_UPDATE; then
               echo "✅ CocoaPods 安装成功"
               exit 0
             fi
             echo "⚠️ pod install 失败，清理后重试..."
             rm -rf Pods Podfile.lock
             pod cache clean --all 2>/dev/null || true
+            USE_REPO_UPDATE="--repo-update"  # 失败重试时强制 repo-update
             if [ "$attempt" -lt 5 ]; then
               sleep $((attempt * 15))
             fi
@@ -324,7 +413,6 @@ jobs:
       - name: 🐍 注入 Python.framework 链接到 pbxproj
         run: |
           set -o pipefail
-          gem install xcodeproj --no-document 2>/dev/null || true
           ruby scripts/configure_python_link.rb
 
       - name: 🐍 精简 Python 标准库 (232MB → ~15MB)
@@ -480,25 +568,47 @@ jobs:
           echo "site-packages 大小: $(du -sh $SITE_PKG 2>/dev/null | cut -f1)"
 
       - name: 🐍 交叉编译 lxml 并安装到 site-packages
+        if: steps.prebuilt_cache.outputs.lxml_skip_build != 'true'
         run: |
           set -euo pipefail
           echo "🐍 开始 lxml iOS arm64 交叉编译..."
-          STD="vbox/Resources/python-stdlib"
-          SITE_PKG="$STD/site-packages"
 
           # 运行交叉编译脚本
           bash scripts/build_lxml_ios.sh
 
-          # 将编译产物复制到 site-packages
+          # 验证编译产物
           LXML_OUTPUT="/tmp/lxml-build/output/lxml"
           if [ ! -d "$LXML_OUTPUT" ]; then
             echo "❌ lxml 编译产物未找到: $LXML_OUTPUT"
             exit 1
           fi
+          echo "✅ lxml 编译完成: $(du -sh $LXML_OUTPUT | cut -f1)"
+
+      - name: 🐍 安装 lxml 到 site-packages (预编译或现场编译)
+        run: |
+          set -euo pipefail
+          STD="vbox/Resources/python-stdlib"
+          SITE_PKG="$STD/site-packages"
+          mkdir -p "$SITE_PKG"
+
+          # 确定 lxml 源目录 (预编译下载的 或 现场编译的)
+          LXML_SRC=""
+          if [ -d /tmp/lxml-artifacts/lxml ]; then
+            LXML_SRC="/tmp/lxml-artifacts/lxml"
+            echo "🐍 使用预编译 lxml 产物"
+          elif [ -d /tmp/lxml-build/output/lxml ]; then
+            LXML_SRC="/tmp/lxml-build/output/lxml"
+            echo "🐍 使用现场编译 lxml 产物"
+          fi
+
+          if [ -z "$LXML_SRC" ]; then
+            echo "❌ 未找到 lxml 编译产物"
+            exit 1
+          fi
 
           echo "📦 安装 lxml 到 site-packages..."
           rm -rf "$SITE_PKG/lxml"
-          cp -r "$LXML_OUTPUT" "$SITE_PKG/lxml"
+          cp -r "$LXML_SRC" "$SITE_PKG/lxml"
 
           # 验证安装
           echo "🔍 验证 lxml 安装..."
@@ -514,8 +624,45 @@ jobs:
           echo "   site-packages 大小: $(du -sh $SITE_PKG | cut -f1)"
           echo "✅ lxml 安装完成"
 
+      - name: 📦 Upload lxml artifacts to Release (首次编译时)
+        if: steps.prebuilt_cache.outputs.lxml_skip_build != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LXML_TAG="lxml-5.4.0-ios-arm64"
+          LXML_OUTPUT="/tmp/lxml-build/output/lxml"
+
+          if [ ! -d "$LXML_OUTPUT" ]; then
+            echo "⚠️ 未找到 lxml 编译产物，跳过上传"
+            exit 0
+          fi
+
+          echo "📦 打包 lxml 产物..."
+          cd /tmp/lxml-build/output
+          tar czf "/tmp/${LXML_TAG}.tar.gz" lxml
+          cd "${GITHUB_WORKSPACE}"
+          sha256sum "/tmp/${LXML_TAG}.tar.gz" > "/tmp/${LXML_TAG}.tar.gz.sha256"
+
+          echo "📤 上传到 GitHub Release..."
+          gh release delete "$LXML_TAG" --yes 2>/dev/null || true
+          gh release create "$LXML_TAG" \
+            "/tmp/${LXML_TAG}.tar.gz" \
+            "/tmp/${LXML_TAG}.tar.gz.sha256" \
+            --title "lxml 5.4.0 iOS arm64 (预编译产物)" \
+            --notes "lxml 5.4.0 交叉编译产物 (iphoneos.arm64)
+
+          包含:
+          - lxml Python 包 (含 .so C 扩展)
+          - 依赖 libxml2 2.13.5, libxslt 1.1.42 (静态链接)
+
+          用于 CI 加速: 下载后直接安装到 site-packages，跳过 2-3 分钟的交叉编译。
+          lxml 版本升级时需重新生成。"
+          echo "✅ lxml 产物已上传到 Release: ${LXML_TAG}"
+
       - name: 📦 Upload CPython artifacts to Release (首次编译时)
-        if: steps.python_cache.outputs.skip_build != 'true'
+        if: steps.prebuilt_cache.outputs.python_skip_build != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
