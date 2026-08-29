@@ -276,7 +276,7 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             renderView?.updateVideoSize(width: state.width, height: state.height)
 
             // ===== 诊断：首次获取到视频编码信息时记录 =====
-            let codecName = video.codec.name ?? "unknown"
+            let codecName = video.codec.codec ?? "unknown"
             if codecName != lastLoggedCodec {
                 lastLoggedCodec = codecName
                 onEvent?(.log("[MDK-Diag] codec=\(codecName) \(state.width)x\(state.height) duration=\(Int(total))s"))
