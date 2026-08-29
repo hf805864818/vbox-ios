@@ -2343,6 +2343,7 @@ class CloudDriveManager: ObservableObject {
             playURL = transcodeURL
             source = "v2-play-m3u8"
             self.log("[Quark] 📥 主线路: v2/play (转码m3u8, 秒开), host=\(URL(string: playURL)?.host ?? "unknown")")
+            self.log("[Quark] 📥 转码URL路径: \(URL(string: playURL)?.path ?? playURL)")
         } else if !download.url.isEmpty {
             playURL = download.url
             source = "download_url"
@@ -4101,6 +4102,17 @@ class CloudDriveManager: ObservableObject {
             // [优化] 优先选择最低码率的可用转码流，保证秒开和流畅播放
             // 夸克 video_list 按清晰度从高到低排列(4k→super→high→normal→low)
             // 普通会员限速下，low(480p/400kbps) 最流畅，normal/high 码率高容易卡
+            // 诊断：打印所有可用转码流信息
+            for item in videos {
+                if let info = item["video_info"] as? [String: Any] {
+                    let res = info["resolution"] as? String ?? "?"
+                    let w = info["width"] as? Int ?? 0
+                    let h = info["height"] as? Int ?? 0
+                    let br = info["bitrate"] as? Double ?? 0
+                    let access = item["accessable"] as? Bool ?? true
+                    self.log("[Quark] 可用转码流: \(res) \(w)x\(h) \(Int(br))kbps accessable=\(access)")
+                }
+            }
             let qualityOrder = ["low", "normal", "high", "super", "2k", "4k"]
             for quality in qualityOrder {
                 for item in videos {
