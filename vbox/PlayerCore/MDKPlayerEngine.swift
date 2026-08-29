@@ -23,6 +23,13 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
     private var didFinish = false
     private var currentRoute: PlaybackRoute?
     private var observers: [NSObjectProtocol] = []
+
+    // ===== 诊断日志新增属性 =====
+    private var pollCount: Int = 0
+    private var lastBufferingState: Bool? = nil
+    private var lastLoggedCodec: String = ""
+    private var loadStartTime: CFTimeInterval = 0
+    private var firstFrameLogged = false
     #endif
 
     deinit {
@@ -63,21 +70,16 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         progressTimer?.invalidate()
         progressTimer = nil
         currentRoute = route
+        loadStartTime = CACurrentMediaTime()
+        firstFrameLogged = false
+        pollCount = 0
+        lastBufferingState = nil
+        lastLoggedCodec = ""
 
-        // 标记加载过渡期并清屏，防止旧解码器脏帧被 blit 到屏幕导致紫屏。
-        // markReloadComplete() 会在 onStateChanged .Playing 回调中调用。
         renderView?.markReloading()
 
-        // 同步设置新 URL：mdk-sdk 内部会自动停止旧 media 并启动新 media。
-        // 之前用 DispatchQueue.main.async 延迟设置 URL，导致 engine.play()
-        // 在 URL 设置前就执行 player.state = .Playing，mdk 在无 media 时
-        // 触发 .Playing 回调，清除 isLoading 和 isReloading，但实际未加载任何内容，
-        // 造成"正在启动 MDK..."永久卡住。
         player.media = route.url.absoluteString
 
-        // ★ 彻底修复切集黑屏：setMedia（切集）之后强制重新绑定 renderTexture 到 MDK。
-        // 防止 mdk 底层在切换媒体时重置 renderer、丢失之前绑定的纹理指针导致黑屏。
-        // 注意：此调用必须在主线程（renderView 属于 Metal/UI 资源）。
         DispatchQueue.main.async { [weak self] in
             self?.renderView?.rebindRenderAPI()
         }
@@ -96,21 +98,16 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.setProperty(name: "http-header-fields", value: headerFields)
         }
 
-        // [优化3] m3u8 走 VT 硬解（H264 原生支持），仅 download_url 降级 FFmpeg 软解
-        // 原因：m3u8 转码流为 H264，VT 硬解 CPU 占用降 80%，不再卡首帧
         let urlString = route.url.absoluteString.lowercased()
-        // m3u8 流检测：原始 m3u8 URL 或 Go 代理标记为 quark-m3u8 的 URL
         let isQuarkM3U8 = urlString.contains("media.m3u8")
             || urlString.contains("drive.quark.cn/qv/")
             || (urlString.contains("127.0.0.1") && urlString.contains("quark-m3u8"))
-        // download_url 直链检测：原始 dl- 域名或 Go 代理标记为 quark-stream 的 URL
         let isQuarkDownload = (urlString.contains("dl-") && urlString.contains("drive.quark.cn"))
             || (urlString.contains("127.0.0.1") && urlString.contains("quark-stream"))
         if isQuarkM3U8 {
-            // m3u8 H264 走 VT 硬解，FFmpeg 兜底
             player.videoDecoders = ["VT", "FFmpeg"]
+            onEvent?(.log("[MDK-Diag] decoder=VT+FFmpeg (m3u8) buffer=256KB readahead=8s"))
         } else if isQuarkDownload {
-            // download_url (HEVC MKV) 仍用 FFmpeg 软解 + 网络放宽
             player.videoDecoders = ["FFmpeg"]
             player.setProperty(name: "avformat.fflags", value: "+fastseek")
             player.setProperty(name: "avformat.reconnect", value: "1")
@@ -118,24 +115,20 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             player.setProperty(name: "avformat.reconnect_delay_max", value: "2000")
             player.setProperty(name: "avformat.timeout", value: "30000000")
             player.setProperty(name: "avformat.rw_timeout", value: "30000000")
+            onEvent?(.log("[MDK-Diag] decoder=FFmpeg (download_url)"))
         } else {
             player.videoDecoders = ["VT", "FFmpeg"]
+            onEvent?(.log("[MDK-Diag] decoder=VT+FFmpeg (default)"))
         }
 
-        // [优化6] 缓冲预热：对齐 iBox 的 SetBuffer/cacheZone 机制
-        // 预加载更多数据后再开始播放，减少首帧后的卡顿
+        // [优化6] 缓冲预热
         if isQuarkM3U8 || isQuarkDownload {
-            // 增大 I/O 缓冲区，减少频繁的小数据包回传
-            player.setProperty(name: "avio.buffer_size", value: "262144") // 256KB
-            // HLS 预读缓冲：提前读取更多分片数据
-            player.setProperty(name: "readahead", value: "8.0") // 预读 8 秒
-            // 降低首帧延迟（尽快出画面）
-            player.setProperty(name: "avformat.analyzeduration", value: "1000000") // 1s
-            // 允许在缓冲不足时降低帧率而非卡死
+            player.setProperty(name: "avio.buffer_size", value: "262144")
+            player.setProperty(name: "readahead", value: "8.0")
+            player.setProperty(name: "avformat.analyzeduration", value: "1000000")
             player.setProperty(name: "framedrop", value: "1")
         }
 
-        // 绑定状态回调
         player.onStateChanged { [weak self] newState in
             guard let self else { return }
             switch newState {
@@ -144,11 +137,11 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
                 self.state.isPlaying = true
                 self.onEvent?(.buffering(false))
                 self.onEvent?(.ready)
-                // NOTE: 不再在此处调用 markReloadComplete()。
-                // .Playing 表示播放已开始，但首帧可能尚未渲染到 renderTexture。
-                // isReloading 的解除已移至 draw(in:) 内自适应判断：
-                // 只有 renderVideo() 返回 pts >= 0（新帧真正可用）时才解除，
-                // 防止旧解码器脏帧被 blit 到屏幕导致紫屏。
+                if !self.firstFrameLogged {
+                    self.firstFrameLogged = true
+                    let elapsed = CACurrentMediaTime() - self.loadStartTime
+                    self.onEvent?(.log("[MDK-Diag] first_frame_ms=\(Int(elapsed * 1000))"))
+                }
             case .Paused:
                 self.state.isPlaying = false
             case .Stopped:
@@ -158,19 +151,13 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
             }
         }
 
-        // 监听 PiP 播放控制
         setupPiPControlObservers()
-
-        // 激活音频会话（PiP 与后台播放需要）
         activateAudioSession()
 
         state = PlayerEngineState(isBuffering: true)
         onEvent?(.buffering(true))
         onEvent?(.log("MDK 内核加载线路：\(route.title)"))
         startProgressTimer()
-
-        // 不调用 prepare()：setMedia + setState(.Playing) 已足够触发解码与 render callback。
-        // 之前 prepare(from: 0, complete: nil) 会阻塞/卡状态，导致网盘资源长时间“正在启动 MDK...”。
         #else
         let message = "当前构建未包含 MDK 内核"
         state.errorMessage = message
@@ -182,9 +169,6 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         #if canImport(swift_mdk)
         player.state = .Playing
         state.isPlaying = true
-        // 不在这里发送 .ready/.buffering(false)：
-        // 应等 onStateChanged 的 .Playing 真正触发后再通知 UI 首帧已就绪，
-        // 否则“正在启动 MDK...”会在还没出画面前就消失，露出未初始化的纹理。
         #endif
     }
 
@@ -255,7 +239,6 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
 
     func stopPiP() {
         #if canImport(swift_mdk)
-        // 同步关闭帧捕获，避免回调继续向已停止的 PiP 管理器推帧导致死锁
         renderView?.setPiPEnabled(false)
         DispatchQueue.main.async {
             MDKPipManager.shared.stopPiP()
@@ -290,11 +273,34 @@ final class MDKPlayerEngine: NSObject, PlayerEngine {
         if let video = player.mediaInfo.video.first {
             state.width = Int(video.codec.width)
             state.height = Int(video.codec.height)
-            // 同步视频原始尺寸到渲染视图，用于 setAspectRatio 计算
             renderView?.updateVideoSize(width: state.width, height: state.height)
+
+            // ===== 诊断：首次获取到视频编码信息时记录 =====
+            let codecName = video.codec.name ?? "unknown"
+            if codecName != lastLoggedCodec {
+                lastLoggedCodec = codecName
+                onEvent?(.log("[MDK-Diag] codec=\(codecName) \(state.width)x\(state.height) duration=\(Int(total))s"))
+            }
         }
 
         onEvent?(.progress(current: state.currentTime, duration: state.duration))
+
+        // ===== 诊断：缓冲状态变化日志 =====
+        let isBuffering = state.isBuffering
+        if lastBufferingState != isBuffering {
+            lastBufferingState = isBuffering
+            if isBuffering {
+                onEvent?(.log("[MDK-Diag] BUFFERING_START pos=\(String(format: "%.1f", current))s"))
+            } else {
+                onEvent?(.log("[MDK-Diag] BUFFERING_END pos=\(String(format: "%.1f", current))s"))
+            }
+        }
+
+        // ===== 诊断：每 5 秒输出一次播放状态快照 =====
+        pollCount += 1
+        if pollCount % 10 == 0 {
+            onEvent?(.log("[MDK-Diag] SNAP pos=\(String(format: "%.1f", current))/\(String(format: "%.1f", total))s buf=\(isBuffering ? "Y" : "N")"))
+        }
 
         if !didFinish, total > 1, current >= max(0, total - 0.8) {
             didFinish = true
