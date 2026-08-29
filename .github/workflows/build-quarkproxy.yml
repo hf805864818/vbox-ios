@@ -28,6 +28,17 @@ jobs:
           done
           xcodebuild -version
 
+      - name: 🐹 Cache Go modules & gomobile
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/go/bin
+            ~/Library/Caches/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('go-proxy/go.sum', 'go-proxy/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: 🐹 Setup Go + gomobile + 构建 Quarkproxy.xcframework
         run: |
           set -euo pipefail
