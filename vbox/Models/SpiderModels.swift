@@ -166,14 +166,11 @@ struct VodItem: Codable, Identifiable {
     let customHeaders: [String: String]?
     /// 追踪数据来源引擎的 key，用于精确匹配详情和播放地址
     var engineKey: String?
-    /// 夸克线路偏好：="original" 用原画(download_url)做主线路，="transcode" 用普画(转码m3u8)做主线路，nil 则默认 original
-    var quarkRoutePreference: String?
 
     init(vodId: String, vodName: String, vodPic: String, vodRemarks: String? = nil,
          vodYear: String? = nil, vodArea: String? = nil, vodDirector: String? = nil,
          vodActor: String? = nil, vodContent: String? = nil, vodPlayFrom: String? = nil,
-         vodPlayUrl: String? = nil, customHeaders: [String: String]? = nil, engineKey: String? = nil,
-         quarkRoutePreference: String? = nil) {
+         vodPlayUrl: String? = nil, customHeaders: [String: String]? = nil, engineKey: String? = nil) {
         self.vodId = vodId
         self.vodName = vodName
         self.vodPic = vodPic
@@ -187,7 +184,6 @@ struct VodItem: Codable, Identifiable {
         self.vodPlayUrl = vodPlayUrl
         self.customHeaders = customHeaders
         self.engineKey = engineKey
-        self.quarkRoutePreference = quarkRoutePreference
     }
 
     enum CodingKeys: String, CodingKey {
@@ -204,7 +200,6 @@ struct VodItem: Codable, Identifiable {
         case vodPlayUrl = "vod_play_url"
         case customHeaders
         case engineKey
-        case quarkRoutePreference
     }
 }
 
