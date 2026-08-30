@@ -233,7 +233,7 @@ final class AppLogStore: NSObject, ObservableObject {
     
     // MARK: - 初始化
     
-    private init() {
+    private override init() {
         let savedEnabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? false
         let savedLevelRaw = UserDefaults.standard.integer(forKey: Self.minLevelKey)
         let savedLevel = LogLevel(rawValue: savedLevelRaw) ?? .info
@@ -567,7 +567,7 @@ final class AppLogStore: NSObject, ObservableObject {
     /// 解析日志行文本 -> LogEntry
     private func parseLogLine(_ line: String) -> LogEntry? {
         // 格式: [2026-08-30 14:23:05.123] [I] [spider] [main] message...
-        let pattern = #"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\] \[([VIWE])\] \[(\w+)\] \[(\w+)\] (.*)$"#"#
+        let pattern = #"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\] \[([VIWE])\] \[(\w+)\] \[(\w+)\] (.*)$"#
         
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
