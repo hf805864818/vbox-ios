@@ -22,10 +22,10 @@ import UIKit
     
     var displayName: String {
         switch self {
-        case .verbose: return "Verbose"
-        case .info:    return "Info"
-        case .warn:    return "Warn"
-        case .error:   return "Error"
+        case .verbose: return "详细"
+        case .info:    return "信息"
+        case .warn:    return "警告"
+        case .error:   return "错误"
         }
     }
     
