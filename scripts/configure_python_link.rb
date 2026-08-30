@@ -121,8 +121,10 @@ end
 bridge_files = {
   'PythonBridge.m' => 'Libraries',
   'PythonSpiderEngine.swift' => 'Services',
-  'PythonLogStore.m' => 'Libraries',
-  'PythonLogFloatingWindow.swift' => 'Views'
+  'AppLogBridge.m' => 'Libraries',
+  'AppLogStore.swift' => 'Services',
+  'NetworkLogger.swift' => 'Services',
+  'LogViewerView.swift' => 'Views'
 }
 bridge_files.each do |file_name, group_name|
   next if source_phase.files.any? { |f| f.file_ref&.path == file_name }
@@ -137,7 +139,7 @@ end
 
 # 头文件: 也需要加入 target, 供 Bridging-Header + Swift 引用
 header_files = {
-  'PythonLogStore.h' => 'Libraries',
+  'AppLogBridge.h' => 'Libraries',
   'PythonBridge.h' => 'Libraries'
 }
 header_files.each do |file_name, group_name|
