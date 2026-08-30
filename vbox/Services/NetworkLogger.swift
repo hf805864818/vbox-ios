@@ -37,7 +37,7 @@ final class NetworkLoggerURLProtocol: URLProtocol {
         }
         
         // 只有日志开启时才拦截
-        let enabled = AppLogStore.shared.enabled
+        let enabled = AppLogStore.shared.isEnabled()
         guard enabled else { return false }
         
         // 只记录 info 级别以上时才拦截（verbose 级别的每条请求太频繁）

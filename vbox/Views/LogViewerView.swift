@@ -210,7 +210,7 @@ struct LogViewerView: View {
             }
             .listStyle(.plain)
             .background(Color(.systemGroupedBackground))
-            .onChange(of: filteredEntries.count) { _, _ in
+            .onChange(of: filteredEntries.count) { _ in
                 if autoScroll, let last = filteredEntries.last {
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo(last, anchor: .bottom)
