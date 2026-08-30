@@ -153,21 +153,22 @@ final class AppLogStore: NSObject, ObservableObject {
     private let flushInterval: TimeInterval = 10
     
     /// 最低记录级别 (低于此级别的日志直接丢弃)
-    @MainActor @Published var minLevel: LogLevel = .info {
+    var minLevel: LogLevel = .info {
         didSet {
             UserDefaults.standard.set(minLevel.rawValue, forKey: Self.minLevelKey)
             configLock.lock()
-            _minLevel = minLevel
+            logMinLevel = minLevel
             configLock.unlock()
+            notifyUI()
         }
     }
     
     /// 总开关
-    @MainActor @Published var enabled: Bool = false {
+    var enabled: Bool = false {
         didSet {
             UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
             configLock.lock()
-            _enabled = enabled
+            logEnabled = enabled
             configLock.unlock()
             if enabled {
                 startFlushTimer()
@@ -175,14 +176,16 @@ final class AppLogStore: NSObject, ObservableObject {
             } else {
                 stopFlushTimer()
                 logAppLifecycle("日志记录已关闭")
-                // 关闭时立即刷一次盘
                 flushToDisk()
             }
+            notifyUI()
         }
     }
     
     /// 上次是否异常退出 (启动时检测)
-    @MainActor @Published var lastRunCrashed = false
+    var lastRunCrashed = false {
+        didSet { notifyUI() }
+    }
     
     // MARK: - 存储
     
@@ -201,10 +204,18 @@ final class AppLogStore: NSObject, ObservableObject {
     /// 锁 (保护 entries / pendingLines)
     private let lock = NSLock()
     
-    /// 配置锁 (保护 _enabled / _minLevel，供任意线程读取)
+    /// 配置锁 (保护 logEnabled / logMinLevel，供任意线程读取)
     private let configLock = NSLock()
-    private var _enabled: Bool = false
-    private var _minLevel: LogLevel = .info
+    private var logEnabled: Bool = false
+    private var logMinLevel: LogLevel = .info
+    
+    // MARK: - UI 通知
+    
+    private func notifyUI() {
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
     
     // MARK: - 文件路径
     
@@ -276,8 +287,8 @@ final class AppLogStore: NSObject, ObservableObject {
             
             let entry = LogEntry(timestamp: ts, level: level, category: category, message: message, thread: thread)
             
-            guard self.enabled else { return }
-            guard level >= self.minLevel else { return }
+            guard self.isEnabled() else { return }
+            guard level >= self.currentMinLevel() else { return }
             
             self.lock.lock()
             self.entries.append(entry)
@@ -297,11 +308,11 @@ final class AppLogStore: NSObject, ObservableObject {
     func log(_ level: LogLevel, _ category: LogCategory, _ message: String) {
         // 快速检查配置 (用配置锁)
         configLock.lock()
-        let enabled = _enabled
-        let minLvl = _minLevel
+        let en = logEnabled
+        let minLvl = logMinLevel
         configLock.unlock()
         
-        guard enabled else { return }
+        guard en else { return }
         guard level >= minLvl else { return }
         
         let thread = Thread.isMainThread ? "main" : "bg"
@@ -343,7 +354,7 @@ final class AppLogStore: NSObject, ObservableObject {
     /// 线程安全地读取当前是否开启 (供非主线程调用)
     func isEnabled() -> Bool {
         configLock.lock()
-        let val = _enabled
+        let val = logEnabled
         configLock.unlock()
         return val
     }
@@ -351,7 +362,7 @@ final class AppLogStore: NSObject, ObservableObject {
     /// 线程安全地读取当前最低级别 (供非主线程调用)
     func currentMinLevel() -> LogLevel {
         configLock.lock()
-        let val = _minLevel
+        let val = logMinLevel
         configLock.unlock()
         return val
     }
@@ -396,9 +407,7 @@ final class AppLogStore: NSObject, ObservableObject {
         entries.removeAll()
         pendingLines.removeAll()
         lock.unlock()
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        notifyUI()
     }
     
     /// 清空所有日志 (内存 + 磁盘)
@@ -419,9 +428,7 @@ final class AppLogStore: NSObject, ObservableObject {
             }
         }
         
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
-        }
+        notifyUI()
     }
     
     // MARK: - 导出
