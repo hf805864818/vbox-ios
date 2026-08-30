@@ -134,7 +134,7 @@ import UIKit
 
 // MARK: - AppLogStore
 
-@objc @MainActor
+@objc
 final class AppLogStore: NSObject, ObservableObject {
     
     // MARK: - 单例
@@ -144,16 +144,16 @@ final class AppLogStore: NSObject, ObservableObject {
     // MARK: - 配置
     
     /// 内存最大条数 (环形缓冲)
-    nonisolated private let maxMemoryEntries = 5000
+    private let maxMemoryEntries = 5000
     
     /// 持久化保留天数
-    nonisolated private let persistDays = 1
+    private let persistDays = 1
     
     /// 刷盘间隔 (秒)
     private let flushInterval: TimeInterval = 10
     
     /// 最低记录级别 (低于此级别的日志直接丢弃)
-    @Published var minLevel: LogLevel = .info {
+    @MainActor @Published var minLevel: LogLevel = .info {
         didSet {
             UserDefaults.standard.set(minLevel.rawValue, forKey: Self.minLevelKey)
             configLock.lock()
@@ -163,7 +163,7 @@ final class AppLogStore: NSObject, ObservableObject {
     }
     
     /// 总开关
-    @Published var enabled: Bool = false {
+    @MainActor @Published var enabled: Bool = false {
         didSet {
             UserDefaults.standard.set(enabled, forKey: Self.enabledKey)
             configLock.lock()
@@ -182,29 +182,29 @@ final class AppLogStore: NSObject, ObservableObject {
     }
     
     /// 上次是否异常退出 (启动时检测)
-    @Published private(set) var lastRunCrashed = false
+    @MainActor @Published var lastRunCrashed = false
     
     // MARK: - 存储
     
     /// 内存中的日志 (最新的在末尾)
-    nonisolated private var entries: [LogEntry] = []
+    private var entries: [LogEntry] = []
     
     /// 待写入文件的缓冲
-    nonisolated private var pendingLines: [String] = []
+    private var pendingLines: [String] = []
     
     /// 后台串行队列 (写文件用)
-    nonisolated private let ioQueue = DispatchQueue(label: "com.vbox.applog.io", qos: .utility)
+    private let ioQueue = DispatchQueue(label: "com.vbox.applog.io", qos: .utility)
     
     /// 刷盘定时器
     private var flushTimer: Timer?
     
     /// 锁 (保护 entries / pendingLines)
-    nonisolated private let lock = NSLock()
+    private let lock = NSLock()
     
-    /// 配置锁 (保护 _enabled / _minLevel，供 nonisolated 方法读取)
-    nonisolated private let configLock = NSLock()
-    nonisolated private var _enabled: Bool = false
-    nonisolated private var _minLevel: LogLevel = .info
+    /// 配置锁 (保护 _enabled / _minLevel，供任意线程读取)
+    private let configLock = NSLock()
+    private var _enabled: Bool = false
+    private var _minLevel: LogLevel = .info
     
     // MARK: - 文件路径
     
@@ -294,7 +294,7 @@ final class AppLogStore: NSObject, ObservableObject {
     // MARK: - 公共 API
     
     /// 记录一条日志 (线程安全，可从任意线程调用)
-    nonisolated func log(_ level: LogLevel, _ category: LogCategory, _ message: String) {
+    func log(_ level: LogLevel, _ category: LogCategory, _ message: String) {
         // 快速检查配置 (用配置锁)
         configLock.lock()
         let enabled = _enabled
@@ -324,20 +324,36 @@ final class AppLogStore: NSObject, ObservableObject {
     }
     
     // 便捷方法 (线程安全)
-    nonisolated func verbose(_ category: LogCategory, _ message: String) {
+    func verbose(_ category: LogCategory, _ message: String) {
         log(.verbose, category, message)
     }
     
-    nonisolated func info(_ category: LogCategory, _ message: String) {
+    func info(_ category: LogCategory, _ message: String) {
         log(.info, category, message)
     }
     
-    nonisolated func warn(_ category: LogCategory, _ message: String) {
+    func warn(_ category: LogCategory, _ message: String) {
         log(.warn, category, message)
     }
     
-    nonisolated func error(_ category: LogCategory, _ message: String) {
+    func error(_ category: LogCategory, _ message: String) {
         log(.error, category, message)
+    }
+    
+    /// 线程安全地读取当前是否开启 (供非主线程调用)
+    func isEnabled() -> Bool {
+        configLock.lock()
+        let val = _enabled
+        configLock.unlock()
+        return val
+    }
+    
+    /// 线程安全地读取当前最低级别 (供非主线程调用)
+    func currentMinLevel() -> LogLevel {
+        configLock.lock()
+        let val = _minLevel
+        configLock.unlock()
+        return val
     }
     
     /// 当前日志条数
