@@ -259,7 +259,13 @@ final class AppLogStore: NSObject, ObservableObject {
         
         self.enabled = savedEnabled
         self.minLevel = savedLevel
-        
+
+        super.init()
+
+        // Phase 1 期间 didSet 不会触发，手动同步内部缓存
+        self.logEnabled = savedEnabled
+        self.logMinLevel = savedLevel
+
         if savedEnabled {
             // 启动时加载今天的历史日志到内存
             loadTodayLogsFromDisk()
