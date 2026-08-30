@@ -125,6 +125,8 @@ def main() -> int:
 
     dependencies = selected_dependencies(only_minimum=not args.all, names=args.name)
     cache_dir = Path(args.cache_dir)
+    if not cache_dir.is_absolute():
+        cache_dir = ROOT / cache_dir
 
     print("MPVKit 外部静态依赖安装模式:")
     if args.name:
