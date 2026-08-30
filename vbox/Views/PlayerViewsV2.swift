@@ -2223,8 +2223,24 @@ class PlayerState: ObservableObject {
     /// 添加调试日志（同时打印到控制台和UI）
     /// 使用 DispatchQueue.main.async 而非 Task，避免高频日志调用时大量 Task 对象
     /// 挤占主线程协程调度队列导致 UI 卡顿
+    /// 当前播放器内核名称（用于日志标识）
+    private var currentEngineLabel: String {
+        switch playbackEngineMode {
+        case .system:
+            return "AVPlayer"
+        case .compatibility:
+            return compatibilityEngineName
+        }
+    }
+    
     func log(_ msg: String) {
         print(msg)
+        // 转发到统一日志系统 (player 分类，带内核标识)
+        let level: LogLevel = msg.contains("失败") || msg.contains("错误") || msg.contains("❌") ? .error : .info
+        let engine = Thread.isMainThread ? currentEngineLabel : "Player"
+        let logMsg = "[\(engine)] \(msg.replacingOccurrences(of: "[PlayerV2] ", with: ""))"
+        AppLogStore.shared.log(level, .player, logMsg)
+        
         let short = msg.replacingOccurrences(of: "[PlayerV2] ", with: "")
         if Thread.isMainThread {
             debugLogs.append(short)

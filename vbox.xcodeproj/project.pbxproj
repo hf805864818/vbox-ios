@@ -59,7 +59,6 @@
 		4F5E6D7C8B9A090807060504 /* LusushequService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F708192A3B4C5 /* LusushequService.swift */; };
 		4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */; };
 		50AE505C5AB8511E02F0E454 /* Libshaderc_combined.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 074103D40D02F9DA6C7B3945 /* Libshaderc_combined.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
-		50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */; };
 		51004C6A32CE4DBC925FFAA7 /* YBoxAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE5BCDC441F4B10BD45AB3A /* YBoxAPIService.swift */; };
 		519CFD0B1832C3C94FEB4604 /* AliyunPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (Required, ); }; };
 		51CCAF3980B3CBA9C6082957 /* Libmpv.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 352766A618B5FDE7451235BB /* Libmpv.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -73,7 +72,6 @@
 		62663452B1AB391EC8909810 /* Libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		63F6E82864CC31F4573BA29E /* WelfarePlatformConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4A2F51F4D48142714B5109 /* WelfarePlatformConfig.swift */; };
 		652466BD988F1A23E25CFF70 /* Libbluray.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B0F74E8951368DECD8322237 /* Libbluray.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */ = {isa = PBXBuildFile; fileRef = D810A485ED03241B4D419B1B /* PythonLogStore.m */; };
 		6789ABCDEF01234567890123 /* KanliaoHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789ABCDEF0123456789012345 /* KanliaoHomeView.swift */; };
 		6AA3BCF3B628B51511EB3353 /* Libsmbclient.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 09351A8D3D35ADCA3B774594 /* Libsmbclient.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 		6CF0422718C9122B706A6918 /* AliyunPlayer.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7ED294DD8913ADA317661B9C /* AliyunPlayer.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -126,6 +124,10 @@
 		A10011 /* QJSSpiderEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* QJSSpiderEngine.swift */; };
 		A10012 /* QuickJSBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* QuickJSBridge.m */; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10013 /* Assets.xcassets */; };
+		004C1F840658F7D4F4666871 /* AppLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9F73BC83E18E7C07A730C2 /* AppLogStore.swift */; };
+		C51E1F409BF9D60340B50CBA /* NetworkLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04769CCC3E3FE5C15E7593C5 /* NetworkLogger.swift */; };
+		D2AC30B6B7903947F28071EA /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800C1C8623E553FD6DB513F8 /* LogViewerView.swift */; };
+		0C4224BAA1FE23D77C507FAF /* AppLogBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 4C04B78E5C7C1CEA6EFA6359 /* AppLogBridge.m */; };
 		A10014 /* CloudDriveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* CloudDriveManager.swift */; };
 		A10016 /* libquickjs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B10017 /* libquickjs.a */; };
 		A10017 /* SpiderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* SpiderManager.swift */; };
@@ -382,7 +384,6 @@
 		56395FB5B97A49719A76B89B /* FuliPlatformKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformKit.swift; sourceTree = "<group>"; };
 		567FF5EA75D91B4730CDBE7D /* Libdav1d.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libdav1d.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libdav1d.xcframework; sourceTree = SOURCE_ROOT; };
 		5810649382674CEDBAA6A2CF /* FullHDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullHDService.swift; sourceTree = "<group>"; };
-		5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PythonLogFloatingWindow.swift; sourceTree = "<group>"; };
 		5F77356B6F268B826247C658 /* gnutls.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = gnutls.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/gnutls.xcframework; sourceTree = SOURCE_ROOT; };
 		619377EB704BCC9911A0FD62 /* MoltenVK.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = MoltenVK.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/MoltenVK.xcframework; sourceTree = SOURCE_ROOT; };
 		62A128E6B2F4478FAE268A77 /* Libswscale.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswscale.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswscale.xcframework; sourceTree = SOURCE_ROOT; };
@@ -448,6 +449,11 @@
 		B10013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10015 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		3B9F73BC83E18E7C07A730C2 /* AppLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogStore.swift; sourceTree = "<group>"; };
+		04769CCC3E3FE5C15E7593C5 /* NetworkLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkLogger.swift; sourceTree = "<group>"; };
+		800C1C8623E553FD6DB513F8 /* LogViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
+		203692814AF3B1EA934B0353 /* AppLogBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppLogBridge.h; sourceTree = "<group>"; };
+		4C04B78E5C7C1CEA6EFA6359 /* AppLogBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppLogBridge.m; sourceTree = "<group>"; };
 		B10016 /* CloudDriveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveManager.swift; sourceTree = "<group>"; };
 		B10017 /* libquickjs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libquickjs.a; sourceTree = "<group>"; };
 		B10018 /* QuickJSBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QuickJSBridge.h; sourceTree = "<group>"; };
@@ -544,7 +550,6 @@
 		B5E839D3291D49209FCC2D19 /* FuliVideoBridgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliVideoBridgeView.swift; sourceTree = "<group>"; };
 		B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AliyunMediaDownloader.framework; path = vbox/Libraries/AliyunMediaDownloader.framework; sourceTree = SOURCE_ROOT; };
 		B7BD5941C23943FA946FBF55 /* FuliPlatformMainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuliPlatformMainView.swift; sourceTree = "<group>"; };
-		B97706CA828BCA0385813DBA /* PythonLogStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonLogStore.h; sourceTree = "<group>"; };
 		BABBF6103C4A9D5A89C90E4E /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		BD46FA65838EB8EB5F268E21 /* Libswresample.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libswresample.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libswresample.xcframework; sourceTree = SOURCE_ROOT; };
 		BFE207598530999CD737A4C6 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -571,7 +576,6 @@
 		D3AEA5E3D59D5893B8304746 /* MDTVService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MDTVService.swift; sourceTree = "<group>"; };
 		D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PythonWebViewBridge.h; sourceTree = "<group>"; };
 		D62F6461A137466FAE5F133B /* DuckVideoService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckVideoService.swift; sourceTree = "<group>"; };
-		D810A485ED03241B4D419B1B /* PythonLogStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PythonLogStore.m; sourceTree = "<group>"; };
 		D8815F39A6013262E7F5B211 /* PushPlayStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PushPlayStore.swift; path = PushPlayStore.swift; sourceTree = "<group>"; };
 		E4B44716C2FC412BACA38D26 /* WaibiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaibiService.swift; sourceTree = "<group>"; };
 		E551770B0DFF5D47EF29B134 /* Libcrypto.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = Libcrypto.xcframework; path = vbox/Libraries/MPV/MPVKitDependencies/Libcrypto.xcframework; sourceTree = SOURCE_ROOT; };
@@ -1010,6 +1014,8 @@
 				CAFE00000000000000000005 /* FeedbackService.swift */,
 				B10015 /* SubscriptionManager.swift */,
 				B10135 /* BaiduWebViewBridge.swift */,
+				3B9F73BC83E18E7C07A730C2 /* AppLogStore.swift */,
+				04769CCC3E3FE5C15E7593C5 /* NetworkLogger.swift */,
 				B10016 /* CloudDriveManager.swift */,
 				B10150 /* DoubanCategoryBrowserView.swift */,
 				C1A000000000000000000001 /* CloudDriveSortManager.swift */,
@@ -1068,6 +1074,7 @@
 				B10009 /* PlayerViews.swift */,
 				B11051 /* DownloadOverlayViews.swift */,
 				4CBD4AE667D94F1CDEDFD62A /* AliPlayerRepresentable.swift */,
+				800C1C8623E553FD6DB513F8 /* LogViewerView.swift */,
 				B10010 /* SettingsViews.swift */,
 				CAFE00000000000000000003 /* RemoteSourceStatusBar.swift */,
 				C1A000000000000000000002 /* CloudDriveSortView.swift */,
@@ -1111,7 +1118,6 @@
 				17072B53D798B9CAC7FE2853 /* PushPlayView.swift */,
 				F012162D7845BDFEC43668DA /* SourceDiscoveryView.swift */,
 				CF3F0DD3D1E7E8C87E12C271 /* SourcePickerSheet.swift */,
-				5D2CCE8038A39D5E0853964B /* PythonLogFloatingWindow.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1140,12 +1146,12 @@
 				B73C6245614D743A2D10D55A /* AliyunMediaDownloader.framework */,
 				A82FD2E753C2A23CD161B389 /* alivcffmpeg.framework */,
 				B13001 /* MPVKit.xcframework */,
+				203692814AF3B1EA934B0353 /* AppLogBridge.h */,
+				4C04B78E5C7C1CEA6EFA6359 /* AppLogBridge.m */,
 				CBEE3772A077021721A278F6 /* PythonWebViewBridge.m */,
 				D58E72E310275DFF6C15C0C8 /* PythonWebViewBridge.h */,
 				E9DF469611A11F5125227C37 /* PythonBridge.m */,
 				7B95E909348334896A68F812 /* PythonBridge.h */,
-				D810A485ED03241B4D419B1B /* PythonLogStore.m */,
-				B97706CA828BCA0385813DBA /* PythonLogStore.h */,
 			);
 			path = Libraries;
 			sourceTree = "<group>";
@@ -1340,6 +1346,10 @@
 				A10011 /* QJSSpiderEngine.swift in Sources */,
 				A10012 /* QuickJSBridge.m in Sources */,
 				A10026 /* SubscriptionManager.swift in Sources */,
+				004C1F840658F7D4F4666871 /* AppLogStore.swift in Sources */,
+				C51E1F409BF9D60340B50CBA /* NetworkLogger.swift in Sources */,
+				D2AC30B6B7903947F28071EA /* LogViewerView.swift in Sources */,
+				0C4224BAA1FE23D77C507FAF /* AppLogBridge.m in Sources */,
 				A10014 /* CloudDriveManager.swift in Sources */,
 				A10150 /* DoubanCategoryBrowserView.swift in Sources */,
 				C1A000000000000000000003 /* CloudDriveSortManager.swift in Sources */,
@@ -1437,10 +1447,8 @@
 				A10160 /* ComicDetailBridgeView.swift in Sources */,
 				846A32C3BB81E3C29B621792 /* PythonWebViewBridge.swift in Sources */,
 				C826A6FCE48478DCB74F2134 /* PythonSpiderEngine.swift in Sources */,
-				50AF03B971722F244F58D669 /* PythonLogFloatingWindow.swift in Sources */,
 				4F7FD633DBDDE131CA3766E4 /* PythonWebViewBridge.m in Sources */,
 				12DA86A78C49EA20E32684B2 /* PythonBridge.m in Sources */,
-				673BD4755D05AD7853C1F76E /* PythonLogStore.m in Sources */,
 				ABABD2C4F0E0072E46AA20CF /* GoProxyManager.swift in Sources */,
 				8136AB5CA1F6692C8D82A6AD /* GoProxyManager.swift in Sources */,
 				9C473BCDBCB7A22E89D97FA6 /* GoProxyManager.swift in Sources */,
