@@ -7,16 +7,16 @@
 //
 
 #import "PythonBridge.h"
-#import "PythonLogStore.h"
+#import "AppLogBridge.h"
 #import "PythonWebViewBridge.h"
 #import <Python/Python.h>   // iOS framework 标准 include (对应 Python.framework/Headers/Python.h)
 #import <UIKit/UIKit.h>      // UIApplicationDidReceiveMemoryWarningNotification
 #include <pthread.h>
 
-// 便捷函数: 同时打 NSLog + 写入 PythonLogStore(开启时)
+// 便捷函数: 同时打 NSLog + 写入 AppLogStore (spider 分类)
 static inline void PYBridgeLog(NSString *msg) {
     NSLog(@"%@", msg);
-    [PythonLogStore appendLog:msg];
+    [AppLogBridge info:AppLogCategorySpider message:msg];
 }
 
 static pthread_mutex_t _pyMutex = PTHREAD_MUTEX_INITIALIZER;

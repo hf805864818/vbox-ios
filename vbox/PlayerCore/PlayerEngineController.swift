@@ -137,6 +137,9 @@ final class PlayerEngineController: ObservableObject {
         if logs.count > 80 {
             logs.removeFirst(logs.count - 80)
         }
+        // 同时转发到统一日志系统 (带内核标识)
+        let logMsg = "[\(currentEngine.name)] \(message)"
+        AppLogStore.shared.info(.player, logMsg)
     }
 
     private static func makeEngine(_ type: PlayerEngineType) -> PlayerEngine {

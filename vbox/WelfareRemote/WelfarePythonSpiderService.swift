@@ -33,11 +33,11 @@ final class WelfarePythonSpiderService: FuliBaseService {
 
     // MARK: - 日志辅助
 
-    /// 统一日志：同时输出到 print() 和 PythonLogStore（悬浮球可见）
+    /// 统一日志：同时输出到 print() 和 AppLogStore（welfare 分类）
     private func pyLog(_ msg: String) {
         let entry = "[WelfarePy:\(platform.platformKey)] \(msg)"
         print(entry)
-        PythonLogStore.appendLog(entry)
+        AppLogStore.shared.info(.welfare, entry)
     }
 
     // MARK: - 实例缓存

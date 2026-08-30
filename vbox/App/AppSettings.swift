@@ -58,6 +58,7 @@ class AppSettings: ObservableObject {
     private static let welfarePasswordKey = "app_welfare_password"
     private static let welfareEnabledKey = "app_welfare_enabled"
     private static let devLogEnabledKey = "app_dev_log_enabled"
+    private static let devLogLevelKey = "app_dev_log_level"
     private static let remoteDefaultSourceEnabledKey = RemoteSourceConfigKeys.remoteDefaultSourceEnabled
     private static let bundleSourcesEnabledKey = RemoteSourceConfigKeys.bundleSourcesEnabled
     private static let defaultManifestURLKey = RemoteSourceConfigKeys.defaultManifestURL
@@ -118,11 +119,16 @@ class AppSettings: ObservableObject {
     @Published var devLogEnabled: Bool {
         didSet {
             UserDefaults.standard.set(devLogEnabled, forKey: Self.devLogEnabledKey)
-            PythonLogStore.shared().enabled = devLogEnabled
-            if devLogEnabled {
-                Task { @MainActor in PythonLogManager.shared.show() }
-            } else {
-                Task { @MainActor in PythonLogManager.shared.hide() }
+            Task { @MainActor in
+                AppLogStore.shared.enabled = devLogEnabled
+            }
+        }
+    }
+    @Published var devLogLevel: LogLevel {
+        didSet {
+            UserDefaults.standard.set(devLogLevel.rawValue, forKey: Self.devLogLevelKey)
+            Task { @MainActor in
+                AppLogStore.shared.minLevel = devLogLevel
             }
         }
     }
@@ -158,6 +164,8 @@ class AppSettings: ObservableObject {
         welfarePassword = UserDefaults.standard.string(forKey: Self.welfarePasswordKey) ?? "888888"
         welfareEnabled = UserDefaults.standard.object(forKey: Self.welfareEnabledKey) as? Bool ?? true
         devLogEnabled = UserDefaults.standard.object(forKey: Self.devLogEnabledKey) as? Bool ?? false
+        let savedLogLevelRaw = UserDefaults.standard.integer(forKey: Self.devLogLevelKey)
+        devLogLevel = LogLevel(rawValue: savedLogLevelRaw) ?? .info
         remoteDefaultSourceEnabled = UserDefaults.standard.object(forKey: Self.remoteDefaultSourceEnabledKey) as? Bool ?? true
         bundleSourcesEnabled = UserDefaults.standard.object(forKey: Self.bundleSourcesEnabledKey) as? Bool ?? false
 
@@ -171,9 +179,11 @@ class AppSettings: ObservableObject {
 
         defaultManifestURL = UserDefaults.standard.string(forKey: Self.defaultManifestURLKey) ?? RemoteSourceConfigManager.defaultManifestURL
 
-        // 所有存储属性初始化完成后，再同步 PythonLogStore 状态
-        // (不能在属性初始化中间调用，否则会触发 didSet 中的 self 访问)
-        PythonLogStore.shared().enabled = devLogEnabled
+        // 同步 AppLogStore 初始状态
+        Task { @MainActor in
+            AppLogStore.shared.minLevel = self.devLogLevel
+            AppLogStore.shared.enabled = self.devLogEnabled
+        }
     }
 
     var preferredColorScheme: ColorScheme? {

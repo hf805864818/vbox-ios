@@ -66,6 +66,9 @@ class SubscriptionManager: ObservableObject {
             return
         }
 
+        let startTime = Date()
+        AppLogStore.shared.info(.network, "加载订阅源: \(urlString)")
+        
         do {
             var request = URLRequest(url: url)
             request.timeoutInterval = 15
@@ -75,12 +78,17 @@ class SubscriptionManager: ObservableObject {
             request.setValue(desktopUA, forHTTPHeaderField: "User-Agent")
 
             let (data, response) = try await URLSession.shared.data(for: request)
+            let cost = Int(Date().timeIntervalSince(startTime) * 1000)
 
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
-                await setError("服务器返回错误: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                AppLogStore.shared.error(.network, "订阅源加载失败: \(urlString), status=\(code), 耗时: \(cost)ms")
+                await setError("服务器返回错误: \(code)")
                 return
             }
+            
+            AppLogStore.shared.info(.network, "订阅源加载成功: \(urlString), status=\(httpResponse.statusCode), 大小: \(data.count) bytes, 耗时: \(cost)ms")
 
             // 检查响应是否为 HTML，如果是则用 App UA 重试（菜妮丝等站点需要）
             var responseData = data
@@ -266,6 +274,8 @@ class SubscriptionManager: ObservableObject {
             }
 
         } catch {
+            let cost = Int(Date().timeIntervalSince(startTime) * 1000)
+            AppLogStore.shared.error(.network, "订阅源加载异常: \(urlString), 错误: \(error.localizedDescription), 耗时: \(cost)ms")
             await setError("\(error.localizedDescription)")
         }
     }

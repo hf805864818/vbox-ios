@@ -23,9 +23,23 @@ class CloudDriveManager: ObservableObject {
 
     static let shared = CloudDriveManager()
 
-    /// 广播日志到播放器 Debug Overlay（替代 print，便于用户直接看到关键流程）
+    /// 广播日志到播放器 Debug Overlay + 统一日志系统
+    /// 所有网盘 (百度/阿里/夸克/UC/115/迅雷...) 的通用日志都走这里
     private func log(_ message: String) {
         print(message)
+        // 转发到统一日志系统 (cloud 分类，自动识别级别)
+        let level: LogLevel
+        if message.contains("❌") || message.contains("失败") || message.contains("error") || message.contains("Error") {
+            level = .error
+        } else if message.contains("⚠️") || message.contains("warn") || message.contains("Warn") {
+            level = .warn
+        } else if message.contains("✅") || message.contains("⏱️") {
+            level = .info
+        } else {
+            level = .verbose
+        }
+        AppLogStore.shared.log(level, .cloud, message)
+        
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .cloudDriveLog, object: message)
         }
@@ -246,11 +260,32 @@ class CloudDriveManager: ObservableObject {
 
     static var onLog: ((String) -> Void)?
 
-    private func baiduLog(_ msg: String) {
+    /// 统一网盘日志入口 — 所有网盘 (百度/阿里/夸克/UC/115/迅雷...) 都走这里
+    /// 自动识别级别并转发到 AppLogStore (cloud 分类)
+    /// 新增网盘时直接调用此函数即可，无需修改日志系统
+    private func cloudLog(_ msg: String) {
         print(msg)
+        
+        // 自动识别级别
+        let level: LogLevel
+        if msg.contains("❌") || msg.contains("失败") {
+            level = .error
+        } else if msg.contains("⚠️") {
+            level = .warn
+        } else if msg.contains("⏱️") || msg.contains("✅") {
+            level = .info
+        } else {
+            level = .verbose
+        }
+        AppLogStore.shared.log(level, .cloud, msg)
+        
         if let handler = CloudDriveManager.onLog {
             handler(msg)
         }
+    }
+
+    private func baiduLog(_ msg: String) {
+        cloudLog(msg)
     }
 
     private func recordBaiduRouteDiagnostic(stage: String, status: String, detail: String, fsId: String? = nil, fileName: String? = nil) {

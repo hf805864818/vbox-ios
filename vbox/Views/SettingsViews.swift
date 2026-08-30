@@ -39,6 +39,8 @@ struct SettingsView: View {
     @State private var showPlaybackTestTools = false
     @State private var showMPVAdvancedDiagnostics = false
     @State private var showSiteDiagnostics = false
+    @State private var showLogViewer = false
+    @StateObject private var logStore = AppLogStore.shared
     @State private var isRunningMPVLoadfileProbe = false
     @State private var mpvLoadfileProbeSummary = "未运行loadfile探针"
     @State private var isRunningMPVControlProbe = false
@@ -814,23 +816,95 @@ struct SettingsView: View {
         .sheet(isPresented: $showSiteDiagnostics) {
             SiteDiagnosticsView()
         }
+        .sheet(isPresented: $showLogViewer) {
+            LogViewerView()
+        }
     }
 
     private var developerSection: some View {
         SettingsSection(title: "开发调试") {
+            // 日志记录开关
             HStack {
-                Image(systemName: "ladybug.fill")
+                Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 16))
                     .foregroundColor(Color(hex: "7C3AED"))
-                Text("Python 开发日志")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("日志记录")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary)
+                    Text("记录应用运行日志，帮助排查问题")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                }
                 Spacer()
                 Toggle("", isOn: $settings.devLogEnabled)
                     .labelsHidden()
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
+            
+            // 日志级别选择
+            if settings.devLogEnabled {
+                HStack {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 16))
+                        .foregroundColor(.gray)
+                    Text("日志级别")
+                        .font(.system(size: 14))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Menu {
+                        ForEach([LogLevel.verbose, .info, .warn, .error], id: \.self) { level in
+                            Button {
+                                settings.devLogLevel = level
+                            } label: {
+                                HStack {
+                                    Text(level.displayName)
+                                    if settings.devLogLevel == level {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(settings.devLogLevel.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.gray)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.gray.opacity(0.04))
+            }
+            
+            // 查看日志入口
+            Button(action: { showLogViewer = true }) {
+                HStack {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 16))
+                        .foregroundColor(.blue)
+                    Text("查看日志")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Text("\(logStore.count) 条")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(Color.gray.opacity(0.04))
         }
     }
 
