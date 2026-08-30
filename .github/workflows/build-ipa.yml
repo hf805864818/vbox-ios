@@ -208,17 +208,33 @@ jobs:
             echo "/usr/local/go/bin" >> $GITHUB_PATH
           fi
           export PATH="/usr/local/go/bin:$PATH"
+
+          # 防止 Go 自动升级工具链（最新 x/mobile 要求 go 1.26，会导致
+          # 自动下载新工具链 + DNS 失败）。锁定为本地安装的 Go 1.22.5。
+          export GOTOOLCHAIN=local
+          # GOPROXY 多镜像 fallback，避免单一 proxy DNS 故障
+          export GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
           go version
 
-          # 安装 gomobile
-          go install golang.org/x/mobile/cmd/gomobile@latest
+          # 安装 gomobile（pin 到兼容 Go 1.22 的版本，避免 @latest 拉入
+          # 要求 go 1.26+ 的新版本）
+          MOBILE_PIN="b38b8813d6076f4e4ff25d71ee2c45f051a3a0cb"
+          go install golang.org/x/mobile/cmd/gomobile@${MOBILE_PIN}
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
           export PATH="$(go env GOPATH)/bin:$PATH"
 
           # 在 go-proxy 模块中添加 golang.org/x/mobile 依赖（gomobile bind 要求）
+          # pin 到同一兼容版本，避免 go get @latest 拉入需要 go 1.26 的版本
           cd go-proxy
-          go get golang.org/x/mobile
-          go mod tidy
+          go get golang.org/x/mobile@${MOBILE_PIN}
+          # go mod tidy 可能因临时 DNS 故障失败，重试 3 次
+          for attempt in 1 2 3; do
+            if go mod tidy 2>&1; then
+              break
+            fi
+            echo "⚠️ go mod tidy 第 ${attempt} 次失败，重试..."
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 5))
+          done
           echo "--- go.mod ---"
           cat go.mod
 
