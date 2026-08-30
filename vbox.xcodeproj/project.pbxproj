@@ -256,6 +256,7 @@
 		D26C924E2AA40B2A60CD47FA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D335C9314BCA41E37F2D5605 /* AVFoundation.framework */; };
 		D2AC0641D1BA4218849EFA47 /* DailyBattleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86829CD08A7449B682FF058E /* DailyBattleService.swift */; };
 		D2AC30B6B7903947F28071EA /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800C1C8623E553FD6DB513F8 /* LogViewerView.swift */; };
+		D37930636AC20BA7E36F372C /* GoProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3C4764092EDE06156B0F89F /* GoProxyManager.swift */; };
 		D4B1A0F40BF3BE3263B560C3 /* Libavfilter.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 55D513D43B1BEB4DCDFC97B7 /* Libavfilter.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D62C0C19FBCAF3C9F113C5F1 /* Libuavs3d.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A66E1962C7C0977CE5468A08 /* Libuavs3d.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D76C250B58207918B87B9816 /* nettle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9D32E575559754AD2F00E37C /* nettle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -562,6 +563,7 @@
 		C1A000000000000000000002 /* CloudDriveSortView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveSortView.swift; sourceTree = "<group>"; };
 		C2108BAE857F9C778CD8A3A9 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		C34F61DB3BFC5D8211CA1DFC /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
+		C3C4764092EDE06156B0F89F /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
 		C3DF54F7AB58DB9EABAE4060 /* WelfareSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelfareSettingsView.swift; sourceTree = "<group>"; };
 		C58B12E309090FC8BE8664F2 /* RemoteWelfarePasswordSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWelfarePasswordSheet.swift; sourceTree = "<group>"; };
 		C952B02ACCD128BDE467724F /* GoProxyManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GoProxyManager.swift; sourceTree = "<group>"; };
@@ -830,6 +832,7 @@
 				86C0034A20B2A01A129A4F03 /* Bridge */,
 				DB25669D46ECFF286EB3626F /* Bridge */,
 				420496E9A87FA954AC796C41 /* Bridge */,
+				A61789A8065DD048BDEC4AAD /* Bridge */,
 			);
 			name = vbox;
 			sourceTree = "<group>";
@@ -896,6 +899,15 @@
 			isa = PBXGroup;
 			children = (
 				00AC92B4E710C182A5880903 /* GoProxyManager.swift */,
+			);
+			name = Bridge;
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		A61789A8065DD048BDEC4AAD /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				C3C4764092EDE06156B0F89F /* GoProxyManager.swift */,
 			);
 			name = Bridge;
 			path = Bridge;
@@ -1495,6 +1507,7 @@
 				97B8A66A1929B5F40AA5BD72 /* GoProxyManager.swift in Sources */,
 				8EBFB09F1947E592F649E52C /* GoProxyManager.swift in Sources */,
 				77E098A6D8FBFE429AF40BCE /* GoProxyManager.swift in Sources */,
+				D37930636AC20BA7E36F372C /* GoProxyManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
