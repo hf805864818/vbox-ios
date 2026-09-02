@@ -1560,6 +1560,7 @@ struct CloudAuthCenterView: View {
                     baiduAccountCard
                     quarkAccountCard
                     providerAccountCard(type: .ali, note: "阿里云盘使用官方网页扫码/登录获取 refresh_token，用于解析播放文件链接。")
+                    AliyunPgQrLoginView()
                     providerAccountCard(type: .uc, note: "优先使用授权中心保存的 UC Cookie；支持网页登录兜底回收 Cookie。")
                     providerAccountCard(type: .one15, note: "115 使用官方网页扫码/登录回收完整 Cookie，手动 Cookie 继续保留。")
                     providerAccountCard(type: .pan123, note: "123云盘支持网页扫码登录回收 Cookie，播放分享链接时自动使用。")

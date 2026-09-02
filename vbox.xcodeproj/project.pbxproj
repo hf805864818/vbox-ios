@@ -297,6 +297,10 @@
 		SU0100000000000000000A001 /* SubtitleParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = SU0100000000000000000B001 /* SubtitleParser.swift */; };
 		TG0100000000000000000A001 /* TGSearchConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B001 /* TGSearchConfigStore.swift */; };
 		TG0100000000000000000A002 /* TGChannelListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TG0100000000000000000B002 /* TGChannelListView.swift */; };
+		2EEB184B562B410989B28729 /* AliyunPgQrLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550B0C9E8524411A81382689 /* AliyunPgQrLoginView.swift */; };
+		EC322190C5B8482B938085E9 /* ExtscreenCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AB4666FA0AD4294869DDE3C /* ExtscreenCrypto.swift */; };
+		72564F9938A24B9DB1AB4850 /* ExtscreenAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA7FBDE73314914A7341233 /* ExtscreenAPIClient.swift */; };
+		0F8AEB9F348A403989DCC5FB /* AliyunPgAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E314CBAEAD3A49E08027E603 /* AliyunPgAuthManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -609,6 +613,10 @@
 		SU0100000000000000000B001 /* SubtitleParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleParser.swift; sourceTree = "<group>"; };
 		TG0100000000000000000B001 /* TGSearchConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGSearchConfigStore.swift; sourceTree = "<group>"; };
 		TG0100000000000000000B002 /* TGChannelListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TGChannelListView.swift; sourceTree = "<group>"; };
+		550B0C9E8524411A81382689 /* AliyunPgQrLoginView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AliyunPgQrLoginView.swift"; sourceTree = "<group>"; };
+		7AB4666FA0AD4294869DDE3C /* ExtscreenCrypto.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "ExtscreenCrypto.swift"; sourceTree = "<group>"; };
+		8EA7FBDE73314914A7341233 /* ExtscreenAPIClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "ExtscreenAPIClient.swift"; sourceTree = "<group>"; };
+		E314CBAEAD3A49E08027E603 /* AliyunPgAuthManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AliyunPgAuthManager.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1099,6 +1107,9 @@
 				B10015 /* SubscriptionManager.swift */,
 				B10135 /* BaiduWebViewBridge.swift */,
 				3B9F73BC83E18E7C07A730C2 /* AppLogStore.swift */,
+				E314CBAEAD3A49E08027E603 /* AliyunPgAuthManager.swift */,
+				8EA7FBDE73314914A7341233 /* ExtscreenAPIClient.swift */,
+				7AB4666FA0AD4294869DDE3C /* ExtscreenCrypto.swift */,
 				04769CCC3E3FE5C15E7593C5 /* NetworkLogger.swift */,
 				B10016 /* CloudDriveManager.swift */,
 				B10150 /* DoubanCategoryBrowserView.swift */,
@@ -1289,6 +1300,7 @@
 			path = PlayerCore;
 			sourceTree = "<group>";
 		};
+				550B0C9E8524411A81382689 /* AliyunPgQrLoginView.swift */,
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1350,7 +1362,11 @@
 				A10144 /* video_sources.json in Resources */,
 				A10146 /* default_live.m3u in Resources */,
 				A10153 /* MaShanZheng-Regular.ttf in Resources */,
-			);
+			
+				0F8AEB9F348A403989DCC5FB /* AliyunPgAuthManager.swift in Sources */,
+				72564F9938A24B9DB1AB4850 /* ExtscreenAPIClient.swift in Sources */,
+				EC322190C5B8482B938085E9 /* ExtscreenCrypto.swift in Sources */,
+				2EEB184B562B410989B28729 /* AliyunPgQrLoginView.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */

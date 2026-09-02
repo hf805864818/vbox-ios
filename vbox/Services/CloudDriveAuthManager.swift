@@ -322,6 +322,17 @@ final class CloudDriveAuthManager: ObservableObject {
             print("[Ali OpenList] ⚠️ POST 刷新也失败: \(error.localizedDescription)")
         }
 
+        // 兜底：尝试 PG extscreen 刷新（第四级 fallback，仅 PG 凭证触发）
+        if credential.extra["pg_source"] != nil {
+            do {
+                let refreshed = try await AliyunPgAuthManager.shared.refreshViaExtscreen(credential: credential)
+                print("[Ali PG] ✅ extscreen 第四级刷新成功")
+                return refreshed
+            } catch {
+                print("[Ali PG] ⚠️ extscreen 刷新也失败: \(error.localizedDescription)")
+            }
+        }
+
         // 所有刷新方式均失败，标记凭证失效
         markInvalid(.ali, reason: "token 已过期，请重新授权")
         throw AuthError.remoteError("阿里云盘 token 已过期，请在网盘授权中心重新授权阿里云盘")
