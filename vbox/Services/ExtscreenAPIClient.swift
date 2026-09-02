@@ -15,14 +15,14 @@ struct ExtscreenTimestampResponse: Codable {
     let data: TimestampData
 
     struct TimestampData: Codable {
-        let timestamp: String
+        let timestamp: Int      // API 返回整数，需转为 String 使用
     }
 }
 
 struct ExtscreenAPIResponse: Codable {
     let code: Int
     let data: EncryptedData?
-    let t: String?       // 服务端时间戳（用于解密密钥重新生成）
+    let t: Int?          // 服务端时间戳（整数，用于解密密钥重新生成）
     let msg: String?
 
     struct EncryptedData: Codable {
@@ -88,7 +88,7 @@ actor ExtscreenAPIClient {
         }
 
         print("[PG] extscreen 时间戳: \(result.data.timestamp)")
-        return result.data.timestamp
+        return String(result.data.timestamp)
     }
 
     // MARK: - Step 1: 生成二维码
@@ -151,7 +151,7 @@ actor ExtscreenAPIClient {
         let decryptedJSON = try crypto.decrypt(
             ciphertextBase64: encryptedData.ciphertext,
             ivHex: encryptedData.iv,
-            t: apiResponse.t
+            t: apiResponse.t.map { String($0) }
         )
 
         guard let decryptedData = decryptedJSON.data(using: .utf8),
@@ -282,7 +282,7 @@ actor ExtscreenAPIClient {
         let decryptedJSON = try crypto.decrypt(
             ciphertextBase64: encryptedData.ciphertext,
             ivHex: encryptedData.iv,
-            t: apiResponse.t
+            t: apiResponse.t.map { String($0) }
         )
 
         // 6. 解析 token
@@ -357,7 +357,7 @@ actor ExtscreenAPIClient {
         let decryptedJSON = try crypto.decrypt(
             ciphertextBase64: encryptedData.ciphertext,
             ivHex: encryptedData.iv,
-            t: apiResponse.t
+            t: apiResponse.t.map { String($0) }
         )
 
         // 6. 解析 token
