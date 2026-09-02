@@ -22,12 +22,28 @@ struct ExtscreenTimestampResponse: Codable {
 struct ExtscreenAPIResponse: Codable {
     let code: Int
     let data: EncryptedData?
-    let t: Int?          // 服务端时间戳（整数，用于解密密钥重新生成）
+    let t: String?         // 服务端时间戳（兼容 Int/String）
     let msg: String?
 
     struct EncryptedData: Codable {
         let iv: String         // hex 格式
         let ciphertext: String  // base64 格式
+    }
+
+    // 兼容 t 字段返回 Int 或 String
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        code = try container.decode(Int.self, forKey: .code)
+        data = try container.decodeIfPresent(EncryptedData.self, forKey: .data)
+        msg = try container.decodeIfPresent(String.self, forKey: .msg)
+        // t 可能是 Int 或 String
+        if let tStr = try? container.decode(String.self, forKey: .t) {
+            t = tStr
+        } else if let tInt = try? container.decode(Int.self, forKey: .t) {
+            t = String(tInt)
+        } else {
+            t = nil
+        }
     }
 }
 
@@ -133,6 +149,8 @@ actor ExtscreenAPIClient {
         }
 
         guard httpResponse.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "(binary)"
+            print("[PG] ❌ getQrcode HTTP \(httpResponse.statusCode): \(body)")
             throw ExtscreenError.qrcodeFailed
         }
 
@@ -151,7 +169,7 @@ actor ExtscreenAPIClient {
         let decryptedJSON = try crypto.decrypt(
             ciphertextBase64: encryptedData.ciphertext,
             ivHex: encryptedData.iv,
-            t: apiResponse.t.map { String($0) }
+            t: apiResponse.t
         )
 
         guard let decryptedData = decryptedJSON.data(using: .utf8),
@@ -191,15 +209,31 @@ actor ExtscreenAPIClient {
             try await Task.sleep(nanoseconds: 3_000_000_000)
             pollCount += 1
 
-            let (data, response) = try await session.data(from: url)
-
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                print("[PG] 轮询请求失败, 重试中...")
+            // 网络错误时重试，不中断整个登录流程
+            let pollData: (Data, URLResponse)?
+            do {
+                pollData = try await session.data(from: url)
+            } catch {
+                print("[PG] 轮询网络错误, 重试中... \(error.localizedDescription)")
                 continue
             }
 
-            let result = try JSONDecoder().decode(QrcodeStatusResponse.self, from: data)
+            let (data, response) = pollData
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("[PG] 轮询请求失败 HTTP 非 200, 重试中...")
+                continue
+            }
+
+            // JSON 解码错误时也重试
+            let result: QrcodeStatusResponse
+            do {
+                result = try JSONDecoder().decode(QrcodeStatusResponse.self, from: data)
+            } catch {
+                print("[PG] 轮询响应解码失败, 重试中... \(error.localizedDescription)")
+                continue
+            }
 
             // 回调通知状态变化
             await MainActor.run {
@@ -264,6 +298,8 @@ actor ExtscreenAPIClient {
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "(binary)"
+            print("[PG] ❌ getRefreshToken HTTP \(httpResponse.statusCode): \(body)")
             throw ExtscreenError.tokenExchangeFailed
         }
 
@@ -282,7 +318,7 @@ actor ExtscreenAPIClient {
         let decryptedJSON = try crypto.decrypt(
             ciphertextBase64: encryptedData.ciphertext,
             ivHex: encryptedData.iv,
-            t: apiResponse.t.map { String($0) }
+            t: apiResponse.t
         )
 
         // 6. 解析 token
@@ -339,6 +375,8 @@ actor ExtscreenAPIClient {
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "(binary)"
+            print("[PG] ❌ refreshToken HTTP \(httpResponse.statusCode): \(body)")
             throw ExtscreenError.tokenRefreshFailed
         }
 
@@ -357,7 +395,7 @@ actor ExtscreenAPIClient {
         let decryptedJSON = try crypto.decrypt(
             ciphertextBase64: encryptedData.ciphertext,
             ivHex: encryptedData.iv,
-            t: apiResponse.t.map { String($0) }
+            t: apiResponse.t
         )
 
         // 6. 解析 token
