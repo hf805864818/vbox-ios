@@ -181,7 +181,7 @@ struct ExtscreenCrypto {
         )
 
         // 5. Base64 编码
-        let base64Ciphertext = encrypted.base64EncodedString()
+        let base64Ciphertext = Data(encrypted).base64EncodedString()
 
         return (ivStr, base64Ciphertext)
     }
@@ -212,7 +212,7 @@ struct ExtscreenCrypto {
 
         // 4. AES-CBC 解密
         let decrypted = try aesCBCDecrypt(
-            data: ciphertextData,
+            data: Array(ciphertextData),
             key: keyBytes,
             iv: ivBytes
         )
@@ -245,7 +245,7 @@ struct ExtscreenCrypto {
         let content = "\(method)-\(fullApiPath)-\(timestamp)-\(uniqueId)-\(key)"
 
         // SHA256
-        let hash = Insecure.SHA256.hash(data: Data(content.utf8))
+        let hash = SHA256.hash(data: Data(content.utf8))
         return hash.map { String(format: "%02x", $0) }.joined()
     }
 
