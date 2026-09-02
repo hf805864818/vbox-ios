@@ -210,7 +210,7 @@ actor ExtscreenAPIClient {
             pollCount += 1
 
             // 网络错误时重试，不中断整个登录流程
-            let pollData: (Data, URLResponse)?
+            let pollData: (Data, URLResponse)
             do {
                 pollData = try await session.data(from: url)
             } catch {
@@ -299,7 +299,8 @@ actor ExtscreenAPIClient {
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "(binary)"
-            print("[PG] ❌ getRefreshToken HTTP \(httpResponse.statusCode): \(body)")
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("[PG] ❌ getRefreshToken HTTP \(statusCode): \(body)")
             throw ExtscreenError.tokenExchangeFailed
         }
 
@@ -376,7 +377,8 @@ actor ExtscreenAPIClient {
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "(binary)"
-            print("[PG] ❌ refreshToken HTTP \(httpResponse.statusCode): \(body)")
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("[PG] ❌ refreshToken HTTP \(statusCode): \(body)")
             throw ExtscreenError.tokenRefreshFailed
         }
 
