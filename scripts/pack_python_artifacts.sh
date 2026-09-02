@@ -7,7 +7,7 @@ set -euo pipefail
 # 从环境变量或参数获取工作区
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 OUTPUT_DIR="${1:-/tmp}"
-PYTHON_VERSION="3.14.6"
+PYTHON_VERSION="3.14.7"
 PYTHON_TAG="python-${PYTHON_VERSION}-ios-arm64"
 
 echo "📦 打包 CPython 产物..."

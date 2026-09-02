@@ -81,7 +81,7 @@ jobs:
           REPO="${{ github.repository }}"
 
           GO_TAG="quarkproxy-ios-arm64"
-          PYTHON_TAG="python-3.14.6-ios-arm64"
+          PYTHON_TAG="python-3.14.7-ios-arm64"
           LXML_TAG="lxml-5.4.0-ios-arm64"
 
           GO_SKIP="false"
@@ -273,8 +273,8 @@ jobs:
           # 1. 安装 host Python 3.14 (工具链需要同版本 build-python)
           echo "📦 安装 host Python 3.14..."
           if ! python3.14 --version 2>/dev/null; then
-            curl -sLO "https://www.python.org/ftp/python/3.14.6/python-3.14.6-macos11.pkg"
-            sudo installer -pkg "python-3.14.6-macos11.pkg" -target / 2>&1 | tail -1
+            curl -sLO "https://www.python.org/ftp/python/3.14.7/python-3.14.7-macos11.pkg"
+            sudo installer -pkg "python-3.14.7-macos11.pkg" -target / 2>&1 | tail -1
           fi
           export PATH="/Library/Frameworks/Python.framework/Versions/3.14/bin:$PATH"
           python3.14 --version
@@ -289,11 +289,16 @@ jobs:
           export PATH="/Library/Frameworks/Python.framework/Versions/3.14/bin:$PATH"
           make iOS 2>&1 | tee /tmp/pas-build.log | tail -30
 
-          # 4. 检查产物 (iOS 目录名是首字母大写 "iOS")
+          # 4. 检查产物 (动态检测 Python 版本目录名，避免版本升级后路径不匹配)
           echo "📦 检查产物..."
-          INSTALL_DIR="install/ios/iphoneos.arm64/python-3.14.6"
+          PY_VER_DIR=$(find install -maxdepth 4 -type d -name "python-3.14.*" | grep -v simulator | head -1 | xargs basename 2>/dev/null)
+          if [ -z "$PY_VER_DIR" ]; then
+            PY_VER_DIR="python-3.14.7"
+          fi
+          echo "  检测到 Python 版本目录: $PY_VER_DIR"
+          INSTALL_DIR="install/ios/iphoneos.arm64/${PY_VER_DIR}"
           if [ ! -f "${INSTALL_DIR}/Python.framework/Python" ]; then
-            INSTALL_DIR="install/iOS/iphoneos.arm64/python-3.14.6"
+            INSTALL_DIR="install/iOS/iphoneos.arm64/${PY_VER_DIR}"
           fi
           if [ ! -f "${INSTALL_DIR}/Python.framework/Python" ]; then
             echo "❌ Python.framework 未生成"
@@ -447,10 +452,10 @@ jobs:
           # 1. 从 CPython 构建产物复制标准库到 Resources
           #    关键: 必须匹配真机 iphoneos.arm64 (排除 iphonesimulator)
           #    且保留 python3.14 层 → 最终路径须为 python-stdlib/lib/python3.14/
-          PAS_LIB=$(find /tmp/pas/install -path "*/iphoneos.arm64/python-3.14.6/lib/python3.14" -type d 2>/dev/null | head -1)
+          PAS_LIB=$(find /tmp/pas/install -path "*/iphoneos.arm64/python-3.14.*/lib/python3.14" -type d 2>/dev/null | head -1)
           if [ -z "$PAS_LIB" ]; then
             echo "⚠️ 未找到真机标准库，尝试通用匹配但排除 simulator"
-            PAS_LIB=$(find /tmp/pas/install -path "*/python-3.14.6/lib/python3.14" -type d 2>/dev/null | grep -v simulator | head -1)
+            PAS_LIB=$(find /tmp/pas/install -path "*/python-3.14.*/lib/python3.14" -type d 2>/dev/null | grep -v simulator | head -1)
           fi
           if [ -n "$PAS_LIB" ] && [ -d "$PAS_LIB" ]; then
             echo "源标准库(真机): $PAS_LIB ($(du -sh $PAS_LIB | cut -f1))"
@@ -686,7 +691,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          PYTHON_TAG="python-3.14.6-ios-arm64"
+          PYTHON_TAG="python-3.14.7-ios-arm64"
 
           echo "📦 打包 CPython 产物..."
           bash scripts/pack_python_artifacts.sh /tmp
@@ -698,8 +703,8 @@ jobs:
           gh release create "$PYTHON_TAG" \
             "/tmp/${PYTHON_TAG}.tar.gz" \
             "/tmp/${PYTHON_TAG}.tar.gz.sha256" \
-            --title "CPython 3.14.6 iOS arm64 (预编译产物)" \
-            --notes "CPython 3.14.6 交叉编译产物 (iphoneos.arm64)
+            --title "CPython 3.14.7 iOS arm64 (预编译产物)" \
+            --notes "CPython 3.14.7 交叉编译产物 (iphoneos.arm64)
 
           包含:
           - libpython3.14.a (~5.6MB)
