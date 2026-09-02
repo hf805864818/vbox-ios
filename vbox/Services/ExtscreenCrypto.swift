@@ -276,6 +276,7 @@ struct ExtscreenCrypto {
     private func aesCBCEncrypt(data: [UInt8], key: [UInt8], iv: [UInt8]) throws -> [UInt8] {
         var encryptedData = [UInt8](repeating: 0, count: data.count + kCCBlockSizeAES128)
         var numEncrypted = 0
+        let outLen = encryptedData.count
 
         let status = key.withUnsafeBufferPointer { keyPtr in
             iv.withUnsafeBufferPointer { ivPtr in
@@ -288,7 +289,7 @@ struct ExtscreenCrypto {
                             keyPtr.baseAddress, key.count,
                             ivPtr.baseAddress,
                             dataPtr.baseAddress, data.count,
-                            outPtr.baseAddress, encryptedData.count,
+                            outPtr.baseAddress, outLen,
                             &numEncrypted
                         )
                     }
@@ -307,6 +308,7 @@ struct ExtscreenCrypto {
     private func aesCBCDecrypt(data: [UInt8], key: [UInt8], iv: [UInt8]) throws -> [UInt8] {
         var decryptedData = [UInt8](repeating: 0, count: data.count + 16)
         var decryptedLength = 0
+        let outLen = decryptedData.count
 
         let status = key.withUnsafeBufferPointer { keyPtr in
             iv.withUnsafeBufferPointer { ivPtr in
@@ -319,7 +321,7 @@ struct ExtscreenCrypto {
                             keyPtr.baseAddress, key.count,
                             ivPtr.baseAddress,
                             dataPtr.baseAddress, data.count,
-                            outPtr.baseAddress, decryptedData.count,
+                            outPtr.baseAddress, outLen,
                             &decryptedLength
                         )
                     }
