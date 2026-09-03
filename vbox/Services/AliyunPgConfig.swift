@@ -88,10 +88,14 @@ final class AliyunPgConfig {
     }
 
     /// 阿里云盘 API 基础地址
-    /// ⚠️ 修复：原为 open.aliyundrive.com（导致 get_share_token 404），
-    /// 对齐原生 CloudDriveManager 与官方 PDS 文档，统一使用 api.alipan.com
+    /// 分享级接口（share_token、file/list）使用 api.alipan.com（ADrive 格式）
     let aliApiBase = "https://api.alipan.com"
     let aliDownloadApiBase = "https://api.alipan.com"
+
+    /// ⚠️ 用户级接口（user/get、file/copy、file/delete 等）使用 PDS OpenAPI 地址
+    /// PG 的 extscreen token 是 OpenAPI token，对应 PDS 格式端点，不带 /adrive 前缀
+    /// 如果继续用 api.alipan.com/adrive/... 会返回 401
+    let aliPdsApiBase = "https://api.aliyundrive.com"
 
     // MARK: - 转存配置
 
