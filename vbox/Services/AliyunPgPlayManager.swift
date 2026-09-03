@@ -826,7 +826,56 @@ final class AliyunPgPlayManager {
             pgLog("方案3 异常: \(error.localizedDescription)")
         }
 
-        throw DriveError.noPlayURL("分享直链三种方案均失败，详见日志")
+        // ★ 方案4: OpenAPI (openapi.alipan.com) + Authorization Bearer + camelCase端点
+        // PG OAuth 用 openapi.alipan.com 轮询，token 可能是 OpenAPI token
+        do {
+            let url = URL(string: "https://openapi.alipan.com/adrive/v1.0/file/getDownloadUrl")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+            request.httpBody = bodyData
+
+            let (data, response) = try await session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let respStr = String(data: data, encoding: .utf8) ?? ""
+            pgLog("方案4 OpenAPI getDownloadUrl(\(statusCode)): \(respStr.prefix(300))")
+
+            if statusCode == 200 {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    return try extractDownloadInfo(from: json)
+                }
+            }
+        } catch {
+            pgLog("方案4 异常: \(error.localizedDescription)")
+        }
+
+        // ★ 方案5: OpenAPI + x-pan-token header (aliproxy 用的格式)
+        do {
+            let url = URL(string: "https://openapi.alipan.com/adrive/v1.0/file/getDownloadUrl")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(accessToken, forHTTPHeaderField: "x-pan-token")
+            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+            request.httpBody = bodyData
+
+            let (data, response) = try await session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let respStr = String(data: data, encoding: .utf8) ?? ""
+            pgLog("方案5 OpenAPI x-pan-token(\(statusCode)): \(respStr.prefix(300))")
+
+            if statusCode == 200 {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    return try extractDownloadInfo(from: json)
+                }
+            }
+        } catch {
+            pgLog("方案5 异常: \(error.localizedDescription)")
+        }
+
+        throw DriveError.noPlayURL("分享直链五种方案均失败，详见日志")
     }
 
     /// 从用户网盘（转存后的文件）获取原画 download_url
