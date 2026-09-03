@@ -1531,6 +1531,8 @@ class CloudDriveManager: ObservableObject {
             let bizExt = dataObj["bizExt"] as? String ?? ""
             let loginResult = dataObj["loginResult"] as? String ?? ""
             let bizExtLen = bizExt.count
+            // v2.3.2: 收集所有响应字段名，用于诊断
+            let allKeys = Array(dataObj.keys).sorted().joined(separator: ",")
             // 尝试解码 bizExt 用于错误信息（同时尝试 URL-safe base64）
             var bizExtDecoded = ""
             var padded = bizExt.components(separatedBy: .whitespacesAndNewlines).joined()
@@ -1548,7 +1550,7 @@ class CloudDriveManager: ObservableObject {
                     bizExtDecoded = decoded
                 }
             }
-            return .failed(message: "阿里: 已扫码但未找到 Token (bizExt长度=\(bizExtLen)). loginAction='\(loginAction.prefix(50))', loginResult='\(loginResult.prefix(50))'. bizExt原始前500字符: \(bizExt.prefix(500)). bizExt解码前200字符: \(bizExtDecoded.prefix(200))")
+            return .failed(message: "阿里: 已扫码但未找到 Token (bizExt长度=\(bizExtLen)). keys=[\(allKeys)]. loginAction='\(loginAction.prefix(50))', loginResult='\(loginResult.prefix(50))'. bizExt原始前500字符: \(bizExt.prefix(500)). bizExt解码前200字符: \(bizExtDecoded.prefix(200))")
         }
 
         // NEW/SCANED 状态
@@ -1644,7 +1646,62 @@ class CloudDriveManager: ObservableObject {
             if let result = extractAliTokens(from: json) { return result }
         }
 
-        // 尝试6：URL 解码后重试
+        // 尝试6（v2.3.2新增）：$→+ 替换 (bx-v 2.2.3 bizExt可能用$代替+)
+        let fixedDollar = padded.replacingOccurrences(of: "$", with: "+")
+        if fixedDollar != padded {
+            var dollarPadded = fixedDollar
+            while dollarPadded.count % 4 != 0 { dollarPadded += "=" }
+            // 标准解码
+            if let decodedData = Data(base64Encoded: dollarPadded),
+               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
+                print("[Ali] bizExt ($→+) base64 解码成功, keys: \(Array(json.keys))")
+                if let result = extractAliTokens(from: json) { return result }
+            }
+            // + l→I
+            let dollarLI = dollarPadded.replacingOccurrences(of: "l", with: "I")
+            if let decodedData = Data(base64Encoded: dollarLI),
+               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
+                print("[Ali] bizExt ($→+,l→I) base64 解码成功, keys: \(Array(json.keys))")
+                if let result = extractAliTokens(from: json) { return result }
+            } else if let decodedData = Data(base64Encoded: dollarLI),
+                      let decodedString = String(data: decodedData, encoding: .utf8) {
+                print("[Ali] bizExt ($→+,l→I) 解码但JSON失败, 前300: \(decodedString.prefix(300))")
+                if let result = extractTokensViaRegex(from: decodedString) {
+                    print("[Ali] ✅ 正则提取 Token 成功 ($→+,l→I)")
+                    return result
+                }
+            }
+        }
+
+        // 尝试7（v2.3.2新增）：.→= 结尾替换 + 各种组合
+        let fixedDot = padded.replacingOccurrences(of: ".$", with: "=", options: .regularExpression)
+        if fixedDot != padded {
+            var dotPadded = fixedDot
+            while dotPadded.count % 4 != 0 { dotPadded += "=" }
+            if let decodedData = Data(base64Encoded: dotPadded),
+               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
+                print("[Ali] bizExt (.→=结尾) base64 解码成功, keys: \(Array(json.keys))")
+                if let result = extractAliTokens(from: json) { return result }
+            }
+            // 组合: .→= + $→+ + l→I
+            let combo = fixedDot.replacingOccurrences(of: "$", with: "+").replacingOccurrences(of: "l", with: "I")
+            var comboPadded = combo
+            while comboPadded.count % 4 != 0 { comboPadded += "=" }
+            if let decodedData = Data(base64Encoded: comboPadded),
+               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
+                print("[Ali] bizExt (.→= + $→+ + l→I) 解码成功, keys: \(Array(json.keys))")
+                if let result = extractAliTokens(from: json) { return result }
+            } else if let decodedData = Data(base64Encoded: comboPadded),
+                      let decodedString = String(data: decodedData, encoding: .utf8) {
+                print("[Ali] bizExt (.→= + $→+ + l→I) 解码但JSON失败, 前300: \(decodedString.prefix(300))")
+                if let result = extractTokensViaRegex(from: decodedString) {
+                    print("[Ali] ✅ 正则提取 Token 成功 (组合替换)")
+                    return result
+                }
+            }
+        }
+
+        // 尝试8：URL 解码后重试
         if let urlDecoded = bizExt.removingPercentEncoding,
            urlDecoded != bizExt,
            let urlData = urlDecoded.data(using: .utf8),
@@ -1653,7 +1710,7 @@ class CloudDriveManager: ObservableObject {
             if let result = extractAliTokens(from: json) { return result }
         }
 
-        // 尝试7（v2.3新增）：对原始 bizExt 字符串直接正则提取
+        // 尝试9（v2.3新增）：对原始 bizExt 字符串直接正则提取
         if let result = extractTokensViaRegex(from: bizExt) {
             print("[Ali] ✅ 正则提取 Token 成功 (原始字符串)")
             return result
