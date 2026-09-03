@@ -734,10 +734,12 @@ final class AliyunPgPlayManager {
     }
 
     /// 直接从分享获取原画 download_url（不转存，分享直链）
-    /// ⚠️ 修复：对齐原生 CloudDriveManager.aliGetDownloadURL 的完整格式
-    /// - Authorization: Bearer <access_token>（PG token 和原生 token 一样用 api.alipan.com）
-    /// - x-share-token: <share_token>
-    /// - 接口：api.alipan.com/adrive/v2/file/get_download_url
+    /// ⚠️ 根因修复：PG 的 extscreen token 不是有效的 ADrive access_token
+    /// ADrive API (api.alipan.com) 必须要 Authorization: Bearer → 返回 "not login"
+    /// PDS API (api.aliyundrive.com) 的分享操作只需 x-share-token，不需要 access_token
+    /// 官方文档：https://help.aliyun.com/zh/pds/... GetDownloadUrl
+    ///   "如果通过分享操作文件，请携带x-share-token header鉴权并传递share_id"
+    /// 所以改用 PDS API + 只传 x-share-token（不传 Authorization）
     private func getShareDownloadUrl(
         accessToken: String,
         fileId: String,
@@ -745,13 +747,13 @@ final class AliyunPgPlayManager {
         shareToken: String
     ) async throws -> PgDownloadInfo {
 
-        let url = URL(string: "\(config.aliDownloadApiBase)/adrive/v2/file/get_download_url")!
+        // ★ 方案1: PDS API — 分享操作只需 x-share-token，不需要 access_token
+        let url = URL(string: "https://api.aliyundrive.com/v2/file/get_download_url")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+        // 不传 Authorization — PDS 分享操作不需要
 
         let body: [String: Any] = [
             "file_id": fileId,
@@ -766,6 +768,38 @@ final class AliyunPgPlayManager {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             let respStr = String(data: data, encoding: .utf8) ?? ""
             pgLog("分享直链响应(\(statusCode)): \(respStr.prefix(300))")
+
+            // ★ 方案2: 如果 PDS 不行，试 ADrive + Authorization（原生格式）
+            if statusCode == 401 {
+                pgLog("分享直链 → 尝试 ADrive 格式（带 Authorization）")
+                let url2 = URL(string: "https://api.alipan.com/adrive/v2/file/get_download_url")!
+                var request2 = URLRequest(url: url2)
+                request2.httpMethod = "POST"
+                request2.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request2.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+                request2.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+                request2.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+                request2.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (data2, response2) = try await session.data(for: request2)
+                guard let http2 = response2 as? HTTPURLResponse,
+                      http2.statusCode == 200 else {
+                    let statusCode2 = (response2 as? HTTPURLResponse)?.statusCode ?? -1
+                    let respStr2 = String(data: data2, encoding: .utf8) ?? ""
+                    pgLog("分享直链ADrive响应(\(statusCode2)): \(respStr2.prefix(300))")
+                    throw DriveError.noPlayURL("分享直链 HTTP \(statusCode)/\(statusCode2)")
+                }
+
+                guard let json2 = try JSONSerialization.jsonObject(with: data2) as? [String: Any] else {
+                    throw DriveError.noPlayURL("分享直链ADrive 响应解析失败")
+                }
+                if let code = json2["code"] as? String,
+                   code != "OK" && code != "ok" && code != "0" {
+                    let message = json2["message"] as? String ?? "未知错误"
+                    throw DriveError.noPlayURL("分享直链ADrive 错误: \(code) - \(message)")
+                }
+                return try extractDownloadInfo(from: json2)
+            }
             throw DriveError.noPlayURL("分享直链 HTTP \(statusCode)")
         }
 
