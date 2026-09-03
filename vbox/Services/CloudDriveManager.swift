@@ -10186,6 +10186,26 @@ class CloudDriveManager: ObservableObject {
         }
         self.log("[CloudDrive] ✅ detectDrive: \(driveType.rawValue)")
 
+        // ═══════════════════════════════════════════════════════════
+        // ★ PG 4kz 路链优先判断（不影响其它网盘和现有阿里逻辑）
+        // 仅当 driveType == .ali 且存在 PG 凭证时尝试
+        // 失败时自动回退到下方原生 Token 轮询逻辑
+        // ═══════════════════════════════════════════════════════════
+        if driveType == .ali && AliyunPgPlayManager.hasPgCredential() {
+            if let pgCredential = AliyunPgPlayManager.getPgCredential() {
+                self.log("[CloudDrive] 🔄 尝试 PG 4kz 路链 (转存GO原画)")
+                do {
+                    let pgResult = try await AliyunPgPlayManager.shared
+                        .resolveViaPgChain(shareURL: baseURL, credential: pgCredential)
+                    self.log("[CloudDrive] ✅ PG 4kz 路链成功")
+                    return pgResult
+                } catch {
+                    self.log("[CloudDrive] ⚠️ PG 路链失败，回退原生阿里逻辑: \(error.localizedDescription)")
+                    // 回退到下方原生 Token 轮询，不影响现有逻辑
+                }
+            }
+        }
+
         let tokens = tokens(for: driveType)
         guard !tokens.isEmpty else {
             throw DriveError.tokenNotConfigured(driveType.displayName)
