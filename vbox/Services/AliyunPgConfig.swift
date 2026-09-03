@@ -88,7 +88,9 @@ final class AliyunPgConfig {
     }
 
     /// 阿里云盘 API 基础地址
-    let aliApiBase = "https://open.aliyundrive.com"
+    /// ⚠️ 修复：原为 open.aliyundrive.com（导致 get_share_token 404），
+    /// 对齐原生 CloudDriveManager 与官方 PDS 文档，统一使用 api.alipan.com
+    let aliApiBase = "https://api.alipan.com"
     let aliDownloadApiBase = "https://api.alipan.com"
 
     // MARK: - 转存配置
