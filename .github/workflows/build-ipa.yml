@@ -184,6 +184,12 @@ jobs:
           wait $PID_GO $PID_PY $PID_LX
           echo "🚀 并行下载完成"
 
+          # ★ 关键修复: 并行下载在子shell中运行，变量修改不会传播到父shell
+          # 必须在 wait 之后重新检查文件是否存在，以正确设置 skip 标志
+          if [ -d Quarkproxy.xcframework ]; then GO_SKIP="true"; fi
+          if [ -f vbox/Libraries/python-ios/libpython3.14.a ]; then PYTHON_SKIP="true"; fi
+          if [ -d /tmp/lxml-artifacts/lxml ]; then LXML_SKIP="true"; fi
+
           # ---- 输出结果 ----
           echo ""
           echo "=== 下载结果 ==="
@@ -268,6 +274,15 @@ jobs:
         if: steps.prebuilt_cache.outputs.python_skip_build != 'true'
         run: |
           set -euo pipefail
+
+          # ★ 安全检查: 如果预编译产物已下载（子shell变量可能未传播），直接跳过
+          if [ -f vbox/Libraries/python-ios/libpython3.14.a ] && [ -d vbox/Libraries/python-ios/Python.framework ]; then
+            echo "✅ CPython 预编译产物已存在，跳过现场编译"
+            echo "  libpython3.14.a: $(du -h vbox/Libraries/python-ios/libpython3.14.a | cut -f1)"
+            echo "  Python.framework: $(du -sh vbox/Libraries/python-ios/Python.framework | cut -f1)"
+            exit 0
+          fi
+
           echo "⚠️ 开始现场编译 CPython..."
 
           # 1. 安装 host Python 3.14 (工具链需要同版本 build-python)
@@ -280,8 +295,10 @@ jobs:
           python3.14 --version
 
           # 2. Clone Python-Apple-support 工具链
-          echo "📥 Clone Python-Apple-support..."
-          git clone --depth 1 https://github.com/beeware/Python-Apple-support.git /tmp/pas
+          echo "📥 Clone Python-Apple-support (3.14 branch)..."
+          rm -rf /tmp/pas
+          # ★ 必须使用 3.14 分支，main 分支已升级到 3.15.0rc2
+          git clone --depth 1 --branch 3.14 https://github.com/beeware/Python-Apple-support.git /tmp/pas
           cd /tmp/pas
 
           # 3. 构建 iOS device Python (自动处理 OpenSSL/libffi/bz2/xz 依赖)
