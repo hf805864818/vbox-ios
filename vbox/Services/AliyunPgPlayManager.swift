@@ -91,14 +91,19 @@ final class AliyunPgPlayManager {
     /// - Parameters:
     ///   - shareURL: 阿里云盘分享链接
     ///   - credential: PG 凭证（含 refresh_token）
+    ///   - targetFileId: 可选，指定播放的 file_id（用于选集场景，不传则自动选第一个视频）
     /// - Returns: PlayResult（直接播放，parse=0）
     func resolveViaPgChain(
         shareURL: String,
-        credential: CloudDriveCredential
+        credential: CloudDriveCredential,
+        targetFileId: String? = nil
     ) async throws -> PlayResult {
 
         pgLog("========== 开始 PG 4kz 播放路链 ==========")
         pgLog("分享链接: \(shareURL)")
+        if let targetFileId {
+            pgLog("指定文件: file_id=\(targetFileId)")
+        }
 
         // ═══════════════════════════════════════════════════════════
         // 步骤1: Token 刷新 — refresh_token → access_token
@@ -137,33 +142,48 @@ final class AliyunPgPlayManager {
         }
 
         // ═══════════════════════════════════════════════════════════
-        // 步骤3: 列举分享文件
+        // 步骤3: 列举分享文件 / 使用指定文件
         // ═══════════════════════════════════════════════════════════
 
-        let files: [PgShareFile]
-        do {
-            files = try await listShareFiles(
-                accessToken: accessToken,
-                shareToken: shareToken,
-                shareId: shareId
+        let targetFile: PgShareFile
+
+        if let specifiedId = targetFileId, !specifiedId.isEmpty {
+            // 已指定 file_id（选集场景），跳过文件列表遍历
+            targetFile = PgShareFile(
+                fileId: specifiedId,
+                name: "指定文件",
+                type: "file",
+                category: "video",
+                size: 0
             )
-            let videoFiles = files.filter { $0.category == "video" }
-            pgLog("步骤3: 文件列表 → ✅ \(files.count)个文件, 视频文件\(videoFiles.count)个")
-        } catch {
-            pgLog("步骤3: 文件列表 → ❌ 失败: \(error.localizedDescription)")
-            throw DriveError.noPlayURL("PG步骤3 列举文件失败: \(error.localizedDescription)")
-        }
+            pgLog("步骤3: 指定文件 → ✅ file_id=\(specifiedId)（跳过列表遍历）")
+        } else {
+            let files: [PgShareFile]
+            do {
+                files = try await listShareFiles(
+                    accessToken: accessToken,
+                    shareToken: shareToken,
+                    shareId: shareId
+                )
+                let videoFiles = files.filter { $0.category == "video" }
+                pgLog("步骤3: 文件列表 → ✅ \(files.count)个文件, 视频文件\(videoFiles.count)个")
+            } catch {
+                pgLog("步骤3: 文件列表 → ❌ 失败: \(error.localizedDescription)")
+                throw DriveError.noPlayURL("PG步骤3 列举文件失败: \(error.localizedDescription)")
+            }
 
-        // 选集：过滤可播放视频并排序（对齐原生：category=video 或常见视频扩展名）
-        let videoFiles = files
-            .filter { pgIsPlayable($0) }
-            .sorted { $0.name < $1.name }
+            // 选集：过滤可播放视频并排序（对齐原生：category=video 或常见视频扩展名）
+            let videoFiles = files
+                .filter { pgIsPlayable($0) }
+                .sorted { $0.name < $1.name }
 
-        guard let targetFile = videoFiles.first else {
-            pgLog("步骤3: 选集 → ❌ 失败: 分享中没有视频文件")
-            throw DriveError.noPlayURL("PG步骤3 分享中无视频文件")
+            guard let firstVideo = videoFiles.first else {
+                pgLog("步骤3: 选集 → ❌ 失败: 分享中没有视频文件")
+                throw DriveError.noPlayURL("PG步骤3 分享中无视频文件")
+            }
+            targetFile = firstVideo
+            pgLog("步骤3: 选集 → ✅ 选定文件: \(targetFile.name)")
         }
-        pgLog("步骤3: 选集 → ✅ 选定文件: \(targetFile.name)")
 
         // ═══════════════════════════════════════════════════════════
         // 步骤4: ★ 优先尝试分享直链（不转存，直接从分享取 download_url）

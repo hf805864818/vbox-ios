@@ -1861,80 +1861,22 @@ class CloudDriveManager: ObservableObject {
         print("[Ali] 🎬 解析指定文件: fileId=\(fileId) name=\(fileName)")
         self.log("[CloudDrive] [Ali] 解析文件: \(fileName)")
 
-        let cred = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
-        let accessToken = cred.accessToken ?? ""
-        guard !accessToken.isEmpty else {
-            throw DriveError.noPlayURL("阿里 token 刷新成功但未返回 access_token，请重新授权阿里云盘")
+        // 阿里云盘播放统一走 PG 4kz 路链（原生路链不可用，已移除）
+        guard AliyunPgPlayManager.hasPgCredential(),
+              let pgCredential = AliyunPgPlayManager.getPgCredential() else {
+            self.log("[CloudDrive] ❌ 阿里云盘需要 PG 凭证，请先配置 PG refresh_token")
+            throw DriveError.tokenNotConfigured("阿里云盘 PG")
         }
 
-        let shareInfo = extractAliShareInfo(from: shareURL)
-        guard !shareInfo.shareId.isEmpty else { throw DriveError.invalidShareURL }
-
-        let shareToken = try await aliGetShareToken(
-            shareId: shareInfo.shareId,
-            sharePwd: shareInfo.sharePwd,
-            token: accessToken
-        )
-
-        var transcodeURL: String?
-        do {
-            let playInfo = try await aliGetVideoPreviewPlayInfo(fileId: fileId, shareToken: shareToken, token: accessToken)
-            let taskList = playInfo.videoPreviewPlayInfo?.liveTranscodingTaskList ?? []
-            let qualityOrder = ["QHD", "FHD", "HD", "SD", "LD"]
-            transcodeURL = qualityOrder.compactMap { quality in
-                taskList.first { ($0.templateId ?? "").uppercased().contains(quality) }?.url
-            }.first ?? taskList.first(where: { ($0.url ?? "").isEmpty == false })?.url
-            print("[Ali] 转码线路: \(transcodeURL != nil ? "已获取" : "未获取")")
-        } catch {
-            print("[Ali] ⚠️ 转码线路获取失败，将尝试原画直链: \(error.localizedDescription)")
-        }
-
-        var downloadURL: String?
-        do {
-            downloadURL = try await aliGetDownloadURL(fileId: fileId, shareId: shareInfo.shareId, shareToken: shareToken, token: accessToken)
-            print("[Ali] 原画直链: \(downloadURL != nil ? "已获取" : "未获取")")
-        } catch {
-            print("[Ali] ⚠️ 原画直链获取失败: \(error.localizedDescription)")
-        }
-
-        let playbackHeaders = aliPlaybackHeaders(accessToken: accessToken, shareToken: shareToken)
-
-        let playURL: String
-        let source: String
-        if let url = transcodeURL {
-            playURL = url
-            source = "transcode"
-        } else if let url = downloadURL {
-            playURL = url
-            source = "download_url"
-        } else {
-            throw DriveError.noPlayURL("阿里: 转码地址和原画直链均获取失败")
-        }
-
-        let fallbackURL: String?
-        let fallbackSource: String?
-        if source == "transcode", let url = downloadURL {
-            fallbackURL = url
-            fallbackSource = "download_url"
-        } else if source == "download_url", let url = transcodeURL {
-            fallbackURL = url
-            fallbackSource = "transcode"
-        } else {
-            fallbackURL = nil
-            fallbackSource = nil
-        }
-
-        print("[Ali] ✅ 主线路 source=\(source), host=\(URL(string: playURL)?.host ?? "unknown")")
-
-        return PlayResult(
-            url: playURL,
-            headers: playbackHeaders,
-            driveType: .ali,
-            source: source,
-            fallbackURL: fallbackURL,
-            fallbackHeaders: fallbackURL == nil ? nil : playbackHeaders,
-            fallbackSource: fallbackSource
-        )
+        self.log("[CloudDrive] 🔄 使用 PG 4kz 路链（指定文件）")
+        let result = try await AliyunPgPlayManager.shared
+            .resolveViaPgChain(
+                shareURL: shareURL,
+                credential: pgCredential,
+                targetFileId: fileId
+            )
+        self.log("[CloudDrive] ✅ PG 4kz 路链（指定文件）成功")
+        return result
     }
 
     private func aliGetShareToken(shareId: String, sharePwd: String?, token: String) async throws -> String {
@@ -10187,23 +10129,20 @@ class CloudDriveManager: ObservableObject {
         self.log("[CloudDrive] ✅ detectDrive: \(driveType.rawValue)")
 
         // ═══════════════════════════════════════════════════════════
-        // ★ PG 4kz 路链优先判断（不影响其它网盘和现有阿里逻辑）
-        // 仅当 driveType == .ali 且存在 PG 凭证时尝试
-        // 失败时自动回退到下方原生 Token 轮询逻辑
+        // ★ 阿里云盘：仅使用 PG 4kz 路链（原生路链播放不可用，已移除回退）
+        // 失败直接抛出 PG 错误，方便排查问题
         // ═══════════════════════════════════════════════════════════
-        if driveType == .ali && AliyunPgPlayManager.hasPgCredential() {
-            if let pgCredential = AliyunPgPlayManager.getPgCredential() {
-                self.log("[CloudDrive] 🔄 尝试 PG 4kz 路链 (转存GO原画)")
-                do {
-                    let pgResult = try await AliyunPgPlayManager.shared
-                        .resolveViaPgChain(shareURL: baseURL, credential: pgCredential)
-                    self.log("[CloudDrive] ✅ PG 4kz 路链成功")
-                    return pgResult
-                } catch {
-                    self.log("[CloudDrive] ⚠️ PG 路链失败，回退原生阿里逻辑: \(error.localizedDescription)")
-                    // 回退到下方原生 Token 轮询，不影响现有逻辑
-                }
+        if driveType == .ali {
+            guard AliyunPgPlayManager.hasPgCredential(),
+                  let pgCredential = AliyunPgPlayManager.getPgCredential() else {
+                self.log("[CloudDrive] ❌ 阿里云盘需要 PG 凭证，请先配置 PG refresh_token")
+                throw DriveError.tokenNotConfigured("阿里云盘 PG")
             }
+            self.log("[CloudDrive] 🔄 使用 PG 4kz 路链 (转存GO原画)")
+            let pgResult = try await AliyunPgPlayManager.shared
+                .resolveViaPgChain(shareURL: baseURL, credential: pgCredential)
+            self.log("[CloudDrive] ✅ PG 4kz 路链成功")
+            return pgResult
         }
 
         let tokens = tokens(for: driveType)
