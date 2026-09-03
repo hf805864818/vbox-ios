@@ -18,8 +18,11 @@
 //  ⚠️ 重要：此文件仅用于 PG 阿里云盘路链，不影响其它网盘的任何功能
 //  ⚠️ 百度、夸克、UC、迅雷、115 等所有其它网盘逻辑完全不受影响
 //
-//  v2.1 — 2026-09-03 — 修复 API 端点 404（api.alipan.com + 官方 share_link/file 端点），
-//                      重构步骤4-5（分享直链优先 + 转存兜底），清理改为精确删除
+//  v2.2 — 2026-09-03 — 根因修复：extscreen OAuth token 是 OpenAPI token，
+//                      不兼容 ADrive/PDS 分享操作 API。改用 Web App Token 端点
+//                      (api.aliyundrive.com/v2/account/token，不带 client_id/secret)
+//                      刷新，获取 ADrive 格式 access_token。
+//                      清理 5 种诊断方案，保留 2 种标准方案。
 //
 
 import Foundation
@@ -294,10 +297,11 @@ final class AliyunPgPlayManager {
     // MARK: - 步骤1: Token 刷新
 
     /// refresh_token → access_token
-    /// 通过 extscreen API 刷新
+    /// 多级刷新链: Web App Token → CloudDriveAuthManager → extscreen
+    /// 返回经验证有效的 ADrive 格式 access_token
     private func refreshToken(_ credential: CloudDriveCredential) async throws -> String {
 
-        // 检查内存缓存
+        // 检查内存缓存（缓存有效期内直接使用，由下游 API 失败时自动重试刷新）
         if let cached = cachedAccessToken,
            let expiry = accessTokenExpiresAt,
            expiry > Date() {
@@ -309,53 +313,173 @@ final class AliyunPgPlayManager {
             throw DriveError.noPlayURL("PG凭证中无refresh_token")
         }
 
-        // 通过 extscreen API 刷新
-        // 尝试使用 AliyunPgAuthManager（v1.0 已实现）
-        // 如果 v1.0 的 AliyunPgAuthManager.refreshViaExtscreen 方法存在则调用
-        // 否则直接调用 extscreen API
-
-        let url = URL(string: config.openApiUrl)!
-
-        // extscreen API 使用 AES-256-CBC 加密（由 ExtscreenCrypto 处理）
-        // 如果 AliyunPgAuthManager 存在，优先使用它的刷新方法
-        if let refreshed = try? await refreshViaAliyunPgAuthManager(credential) {
-            cachedAccessToken = refreshed.accessToken
-            accessTokenExpiresAt = Date().addingTimeInterval(TimeInterval(config.accessTokenCacheTTL))
-            // 更新凭证中的 refresh_token（轮换存储）
-            updateCredentialWithNewTokens(
-                credential: credential,
-                accessToken: refreshed.accessToken,
-                newRefreshToken: refreshed.refreshToken
-            )
-            return refreshed.accessToken
-        }
-
-        // 直接调用 extscreen API（无加密的简单方式作为备选）
-        // 注：实际 extscreen API 需要 AES-256-CBC 加密，这里通过 AliyunPgAuthManager 处理
-        throw DriveError.noPlayURL("PG Token刷新失败：AliyunPgAuthManager不可用或刷新失败")
+        // 多级刷新链
+        let refreshed = try await refreshViaAliyunPgAuthManager(credential)
+        cachedAccessToken = refreshed.accessToken
+        accessTokenExpiresAt = Date().addingTimeInterval(TimeInterval(config.accessTokenCacheTTL))
+        cachedDriveId = nil // 清除 drive_id 缓存，避免使用旧 token 获取的值
+        // 更新凭证中的 refresh_token（轮换存储）
+        updateCredentialWithNewTokens(
+            credential: credential,
+            accessToken: refreshed.accessToken,
+            newRefreshToken: refreshed.refreshToken
+        )
+        return refreshed.accessToken
     }
 
-    /// 通过 AliyunPgAuthManager 刷新 Token
+    /// 通过多级刷新链获取有效的 ADrive access_token
     private struct RefreshedToken {
         let accessToken: String
         let refreshToken: String
     }
 
     private func refreshViaAliyunPgAuthManager(_ credential: CloudDriveCredential) async throws -> RefreshedToken {
-        // 调用 CloudDriveAuthManager 的刷新链
-        // 优先走 Level 4 (extscreen) fallback
-        // 如果 CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded() 已包含 PG fallback
-        // 则直接调用它
-        let refreshed = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
-
-        guard let accessToken = refreshed.accessToken,
-              let refreshToken = refreshed.refreshToken,
-              !accessToken.isEmpty,
-              !refreshToken.isEmpty else {
-            throw DriveError.noPlayURL("刷新后Token为空")
+        guard let refreshToken = credential.refreshToken, !refreshToken.isEmpty else {
+            throw DriveError.noPlayURL("PG凭证中无refresh_token")
         }
 
-        return RefreshedToken(accessToken: accessToken, refreshToken: refreshToken)
+        // ═══════════════════════════════════════════════════════════
+        // ★ 方案A: Web App Token 端点（不带 client_id/secret）
+        // 对应 baseAli 项目: https://api.aliyundrive.com/v2/account/token
+        // 仅需 {"refresh_token":"...", "grant_type":"refresh_token"}
+        // 返回 ADrive 格式 access_token，兼容所有分享操作 API
+        // ═══════════════════════════════════════════════════════════
+        do {
+            let result = try await refreshViaWebAppToken(refreshToken: refreshToken)
+            pgLog("步骤1: Web App Token → ✅ 刷新成功 (长度=\(result.accessToken.count))")
+
+            // 验证 token 是否为 ADrive 格式（调用 user/get 测试）
+            let isValid = await verifyAdriveToken(result.accessToken)
+            if isValid {
+                pgLog("步骤1: Token验证 → ✅ ADrive token 有效")
+                return RefreshedToken(accessToken: result.accessToken, refreshToken: result.refreshToken)
+            } else {
+                pgLog("步骤1: Token验证 → ⚠️ Web App token 仍非 ADrive 格式")
+            }
+        } catch {
+            pgLog("步骤1: Web App Token → ⚠️ 失败: \(error.localizedDescription)")
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ★ 方案B: CloudDriveAuthManager 刷新链（含官方 API + OpenList + extscreen）
+        // 可能返回 OpenAPI token（不兼容分享 API），但作为兜底尝试
+        // ═══════════════════════════════════════════════════════════
+        do {
+            let refreshed = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
+            guard let accessToken = refreshed.accessToken,
+                  let refreshToken = refreshed.refreshToken,
+                  !accessToken.isEmpty,
+                  !refreshToken.isEmpty else {
+                throw DriveError.noPlayURL("刷新后Token为空")
+            }
+
+            let isValid = await verifyAdriveToken(accessToken)
+            if isValid {
+                pgLog("步骤1: CloudDriveAuthManager → ✅ ADrive token 有效 (长度=\(accessToken.count))")
+                return RefreshedToken(accessToken: accessToken, refreshToken: refreshToken)
+            } else {
+                pgLog("步骤1: CloudDriveAuthManager → ⚠️ token 非 ADrive 格式 (可能为 OpenAPI token，长度=\(accessToken.count))")
+            }
+        } catch {
+            pgLog("步骤1: CloudDriveAuthManager → ⚠️ 失败: \(error.localizedDescription)")
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ★ 方案C: 直接使用 extscreen 刷新的 token（最后兜底）
+        // ═══════════════════════════════════════════════════════════
+        do {
+            let refreshed = try await AliyunPgAuthManager.shared.refreshViaExtscreen(credential: credential)
+            guard let accessToken = refreshed.accessToken,
+                  let refreshToken = refreshed.refreshToken,
+                  !accessToken.isEmpty else {
+                throw DriveError.noPlayURL("extscreen 刷新后 Token 为空")
+            }
+
+            let isValid = await verifyAdriveToken(accessToken)
+            if isValid {
+                pgLog("步骤1: extscreen → ✅ ADrive token 有效")
+                return RefreshedToken(accessToken: accessToken, refreshToken: refreshToken)
+            } else {
+                pgLog("步骤1: extscreen → ⚠️ token 非 ADrive 格式 (OpenAPI token，不支持分享操作)")
+            }
+        } catch {
+            pgLog("步骤1: extscreen → ⚠️ 失败: \(error.localizedDescription)")
+        }
+
+        // 所有方案均无法获取有效的 ADrive token
+        pgLog("步骤1: ❌ 所有刷新方案均无法获取有效的 ADrive access_token")
+        pgLog("步骤1: 根因: extscreen OAuth token 是 OpenAPI token，不兼容 ADrive/PDS 分享操作 API")
+        pgLog("步骤1: 解决: 请在网盘授权中心使用阿里云盘扫码登录获取原生 ADrive 凭证")
+        throw DriveError.noPlayURL("PG Token 刷新失败：extscreen token 是 OpenAPI token，不支持分享下载操作。请使用原生阿里云盘凭证")
+    }
+
+    /// 通过 Web App Token 端点刷新（不带 client_id/secret）
+    /// 对应 baseAli 项目: https://auth.aliyundrive.com/v2/account/token
+    /// 仅需 {"refresh_token":"...", "grant_type":"refresh_token"}
+    /// 不带 client_id/secret，可能返回 ADrive 格式 access_token
+    private func refreshViaWebAppToken(refreshToken: String) async throws -> (accessToken: String, refreshToken: String) {
+        // 尝试多个端点（auth.aliyundrive.com 和 api.aliyundrive.com）
+        let urls = [
+            "https://auth.aliyundrive.com/v2/account/token",
+            "https://api.aliyundrive.com/v2/account/token"
+        ]
+
+        let body: [String: Any] = [
+            "refresh_token": refreshToken,
+            "grant_type": "refresh_token"
+        ]
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+
+        for urlStr in urls {
+            let url = URL(string: urlStr)!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            request.httpBody = bodyData
+
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { continue }
+
+            let respStr = String(data: data, encoding: .utf8) ?? ""
+            pgLog("步骤1: Web App Token [\(urlStr)] 响应(\(http.statusCode)): \(respStr.prefix(200))")
+
+            guard http.statusCode == 200 else { continue }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let accessToken = json["access_token"] as? String,
+                  let newRefreshToken = json["refresh_token"] as? String,
+                  !accessToken.isEmpty,
+                  !newRefreshToken.isEmpty else { continue }
+
+            return (accessToken: accessToken, refreshToken: newRefreshToken)
+        }
+
+        throw DriveError.noPlayURL("Web App Token: 所有端点均失败")
+    }
+
+    /// 验证 token 是否为 ADrive 格式（通过 user/get 接口测试）
+    private func verifyAdriveToken(_ accessToken: String) async -> Bool {
+        do {
+            let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/user/get")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [:])
+
+            let (data, response) = try await session.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if statusCode == 200 {
+                return true
+            }
+            let respStr = String(data: data, encoding: .utf8) ?? ""
+            pgLog("步骤1: Token验证 user/get(\(statusCode)): \(respStr.prefix(150))")
+            return false
+        } catch {
+            pgLog("步骤1: Token验证 异常: \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// 更新凭证中的 Token（轮换存储）
@@ -734,10 +858,9 @@ final class AliyunPgPlayManager {
     }
 
     /// 直接从分享获取原画 download_url（不转存，分享直链）
-    /// ⚠️ 核心排查：尝试 3 种方案，全部打印响应体，彻底定位问题
-    /// 方案1: PDS get_share_link_download_url (专门用于分享下载) + x-share-token
-    /// 方案2: PDS get_download_url + x-share-token + share_id
-    /// 方案3: ADrive get_download_url + Authorization + x-share-token (原生格式)
+    /// 使用 2 种标准方案，均需 Authorization + x-share-token 双重鉴权
+    /// 方案A: PDS get_download_url (api.aliyundrive.com)
+    /// 方案B: ADrive get_download_url (api.alipan.com)
     private func getShareDownloadUrl(
         accessToken: String,
         fileId: String,
@@ -752,45 +875,21 @@ final class AliyunPgPlayManager {
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        // ★ 方案1: PDS get_share_link_download_url — 专门用于分享文件下载
-        // 参考: https://github.com/tangjiangjie/baseAli
-        // Request URL: https://api.aliyundrive.com/v2/file/get_share_link_download_url
-        do {
-            let url = URL(string: "https://api.aliyundrive.com/v2/file/get_share_link_download_url")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-            request.httpBody = bodyData
-
-            let (data, response) = try await session.data(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let respStr = String(data: data, encoding: .utf8) ?? ""
-            pgLog("方案1 get_share_link_download_url(\(statusCode)): \(respStr.prefix(300))")
-
-            if statusCode == 200 {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    return try extractDownloadInfo(from: json)
-                }
-            }
-        } catch {
-            pgLog("方案1 异常: \(error.localizedDescription)")
-        }
-
-        // ★ 方案2: PDS get_download_url + share_id + x-share-token (官方文档方式)
-        // "如果通过分享操作文件，请携带x-share-token header鉴权"
+        // ★ 方案A: PDS get_download_url (api.aliyundrive.com) + Authorization + x-share-token
         do {
             let url = URL(string: "https://api.aliyundrive.com/v2/file/get_download_url")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
             request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+            request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
             request.httpBody = bodyData
 
             let (data, response) = try await session.data(for: request)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             let respStr = String(data: data, encoding: .utf8) ?? ""
-            pgLog("方案2 PDS get_download_url(\(statusCode)): \(respStr.prefix(300))")
+            pgLog("分享直链 PDS(\(statusCode)): \(respStr.prefix(300))")
 
             if statusCode == 200 {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -798,10 +897,10 @@ final class AliyunPgPlayManager {
                 }
             }
         } catch {
-            pgLog("方案2 异常: \(error.localizedDescription)")
+            pgLog("分享直链 PDS 异常: \(error.localizedDescription)")
         }
 
-        // ★ 方案3: ADrive get_download_url + Authorization + x-share-token (原生格式)
+        // ★ 方案B: ADrive get_download_url (api.alipan.com) + Authorization + x-share-token
         do {
             let url = URL(string: "https://api.alipan.com/adrive/v2/file/get_download_url")!
             var request = URLRequest(url: url)
@@ -815,7 +914,7 @@ final class AliyunPgPlayManager {
             let (data, response) = try await session.data(for: request)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             let respStr = String(data: data, encoding: .utf8) ?? ""
-            pgLog("方案3 ADrive get_download_url(\(statusCode)): \(respStr.prefix(300))")
+            pgLog("分享直链 ADrive(\(statusCode)): \(respStr.prefix(300))")
 
             if statusCode == 200 {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -823,59 +922,10 @@ final class AliyunPgPlayManager {
                 }
             }
         } catch {
-            pgLog("方案3 异常: \(error.localizedDescription)")
+            pgLog("分享直链 ADrive 异常: \(error.localizedDescription)")
         }
 
-        // ★ 方案4: OpenAPI (openapi.alipan.com) + Authorization Bearer + camelCase端点
-        // PG OAuth 用 openapi.alipan.com 轮询，token 可能是 OpenAPI token
-        do {
-            let url = URL(string: "https://openapi.alipan.com/adrive/v1.0/file/getDownloadUrl")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-            request.httpBody = bodyData
-
-            let (data, response) = try await session.data(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let respStr = String(data: data, encoding: .utf8) ?? ""
-            pgLog("方案4 OpenAPI getDownloadUrl(\(statusCode)): \(respStr.prefix(300))")
-
-            if statusCode == 200 {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    return try extractDownloadInfo(from: json)
-                }
-            }
-        } catch {
-            pgLog("方案4 异常: \(error.localizedDescription)")
-        }
-
-        // ★ 方案5: OpenAPI + x-pan-token header (aliproxy 用的格式)
-        do {
-            let url = URL(string: "https://openapi.alipan.com/adrive/v1.0/file/getDownloadUrl")!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(accessToken, forHTTPHeaderField: "x-pan-token")
-            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
-            request.httpBody = bodyData
-
-            let (data, response) = try await session.data(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let respStr = String(data: data, encoding: .utf8) ?? ""
-            pgLog("方案5 OpenAPI x-pan-token(\(statusCode)): \(respStr.prefix(300))")
-
-            if statusCode == 200 {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    return try extractDownloadInfo(from: json)
-                }
-            }
-        } catch {
-            pgLog("方案5 异常: \(error.localizedDescription)")
-        }
-
-        throw DriveError.noPlayURL("分享直链五种方案均失败，详见日志")
+        throw DriveError.noPlayURL("分享直链获取失败（PDS + ADrive 两种方案均失败），详见日志")
     }
 
     /// 从用户网盘（转存后的文件）获取原画 download_url
