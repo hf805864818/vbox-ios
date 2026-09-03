@@ -24,6 +24,13 @@
 //                      刷新，获取 ADrive 格式 access_token。
 //                      清理 5 种诊断方案，保留 2 种标准方案。
 //
+//  v2.3 — 2026-09-03 — 凭证入口修复：hasPgCredential/getPgCredential 不再限制
+//                      pg_source 标记，接受任何有效的阿里云盘凭证（包括 OpenList
+//                      原生扫码登录获取的 ADrive 凭证）。刷新链优先级调整：
+//                      CloudDriveAuthManager（含 client_id/secret 官方 API）提前到
+//                      首选，确保 OpenList 凭证能正确刷新为 ADrive token。
+//                      ⚠️ 仅影响阿里云盘 PG 路链，不影响百度/夸克/UC 等其它网盘。
+//
 
 import Foundation
 
@@ -339,16 +346,43 @@ final class AliyunPgPlayManager {
         }
 
         // ═══════════════════════════════════════════════════════════
-        // ★ 方案A: Web App Token 端点（不带 client_id/secret）
+        // ★ 方案A（首选）: CloudDriveAuthManager 刷新链
+        //   含官方 API（client_id/secret）+ OpenList + extscreen 四级刷新
+        //   - OpenList 原生凭证: refreshAliViaOfficialAPI 使用 client_id/secret
+        //     调用 auth.aliyundrive.com/v2/account/token，返回 ADrive token ✅
+        //   - PG extscreen 凭证: 官方 API 可能失败，兜底到 OpenList 或 extscreen
+        // v2.3: 提前到首选位置，确保 OpenList 原生凭证能正确刷新
+        // ═══════════════════════════════════════════════════════════
+        do {
+            let refreshed = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
+            guard let accessToken = refreshed.accessToken,
+                  let rtToken = refreshed.refreshToken,
+                  !accessToken.isEmpty,
+                  !rtToken.isEmpty else {
+                throw DriveError.noPlayURL("刷新后Token为空")
+            }
+
+            let isValid = await verifyAdriveToken(accessToken)
+            if isValid {
+                pgLog("步骤1: CloudDriveAuthManager → ✅ ADrive token 有效 (长度=\(accessToken.count))")
+                return RefreshedToken(accessToken: accessToken, refreshToken: rtToken)
+            } else {
+                pgLog("步骤1: CloudDriveAuthManager → ⚠️ token 非 ADrive 格式 (可能为 OpenAPI token，长度=\(accessToken.count))")
+            }
+        } catch {
+            pgLog("步骤1: CloudDriveAuthManager → ⚠️ 失败: \(error.localizedDescription)")
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // ★ 方案B（备选）: Web App Token 端点（不带 client_id/secret）
         // 对应 baseAli 项目: https://api.aliyundrive.com/v2/account/token
         // 仅需 {"refresh_token":"...", "grant_type":"refresh_token"}
-        // 返回 ADrive 格式 access_token，兼容所有分享操作 API
+        // 对部分 refresh_token 可能返回 ADrive 格式 access_token
         // ═══════════════════════════════════════════════════════════
         do {
             let result = try await refreshViaWebAppToken(refreshToken: refreshToken)
             pgLog("步骤1: Web App Token → ✅ 刷新成功 (长度=\(result.accessToken.count))")
 
-            // 验证 token 是否为 ADrive 格式（调用 user/get 测试）
             let isValid = await verifyAdriveToken(result.accessToken)
             if isValid {
                 pgLog("步骤1: Token验证 → ✅ ADrive token 有效")
@@ -361,56 +395,35 @@ final class AliyunPgPlayManager {
         }
 
         // ═══════════════════════════════════════════════════════════
-        // ★ 方案B: CloudDriveAuthManager 刷新链（含官方 API + OpenList + extscreen）
-        // 可能返回 OpenAPI token（不兼容分享 API），但作为兜底尝试
+        // ★ 方案C（兜底）: 直接使用 extscreen 刷新的 token
+        // 仅 PG extscreen 凭证会触发，返回 OpenAPI token（不支持分享操作）
         // ═══════════════════════════════════════════════════════════
-        do {
-            let refreshed = try await CloudDriveAuthManager.shared.refreshAliAccessTokenIfNeeded()
-            guard let accessToken = refreshed.accessToken,
-                  let refreshToken = refreshed.refreshToken,
-                  !accessToken.isEmpty,
-                  !refreshToken.isEmpty else {
-                throw DriveError.noPlayURL("刷新后Token为空")
-            }
+        if credential.extra[AliyunPgConfig.pgSourceKey] != nil {
+            do {
+                let refreshed = try await AliyunPgAuthManager.shared.refreshViaExtscreen(credential: credential)
+                guard let accessToken = refreshed.accessToken,
+                      let rtToken = refreshed.refreshToken,
+                      !accessToken.isEmpty else {
+                    throw DriveError.noPlayURL("extscreen 刷新后 Token 为空")
+                }
 
-            let isValid = await verifyAdriveToken(accessToken)
-            if isValid {
-                pgLog("步骤1: CloudDriveAuthManager → ✅ ADrive token 有效 (长度=\(accessToken.count))")
-                return RefreshedToken(accessToken: accessToken, refreshToken: refreshToken)
-            } else {
-                pgLog("步骤1: CloudDriveAuthManager → ⚠️ token 非 ADrive 格式 (可能为 OpenAPI token，长度=\(accessToken.count))")
+                let isValid = await verifyAdriveToken(accessToken)
+                if isValid {
+                    pgLog("步骤1: extscreen → ✅ ADrive token 有效")
+                    return RefreshedToken(accessToken: accessToken, refreshToken: rtToken)
+                } else {
+                    pgLog("步骤1: extscreen → ⚠️ token 非 ADrive 格式 (OpenAPI token，不支持分享操作)")
+                }
+            } catch {
+                pgLog("步骤1: extscreen → ⚠️ 失败: \(error.localizedDescription)")
             }
-        } catch {
-            pgLog("步骤1: CloudDriveAuthManager → ⚠️ 失败: \(error.localizedDescription)")
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // ★ 方案C: 直接使用 extscreen 刷新的 token（最后兜底）
-        // ═══════════════════════════════════════════════════════════
-        do {
-            let refreshed = try await AliyunPgAuthManager.shared.refreshViaExtscreen(credential: credential)
-            guard let accessToken = refreshed.accessToken,
-                  let refreshToken = refreshed.refreshToken,
-                  !accessToken.isEmpty else {
-                throw DriveError.noPlayURL("extscreen 刷新后 Token 为空")
-            }
-
-            let isValid = await verifyAdriveToken(accessToken)
-            if isValid {
-                pgLog("步骤1: extscreen → ✅ ADrive token 有效")
-                return RefreshedToken(accessToken: accessToken, refreshToken: refreshToken)
-            } else {
-                pgLog("步骤1: extscreen → ⚠️ token 非 ADrive 格式 (OpenAPI token，不支持分享操作)")
-            }
-        } catch {
-            pgLog("步骤1: extscreen → ⚠️ 失败: \(error.localizedDescription)")
         }
 
         // 所有方案均无法获取有效的 ADrive token
         pgLog("步骤1: ❌ 所有刷新方案均无法获取有效的 ADrive access_token")
         pgLog("步骤1: 根因: extscreen OAuth token 是 OpenAPI token，不兼容 ADrive/PDS 分享操作 API")
-        pgLog("步骤1: 解决: 请在网盘授权中心使用阿里云盘扫码登录获取原生 ADrive 凭证")
-        throw DriveError.noPlayURL("PG Token 刷新失败：extscreen token 是 OpenAPI token，不支持分享下载操作。请使用原生阿里云盘凭证")
+        pgLog("步骤1: 解决: 请在网盘授权中心使用阿里云盘扫码登录（OpenList 方式）获取原生 ADrive 凭证")
+        throw DriveError.noPlayURL("PG Token 刷新失败：无法获取兼容分享操作的 ADrive token。请在网盘授权中心使用阿里云盘扫码登录（OpenList 方式）重新授权")
     }
 
     /// 通过 Web App Token 端点刷新（不带 client_id/secret）
@@ -1176,20 +1189,32 @@ final class AliyunPgPlayManager {
 
     // MARK: - 外部接口：检查 PG 凭证是否可用
 
-    /// 检查是否有可用的 PG 凭证
+    /// 检查是否有可用的阿里云盘凭证
     /// 在 CloudDriveManager 中调用此方法判断是否走 PG 路链
+    /// v2.3: 接受任何有效的阿里云盘凭证（PG extscreen 凭证 或 OpenList 原生凭证）
+    ///   - PG extscreen 凭证: extra 中有 pg_source 标记（OpenAPI token，刷新链兜底）
+    ///   - OpenList 原生凭证: 无 pg_source 标记（ADrive token，兼容所有分享 API）
+    /// ⚠️ 仅检查阿里云盘凭证，不影响百度/夸克/UC 等其它网盘
     static func hasPgCredential() -> Bool {
         guard AliyunPgConfig.shared.isEnabled else { return false }
         guard let credential = CloudDriveAuthManager.shared.credential(for: .ali) else {
             return false
         }
-        return AliyunPgConfig.isPgCredential(credential)
+        // 接受任何有效的阿里云盘凭证：PG extscreen 凭证 或 OpenList 原生凭证
+        return credential.state == .valid
+            && credential.refreshToken?.isEmpty == false
     }
 
-    /// 获取 PG 凭证
+    /// 获取阿里云盘凭证（PG 路链使用）
+    /// v2.3: 接受任何有效的阿里云盘凭证，不再限制 pg_source 标记
+    /// ⚠️ 仅获取阿里云盘凭证，不影响其它网盘
     static func getPgCredential() -> CloudDriveCredential? {
-        guard let credential = CloudDriveAuthManager.shared.credential(for: .ali),
-              AliyunPgConfig.isPgCredential(credential) else {
+        guard let credential = CloudDriveAuthManager.shared.credential(for: .ali) else {
+            return nil
+        }
+        // 接受任何有效阿里云盘凭证
+        guard credential.state == .valid,
+              credential.refreshToken?.isEmpty == false else {
             return nil
         }
         return credential
