@@ -3,22 +3,23 @@
 //  vbox
 //
 //  PG 阿里云盘 4kz 完整播放路链（转存GO原画）
-//  与 pg.jar 的 AliShare 类逻辑完全一致，不做降级 fallback
+//  与 pg.jar 的 AliShare 类逻辑完全一致，不做路链降级 fallback
 //
 //  8步流程:
 //    1. Token刷新 (refresh_token → access_token)
-//    2. 获取share_token
-//    3. 列举分享文件
-//    4. ★转存到用户网盘 (saveFile)
-//    5. 获取原画直链 (get_download_url)
+//    2. 获取share_token (/v2/share_link/get_share_token)
+//    3. 列举分享文件 (/adrive/v3/file/list，递归子文件夹)
+//    4. ★优先分享直链 (get_download_url + share_id + x-share-token)
+//    5. ★转存兜底 (/v2/file/copy 转存后取原画直链)
 //    6. ★Go代理多线程加速 (aliproxy)
 //    7. 返回 parse=0 直接播放
-//    8. ★播放后清理 (cleanUp)
+//    8. ★播放后清理 (/v2/file/delete 精确删除转存文件)
 //
 //  ⚠️ 重要：此文件仅用于 PG 阿里云盘路链，不影响其它网盘的任何功能
 //  ⚠️ 百度、夸克、UC、迅雷、115 等所有其它网盘逻辑完全不受影响
 //
-//  v2.0 — 2026-09-03
+//  v2.1 — 2026-09-03 — 修复 API 端点 404（api.alipan.com + 官方 share_link/file 端点），
+//                      重构步骤4-5（分享直链优先 + 转存兜底），清理改为精确删除
 //
 
 import Foundation
@@ -37,6 +38,9 @@ final class AliyunPgPlayManager {
     /// access_token 内存缓存
     private var cachedAccessToken: String?
     private var accessTokenExpiresAt: Date?
+
+    /// 用户网盘 drive_id 缓存（转存 /v2/file/copy 需要 to_drive_id）
+    private var cachedDriveId: String?
 
     /// 转存文件清理队列
     private var pendingCleanups: [PgCleanupItem] = []
@@ -150,9 +154,9 @@ final class AliyunPgPlayManager {
             throw DriveError.noPlayURL("PG步骤3 列举文件失败: \(error.localizedDescription)")
         }
 
-        // 选集：过滤视频文件并排序
+        // 选集：过滤可播放视频并排序（对齐原生：category=video 或常见视频扩展名）
         let videoFiles = files
-            .filter { $0.category == "video" }
+            .filter { pgIsPlayable($0) }
             .sorted { $0.name < $1.name }
 
         guard let targetFile = videoFiles.first else {
@@ -162,39 +166,59 @@ final class AliyunPgPlayManager {
         pgLog("步骤3: 选集 → ✅ 选定文件: \(targetFile.name)")
 
         // ═══════════════════════════════════════════════════════════
-        // 步骤4: ★ 转存到用户网盘 (saveFile)
+        // 步骤4: ★ 优先尝试分享直链（不转存，直接从分享取 download_url）
+        // 对齐原生 aliGetDownloadURL：file_id + share_id + x-share-token
         // ═══════════════════════════════════════════════════════════
 
-        let savedFileId: String
+        var resolvedInfo: PgDownloadInfo?
+        var savedFileId: String?
+
         do {
-            savedFileId = try await saveFile(
+            let info = try await getShareDownloadUrl(
                 accessToken: accessToken,
                 fileId: targetFile.fileId,
                 shareId: shareId,
                 shareToken: shareToken
             )
-            pgLog("步骤4: 转存 → ✅ saved_file_id=\(savedFileId)")
+            resolvedInfo = info
+            pgLog("步骤4: 分享直链 → ✅ download_url获取成功 (cdn=\(extractHost(info.url)))")
         } catch {
-            pgLog("步骤4: 转存 → ❌ 失败: \(error.localizedDescription)")
-            throw DriveError.noPlayURL("PG步骤4 转存失败: \(error.localizedDescription)")
+            pgLog("步骤4: 分享直链 → ⚠️ 失败: \(error.localizedDescription)，转入转存兜底")
+
+            // ═══════════════════════════════════════════════════════
+            // 步骤5: ★ 转存兜底 — /v2/file/copy 转存后取原画直链
+            // ═══════════════════════════════════════════════════════
+            do {
+                let driveId = try await getUserDriveId(accessToken: accessToken)
+                let savedId = try await saveFile(
+                    accessToken: accessToken,
+                    fileId: targetFile.fileId,
+                    shareId: shareId,
+                    shareToken: shareToken,
+                    toDriveId: driveId
+                )
+                savedFileId = savedId
+                pgLog("步骤5: 转存 → ✅ saved_file_id=\(savedId)")
+
+                let info = try await getDownloadUrl(
+                    accessToken: accessToken,
+                    fileId: savedId,
+                    driveId: driveId
+                )
+                resolvedInfo = info
+                pgLog("步骤5: 转存直链 → ✅ download_url获取成功 (cdn=\(extractHost(info.url)))")
+            } catch {
+                pgLog("步骤5: 转存路链 → ❌ 失败: \(error.localizedDescription)")
+                // 转存失败也要清理可能已转存的文件
+                if let savedId = savedFileId {
+                    scheduleCleanup(fileId: savedId, accessToken: accessToken)
+                }
+                throw DriveError.noPlayURL("PG步骤4-5 获取播放直链失败: \(error.localizedDescription)")
+            }
         }
 
-        // ═══════════════════════════════════════════════════════════
-        // 步骤5: 获取原画直链 (get_download_url)
-        // ═══════════════════════════════════════════════════════════
-
-        let downloadInfo: PgDownloadInfo
-        do {
-            downloadInfo = try await getDownloadUrl(
-                accessToken: accessToken,
-                fileId: savedFileId
-            )
-            pgLog("步骤5: 原画直链 → ✅ download_url获取成功 (cdn=\(extractHost(downloadInfo.url)))")
-        } catch {
-            pgLog("步骤5: 原画直链 → ❌ 失败: \(error.localizedDescription)")
-            // 步骤5失败也要清理已转存的文件
-            scheduleCleanup(fileId: savedFileId, accessToken: accessToken)
-            throw DriveError.noPlayURL("PG步骤5 获取原画直链失败: \(error.localizedDescription)")
+        guard let downloadInfo = resolvedInfo else {
+            throw DriveError.noPlayURL("PG步骤4-5 无有效播放直链")
         }
 
         // ═══════════════════════════════════════════════════════════
@@ -229,12 +253,16 @@ final class AliyunPgPlayManager {
         pgLog("步骤7: 播放 → ✅ parse=0, 交付播放器")
         pgLog("========== PG 4kz 路链完成 ==========")
 
-        // 注册清理回调（步骤8）
-        if config.autoCleanup {
-            scheduleCleanup(fileId: savedFileId, accessToken: accessToken)
-            pgLog("步骤8: 清理 → ⏳ 已注册清理任务 (delay=\(config.cleanupDelay)s)")
+        // 注册清理回调（步骤8）— 仅当走了转存兜底流程才需要清理
+        if let savedId = savedFileId {
+            if config.autoCleanup {
+                scheduleCleanup(fileId: savedId, accessToken: accessToken)
+                pgLog("步骤8: 清理 → ⏳ 已注册清理任务 (delay=\(config.cleanupDelay)s)")
+            } else {
+                pgLog("步骤8: 清理 → ⏸️ 自动清理已关闭")
+            }
         } else {
-            pgLog("步骤8: 清理 → ⏸️ 自动清理已关闭")
+            pgLog("步骤8: 清理 → ⏭️ 分享直链播放，无转存文件，无需清理")
         }
 
         return PlayResult(
@@ -329,22 +357,24 @@ final class AliyunPgPlayManager {
     // MARK: - 步骤2: 获取 share_token
 
     /// 从分享链接获取 share_token
+    /// ⚠️ 修复：端点改为官方 /v2/share_link/get_share_token
+    /// （原 /adrive/v1.0/share/get_share_token 在 api.alipan.com 上返回 404）
+    /// 请求/响应与错误码判断完全对齐原生 CloudDriveManager.aliGetShareToken
     private func getShareToken(
         accessToken: String,
         shareId: String,
         sharePwd: String
     ) async throws -> String {
 
-        let url = URL(string: "\(config.aliApiBase)/adrive/v1.0/share/get_share_token")!
+        let url = URL(string: "\(config.aliApiBase)/v2/share_link/get_share_token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
-        let body: [String: Any] = [
-            "share_id": shareId,
-            "share_pwd": sharePwd
-        ]
+        // 对齐原生：仅当 share_pwd 非空时才附带
+        var body: [String: Any] = ["share_id": shareId]
+        if !sharePwd.isEmpty { body["share_pwd"] = sharePwd }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
@@ -354,92 +384,157 @@ final class AliyunPgPlayManager {
             throw DriveError.noPlayURL("get_share_token HTTP \(statusCode)")
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let shareToken = json["share_token"] as? String,
-              !shareToken.isEmpty else {
-            // 检查错误响应
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let code = json["code"] as? String,
-               let message = json["message"] as? String {
-                throw DriveError.noPlayURL("get_share_token 错误: \(code) - \(message)")
+        // 对齐原生：先检查响应 code 字段，再提取 share_token
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let codeStr = json["code"] as? String
+            let codeInt = json["code"] as? Int
+            let isError = (codeStr != nil && codeStr != "OK" && codeStr != "ok" && codeStr != "0")
+                        || (codeInt != nil && codeInt != 0 && codeInt != 200)
+            if isError {
+                let message = json["message"] as? String ?? (codeStr ?? "code=\(codeInt ?? -1)")
+                throw DriveError.noPlayURL("阿里分享 token 获取失败：\(message)")
             }
-            throw DriveError.noPlayURL("get_share_token 响应解析失败")
+            if let shareToken = json["share_token"] as? String, !shareToken.isEmpty {
+                return shareToken
+            }
         }
 
-        return shareToken
+        throw DriveError.noPlayURL("get_share_token 响应解析失败")
     }
 
     // MARK: - 步骤3: 列举分享文件
 
     /// 列举分享文件列表
+    /// ⚠️ 修复：端点改为 /adrive/v3/file/list（原 /adrive/v1.0/share/list_share_files 返回 404）
+    /// 对齐原生 aliGetShareFileList：parent_file_id="root"、x-share-token 小写、Referer、分页
+    /// 并递归遍历子文件夹（对齐原生 aliCollectPlayableFiles），避免视频在子目录时漏选
     private func listShareFiles(
         accessToken: String,
         shareToken: String,
         shareId: String
     ) async throws -> [PgShareFile] {
+        var allFiles: [PgShareFile] = []
+        try await collectShareFiles(
+            accessToken: accessToken,
+            shareToken: shareToken,
+            shareId: shareId,
+            parentFileId: "root",
+            into: &allFiles
+        )
+        return allFiles
+    }
 
-        let url = URL(string: "\(config.aliApiBase)/adrive/v1.0/share/list_share_files")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(shareToken, forHTTPHeaderField: "X-Share-Token")
+    /// 递归收集分享内的文件（进入子文件夹，支持 next_marker 分页）
+    private func collectShareFiles(
+        accessToken: String,
+        shareToken: String,
+        shareId: String,
+        parentFileId: String,
+        into result: inout [PgShareFile]
+    ) async throws {
+        var marker = ""
+        // 每个目录最多翻 10 页（对齐原生），防止异常分享导致死循环
+        for _ in 0..<10 {
+            let url = URL(string: "\(config.aliApiBase)/adrive/v3/file/list")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+            request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
 
-        let body: [String: Any] = [
-            "share_id": shareId,
-            "parent_file_id": "0",
-            "limit": 200,
-            "order_by": "name",
-            "order_direction": "ASC"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            var body: [String: Any] = [
+                "share_id": shareId,
+                "parent_file_id": parentFileId,
+                "limit": 100,
+                "order_by": "name",
+                "order_direction": "ASC"
+            ]
+            if !marker.isEmpty { body["marker"] = marker }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              http.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw DriveError.noPlayURL("list_share_files HTTP \(statusCode)")
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  http.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                throw DriveError.noPlayURL("file/list HTTP \(statusCode)")
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw DriveError.noPlayURL("file/list 响应解析失败")
+            }
+
+            // 对齐原生：检查 code 字段
+            if let code = json["code"] as? String, code != "OK" {
+                let message = json["message"] as? String ?? "未知错误"
+                throw DriveError.noPlayURL("阿里: \(message)")
+            }
+
+            let items = json["items"] as? [[String: Any]] ?? []
+            for item in items {
+                guard let fileId = item["file_id"] as? String, !fileId.isEmpty else { continue }
+                let name = item["name"] as? String ?? item["file_name"] as? String ?? ""
+                let type = item["type"] as? String ?? "file"
+                let category = item["category"] as? String ?? ""
+                let size = item["size"] as? Int64 ?? 0
+
+                if type.lowercased() == "folder" {
+                    // 递归进入子文件夹
+                    try await collectShareFiles(
+                        accessToken: accessToken,
+                        shareToken: shareToken,
+                        shareId: shareId,
+                        parentFileId: fileId,
+                        into: &result
+                    )
+                } else {
+                    result.append(PgShareFile(fileId: fileId, name: name, category: category, size: size))
+                }
+            }
+
+            if let nextMarker = json["next_marker"] as? String, !nextMarker.isEmpty {
+                marker = nextMarker
+            } else {
+                break
+            }
         }
+    }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = json["items"] as? [[String: Any]] else {
-            throw DriveError.noPlayURL("list_share_files 响应解析失败")
-        }
-
-        return items.compactMap { item in
-            guard let fileId = item["file_id"] as? String,
-                  let name = item["name"] as? String else { return nil }
-            let category = item["category"] as? String ?? ""
-            let size = item["size"] as? Int64 ?? 0
-            let type = item["type"] as? String ?? "file"
-            // 只返回文件类型（排除文件夹）
-            guard type == "file" else { return nil }
-            return PgShareFile(fileId: fileId, name: name, category: category, size: size)
-        }
+    /// 判断文件是否可播放（对齐原生 aliIsPlayable：category=video 或常见视频扩展名）
+    private func pgIsPlayable(_ file: PgShareFile) -> Bool {
+        if file.category.lowercased() == "video" { return true }
+        let lower = file.name.lowercased()
+        return ["mp4", "mkv", "mov", "m3u8", "avi", "wmv", "flv", "ts", "m4v"].contains { lower.hasSuffix(".\($0)") }
     }
 
     // MARK: - 步骤4: ★ 转存到用户网盘
 
     /// 将分享文件转存到用户自己的网盘
-    /// 对应 pg.jar 的 saveFile() 方法
+    /// ⚠️ 修复：端点改为官方 /v2/file/copy（原 /adrive/v2/file/batch_copy 不适用于分享转存）
+    /// 对齐官方 PDS 文档：需 access_token + x-share-token 双重鉴权，
+    /// 响应直接返回转存后新文件的 drive_id / file_id（可能附带 async_task_id）
     private func saveFile(
         accessToken: String,
         fileId: String,
         shareId: String,
-        shareToken: String
+        shareToken: String,
+        toDriveId: String
     ) async throws -> String {
 
-        let url = URL(string: "\(config.aliApiBase)/adrive/v2/file/batch_copy")!
+        let url = URL(string: "\(config.aliApiBase)/v2/file/copy")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(shareToken, forHTTPHeaderField: "X-Share-Token")
+        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
 
         let body: [String: Any] = [
-            "file_id_list": [fileId],
-            "to_parent_file_id": "0",
-            "to_drive_id": "0"
+            "share_id": shareId,
+            "file_id": fileId,
+            "to_drive_id": toDriveId,
+            "to_parent_file_id": "root",
+            "auto_rename": true
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -447,67 +542,56 @@ final class AliyunPgPlayManager {
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 200 else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw DriveError.noPlayURL("batch_copy HTTP \(statusCode)")
+            throw DriveError.noPlayURL("file/copy HTTP \(statusCode)")
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw DriveError.noPlayURL("batch_copy 响应解析失败")
+            throw DriveError.noPlayURL("file/copy 响应解析失败")
         }
 
-        // 检查错误
+        // 检查错误码
         if let code = json["code"] as? String,
-           code != "0" && code != "success" && code != "OK" {
+           code != "OK" && code != "ok" && code != "0" {
             let message = json["message"] as? String ?? "未知错误"
-            throw DriveError.noPlayURL("batch_copy 错误: \(code) - \(message)")
+            throw DriveError.noPlayURL("file/copy 错误: \(code) - \(message)")
         }
 
-        // 提取转存后的 file_id
-        // 响应格式可能是 {file_id: "..."} 或 {responses: [{file_id: "..."}]}
-        if let fileId = json["file_id"] as? String, !fileId.isEmpty {
-            return fileId
+        let newFileId = json["file_id"] as? String
+        let asyncTaskId = json["async_task_id"] as? String
+
+        // 若返回异步任务，先等待文件落盘（确保后续可取下载_url）
+        if let taskId = asyncTaskId, !taskId.isEmpty {
+            pgLog("步骤5: 转存任务已提交 (async_task_id=\(taskId))，等待完成...")
+            try await waitForTransferTask(taskId: taskId, accessToken: accessToken)
         }
 
-        // 尝试从 responses 数组提取
-        if let responses = json["responses"] as? [[String: Any]],
-           let firstResponse = responses.first,
-           let fileId = firstResponse["file_id"] as? String, !fileId.isEmpty {
-            return fileId
+        // 官方响应直接返回转存后的 file_id
+        if let newFileId, !newFileId.isEmpty {
+            return newFileId
         }
 
-        // 转存可能返回 task_id（异步任务），需要等待完成
-        if let taskId = json["task_id"] as? String, !taskId.isEmpty {
-            pgLog("步骤4: 转存任务已提交 (task_id=\(taskId))，等待完成...")
-            let completedFileId = try await waitForTransferTask(
-                taskId: taskId,
-                accessToken: accessToken
-            )
-            return completedFileId
-        }
-
-        throw DriveError.noPlayURL("batch_copy 响应中无 file_id 或 task_id")
+        // 兜底：响应未返回 file_id 时，从网盘根目录查找最近转存的视频
+        pgLog("步骤5: 转存响应未返回 file_id，尝试从根目录查找...")
+        return try await findRecentlySavedFile(accessToken: accessToken, driveId: toDriveId)
     }
 
-    /// 等待异步转存任务完成
+    /// 等待异步转存任务完成（对齐官方 /v2/async_task/get）
     private func waitForTransferTask(
         taskId: String,
         accessToken: String
-    ) async throws -> String {
+    ) async throws {
 
-        let url = URL(string: "\(config.aliApiBase)/adrive/v1.0/task/get")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        let body: [String: Any] = [
-            "task_id": taskId,
-            "drive_id": "0"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
+        let url = URL(string: "\(config.aliApiBase)/v2/async_task/get")!
         // 最多等待 30 秒（10次轮询，每次3秒）
         for attempt in 0..<10 {
             try await Task.sleep(nanoseconds: 3_000_000_000)
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            let body: [String: Any] = ["async_task_id": taskId]
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse,
@@ -515,55 +599,42 @@ final class AliyunPgPlayManager {
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
 
-            let status = json["status"] as? String ?? "running"
-            pgLog("步骤4: 转存任务状态: \(status) (第\(attempt + 1)次轮询)")
+            // state 字段：Succeed / Running / Failed（兼容大小写与 status 字段）
+            let state = (json["state"] as? String ?? json["status"] as? String ?? "running").lowercased()
+            pgLog("步骤5: 转存任务状态: \(state) (第\(attempt + 1)次轮询)")
 
-            if status == "succeeded" || status == "success" {
-                // 尝试从任务结果中获取 file_id
-                if let result = json["result"] as? [String: Any],
-                   let fileId = result["file_id"] as? String, !fileId.isEmpty {
-                    return fileId
-                }
-                // 如果任务成功但没有返回 file_id，需要通过搜索获取
-                // 转存到根目录的文件可以通过 list 查找
-                if let searchFileId = try? await findRecentlySavedFile(
-                    accessToken: accessToken,
-                    taskId: taskId
-                ) {
-                    return searchFileId
-                }
-                throw DriveError.noPlayURL("转存任务完成但无法获取file_id")
+            if state.contains("succeed") || state.contains("success") {
+                return
             }
-
-            if status == "failed" {
-                let message = json["message"] as? String ?? "转存任务失败"
+            if state.contains("fail") || state.contains("error") {
+                let message = json["message"] as? String ?? json["error"] as? String ?? "转存任务失败"
                 throw DriveError.noPlayURL("转存任务失败: \(message)")
             }
         }
 
-        throw DriveError.noPlayURL("转存任务超时（30秒未完成）")
+        // 轮询超时不直接失败（文件可能已落盘），交由后续 download_url 验证
+        pgLog("步骤5: 转存任务轮询超时，继续尝试取链")
     }
 
-    /// 搜索最近转存的文件
+    /// 搜索最近转存的文件（兜底，从用户网盘根目录找最新视频）
+    /// ⚠️ 修复：使用真实 drive_id 与 /adrive/v3/file/list（原固定 drive_id="0" 无效）
     private func findRecentlySavedFile(
         accessToken: String,
-        taskId: String
+        driveId: String
     ) async throws -> String {
 
-        // 列举用户网盘根目录文件，找到最新的视频文件
-        let url = URL(string: "\(config.aliApiBase)/adrive/v1.0/file/list")!
+        let url = URL(string: "\(config.aliApiBase)/adrive/v3/file/list")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         let body: [String: Any] = [
-            "drive_id": "0",
-            "parent_file_id": "0",
-            "limit": 10,
+            "drive_id": driveId,
+            "parent_file_id": "root",
+            "limit": 20,
             "order_by": "updated_at",
-            "order_direction": "DESC",
-            "category": "video"
+            "order_direction": "DESC"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -574,22 +645,119 @@ final class AliyunPgPlayManager {
         }
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = json["items"] as? [[String: Any]],
-              let firstFile = items.first,
-              let fileId = firstFile["file_id"] as? String else {
+              let items = json["items"] as? [[String: Any]] else {
             throw DriveError.noPlayURL("搜索转存文件失败: 无结果")
         }
 
-        return fileId
+        // 优先找最新的视频文件
+        for item in items {
+            let category = item["category"] as? String ?? ""
+            let type = item["type"] as? String ?? "file"
+            if type == "file", category == "video",
+               let fileId = item["file_id"] as? String, !fileId.isEmpty {
+                return fileId
+            }
+        }
+        // 退而求其次：取第一个文件
+        if let firstFile = items.first,
+           let fileId = firstFile["file_id"] as? String, !fileId.isEmpty {
+            return fileId
+        }
+
+        throw DriveError.noPlayURL("搜索转存文件失败: 无视频文件")
     }
 
     // MARK: - 步骤5: 获取原画直链
 
-    /// 从用户网盘获取原画 download_url
-    /// 对应 pg.jar 的 getPlayUrl() 方法
+    /// 获取用户网盘 drive_id（转存 /v2/file/copy 需要 to_drive_id）
+    /// 对齐官方 /v2/user/get 返回的 default_drive_id
+    private func getUserDriveId(accessToken: String) async throws -> String {
+        if let cached = cachedDriveId, !cached.isEmpty {
+            return cached
+        }
+
+        let url = URL(string: "\(config.aliApiBase)/v2/user/get")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [:])
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw DriveError.noPlayURL("user/get HTTP \(statusCode)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("user/get 响应解析失败")
+        }
+
+        // 优先 default_drive_id，其次 resource_drive_id / drive_id
+        let driveId = (json["default_drive_id"] as? String)
+            ?? (json["resource_drive_id"] as? String)
+            ?? (json["drive_id"] as? String)
+        guard let driveId, !driveId.isEmpty else {
+            throw DriveError.noPlayURL("user/get 响应中无 drive_id")
+        }
+
+        cachedDriveId = driveId
+        pgLog("获取用户 drive_id → ✅ \(driveId)")
+        return driveId
+    }
+
+    /// 直接从分享获取原画 download_url（不转存，分享直链）
+    /// 对齐原生 CloudDriveManager.aliGetDownloadURL：file_id + share_id + x-share-token
+    private func getShareDownloadUrl(
+        accessToken: String,
+        fileId: String,
+        shareId: String,
+        shareToken: String
+    ) async throws -> PgDownloadInfo {
+
+        let url = URL(string: "\(config.aliDownloadApiBase)/adrive/v2/file/get_download_url")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+
+        let body: [String: Any] = [
+            "file_id": fileId,
+            "share_id": shareId,
+            "expire_sec": 14400
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw DriveError.noPlayURL("分享直链 HTTP \(statusCode)")
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("分享直链 响应解析失败")
+        }
+
+        // 检查错误码
+        if let code = json["code"] as? String,
+           code != "OK" && code != "ok" && code != "0" {
+            let message = json["message"] as? String ?? "未知错误"
+            throw DriveError.noPlayURL("分享直链 错误: \(code) - \(message)")
+        }
+
+        return try extractDownloadInfo(from: json)
+    }
+
+    /// 从用户网盘（转存后的文件）获取原画 download_url
+    /// ⚠️ 修复：drive_id 使用真实用户 drive（原固定传 "0" 无效）
     private func getDownloadUrl(
         accessToken: String,
-        fileId: String
+        fileId: String,
+        driveId: String
     ) async throws -> PgDownloadInfo {
 
         let url = URL(string: "\(config.aliDownloadApiBase)/adrive/v2/file/get_download_url")!
@@ -599,8 +767,9 @@ final class AliyunPgPlayManager {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         let body: [String: Any] = [
-            "drive_id": "0",
-            "file_id": fileId
+            "drive_id": driveId,
+            "file_id": fileId,
+            "expire_sec": 14400
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -615,23 +784,29 @@ final class AliyunPgPlayManager {
             throw DriveError.noPlayURL("get_download_url 响应解析失败")
         }
 
-        // 检查错误
+        // 检查错误码
         if let code = json["code"] as? String,
-           code != "0" && code != "success" && code != "OK" {
+           code != "OK" && code != "ok" && code != "0" {
             let message = json["message"] as? String ?? "未知错误"
             throw DriveError.noPlayURL("get_download_url 错误: \(code) - \(message)")
         }
 
-        // 提取 download_url
+        return try extractDownloadInfo(from: json)
+    }
+
+    /// 从 get_download_url 响应中提取 url 和 headers
+    /// 对齐原生：优先 url 字段，兼容 download_url / url_list
+    private func extractDownloadInfo(from json: [String: Any]) throws -> PgDownloadInfo {
         var downloadUrl: String?
-        if let url = json["download_url"] as? String, !url.isEmpty {
+        if let url = json["url"] as? String, !url.isEmpty {
             downloadUrl = url
         }
-
-        // 如果有多个镜像 URL，取第一个
+        if downloadUrl == nil, let url = json["download_url"] as? String, !url.isEmpty {
+            downloadUrl = url
+        }
         if downloadUrl == nil,
            let urlList = json["url_list"] as? [String],
-           let firstUrl = urlList.first {
+           let firstUrl = urlList.first, !firstUrl.isEmpty {
             downloadUrl = firstUrl
         }
 
@@ -639,7 +814,6 @@ final class AliyunPgPlayManager {
             throw DriveError.noPlayURL("get_download_url 响应中无download_url")
         }
 
-        // 提取 headers
         var headers: [String: String] = [:]
         if let headersJson = json["headers"] as? [String: String] {
             headers = headersJson
@@ -743,53 +917,30 @@ final class AliyunPgPlayManager {
         pendingCleanups = remaining
     }
 
-    /// 将文件移到回收站
-    /// 对应 pg.jar 的 moveFile() 方法
+    /// 删除转存的临时文件（精确删除本次转存的文件）
+    /// ⚠️ 修复：
+    ///  - 原 /adrive/v2/file/move_to_trash 端点无效
+    ///  - 原 cleanRecycleBin 会清空用户【整个回收站】，可能误删用户其它文件，已移除
+    ///  改用官方 /v2/file/delete 精确删除指定 file_id，并使用真实 drive_id
     private func moveToTrash(accessToken: String, fileId: String) async throws {
-        let url = URL(string: "\(config.aliApiBase)/adrive/v2/file/move_to_trash")!
+        let driveId = try await getUserDriveId(accessToken: accessToken)
+        let url = URL(string: "\(config.aliApiBase)/v2/file/delete")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         let body: [String: Any] = [
-            "file_id": fileId,
-            "drive_id": "0"
+            "drive_id": driveId,
+            "file_id": fileId
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 200 else {
-            throw DriveError.noPlayURL("move_to_trash HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+            throw DriveError.noPlayURL("file/delete HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
         }
-
-        // 可选：清空回收站
-        try? await cleanRecycleBin(accessToken: accessToken)
-    }
-
-    /// 清空回收站
-    /// 对应 pg.jar 的 cleanUp() 方法
-    private func cleanRecycleBin(accessToken: String) async throws {
-        let url = URL(string: "\(config.aliApiBase)/adrive/v2/file/clean_recyclebin")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        let body: [String: Any] = [
-            "drive_id": "0"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              http.statusCode == 200 else {
-            pgLog("步骤8: 清理 → ⚠️ 清空回收站失败 (HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1))")
-            return
-        }
-
-        pgLog("步骤8: 清理 → ✅ 回收站已清空")
     }
 
     // MARK: - 工具方法
