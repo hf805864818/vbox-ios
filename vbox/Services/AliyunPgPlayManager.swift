@@ -540,9 +540,9 @@ final class AliyunPgPlayManager {
         toDriveId: String
     ) async throws -> String {
 
-        // ⚠️ 修复：转存使用 PDS OpenAPI 端点 api.aliyundrive.com/v2/file/copy
-        // PG 的 extscreen token 是 OpenAPI token，必须用 PDS 格式端点
-        let url = URL(string: "\(config.aliPdsApiBase)/v2/file/copy")!
+        // ⚠️ 修复：转存使用 ADrive 格式端点 api.alipan.com/adrive/v2/file/copy
+        // PG 的 extscreen token 和原生 token 一样使用 ADrive API
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/file/copy")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -597,14 +597,14 @@ final class AliyunPgPlayManager {
         return try await findRecentlySavedFile(accessToken: accessToken, driveId: toDriveId)
     }
 
-    /// 等待异步转存任务完成（PDS: /v2/async_task/get）
-    /// ⚠️ 修复：使用 PDS OpenAPI 端点 api.aliyundrive.com
+    /// 等待异步转存任务完成（ADrive: /adrive/v2/async_task/get）
+    /// ⚠️ 修复：使用 ADrive 格式端点 api.alipan.com/adrive/...
     private func waitForTransferTask(
         taskId: String,
         accessToken: String
     ) async throws {
 
-        let url = URL(string: "\(config.aliPdsApiBase)/v2/async_task/get")!
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/async_task/get")!
         // 最多等待 30 秒（10次轮询，每次3秒）
         for attempt in 0..<10 {
             try await Task.sleep(nanoseconds: 3_000_000_000)
@@ -640,13 +640,13 @@ final class AliyunPgPlayManager {
     }
 
     /// 搜索最近转存的文件（兜底，从用户网盘根目录找最新视频）
-    /// ⚠️ 修复：使用 PDS OpenAPI 端点 /v2/file/list（PG token 是 OpenAPI 类型）
+    /// ⚠️ 修复：使用 ADrive 格式端点 /adrive/v3/file/list（和原生一致）
     private func findRecentlySavedFile(
         accessToken: String,
         driveId: String
     ) async throws -> String {
 
-        let url = URL(string: "\(config.aliPdsApiBase)/v2/file/list")!
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v3/file/list")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -692,15 +692,15 @@ final class AliyunPgPlayManager {
 
     // MARK: - 步骤5: 获取原画直链
 
-    /// 获取用户网盘 drive_id（转存 /v2/file/copy 需要 to_drive_id）
-    /// ⚠️ 修复：使用 PDS OpenAPI 端点 api.aliyundrive.com（PG token 是 OpenAPI 类型）
-    /// 用 api.alipan.com/adrive/... 会返回 401
+    /// 获取用户网盘 drive_id（转存 /adrive/v2/file/copy 需要 to_drive_id）
+    /// ⚠️ 修复：使用 ADrive 格式端点 api.alipan.com/adrive/v2/user/get
+    /// （之前用 api.aliyundrive.com PDS 格式导致 401 "AccessToken is invalid"）
     private func getUserDriveId(accessToken: String) async throws -> String {
         if let cached = cachedDriveId, !cached.isEmpty {
             return cached
         }
 
-        let url = URL(string: "\(config.aliPdsApiBase)/v2/user/get")!
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/user/get")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -734,9 +734,10 @@ final class AliyunPgPlayManager {
     }
 
     /// 直接从分享获取原画 download_url（不转存，分享直链）
-    /// ⚠️ 修复：分享接口使用 x-share-token 鉴权，不需要 Authorization header
-    /// （PG 的 extscreen token 不是官方 access_token，带 Authorization 反而会 401）
-    /// 对齐官方 PDS 文档：share_id + x-share-token 即可访问分享资源
+    /// ⚠️ 修复：对齐原生 CloudDriveManager.aliGetDownloadURL 的完整格式
+    /// - Authorization: Bearer <access_token>（PG token 和原生 token 一样用 api.alipan.com）
+    /// - x-share-token: <share_token>
+    /// - 接口：api.alipan.com/adrive/v2/file/get_download_url
     private func getShareDownloadUrl(
         accessToken: String,
         fileId: String,
@@ -748,8 +749,7 @@ final class AliyunPgPlayManager {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // ⚠️ 分享接口不传 Authorization，用 x-share-token 鉴权
-        // PG 的 extscreen token 不是官方 access_token，传了会 401
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
         request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
 
@@ -784,15 +784,14 @@ final class AliyunPgPlayManager {
     }
 
     /// 从用户网盘（转存后的文件）获取原画 download_url
-    /// ⚠️ 修复：使用 PDS OpenAPI 端点 /v2/file/get_download_url（PG token 是 OpenAPI 类型）
-    /// 用 api.alipan.com/adrive/v2/... 会返回 401
+    /// ⚠️ 修复：使用 ADrive 格式端点 /adrive/v2/file/get_download_url（和原生一致）
     private func getDownloadUrl(
         accessToken: String,
         fileId: String,
         driveId: String
     ) async throws -> PgDownloadInfo {
 
-        let url = URL(string: "\(config.aliPdsApiBase)/v2/file/get_download_url")!
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/file/get_download_url")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -950,11 +949,10 @@ final class AliyunPgPlayManager {
     }
 
     /// 删除转存的临时文件（精确删除本次转存的文件）
-    /// ⚠️ 修复：使用 PDS OpenAPI 端点 api.aliyundrive.com/v2/file/delete
-    /// PG token 是 OpenAPI 类型，必须用 PDS 格式端点
+    /// ⚠️ 修复：使用 ADrive 格式端点 api.alipan.com/adrive/v2/file/delete
     private func moveToTrash(accessToken: String, fileId: String) async throws {
         let driveId = try await getUserDriveId(accessToken: accessToken)
-        let url = URL(string: "\(config.aliPdsApiBase)/v2/file/delete")!
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/file/delete")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

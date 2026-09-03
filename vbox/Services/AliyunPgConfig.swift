@@ -92,10 +92,10 @@ final class AliyunPgConfig {
     let aliApiBase = "https://api.alipan.com"
     let aliDownloadApiBase = "https://api.alipan.com"
 
-    /// ⚠️ 用户级接口（user/get、file/copy、file/delete 等）使用 PDS OpenAPI 地址
-    /// PG 的 extscreen token 是 OpenAPI token，对应 PDS 格式端点，不带 /adrive 前缀
-    /// 如果继续用 api.alipan.com/adrive/... 会返回 401
-    let aliPdsApiBase = "https://api.aliyundrive.com"
+    /// ⚠️ 用户级接口（user/get、file/copy、file/delete 等）
+    /// PG 的 extscreen token 和原生 token 一样，使用 api.alipan.com ADrive 格式端点
+    /// 之前误用 api.aliyundrive.com PDS 格式导致 401 "AccessToken is invalid"
+    let aliPdsApiBase = "https://api.alipan.com"
 
     // MARK: - 转存配置
 
