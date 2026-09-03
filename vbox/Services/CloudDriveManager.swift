@@ -1414,7 +1414,7 @@ class CloudDriveManager: ObservableObject {
             URLQueryItem(name: "lang", value: "zh_CN"),
             URLQueryItem(name: "returnUrl", value: ""),
             URLQueryItem(name: "bizParams", value: ""),
-            URLQueryItem(name: "_bx-v", value: "2.0.31")
+            URLQueryItem(name: "_bx-v", value: "2.2.3")
         ]
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
@@ -1451,7 +1451,7 @@ class CloudDriveManager: ObservableObject {
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.aliyundrive.com/", forHTTPHeaderField: "Referer")
 
-        let body = "t=\(token.t)&ck=\(token.ck)&appName=aliyun_drive&appEntrance=web&isMobile=false&lang=zh_CN&returnUrl=&fromSite=52&bizParams=&navlanguage=zh-CN&navPlatform=MacIntel"
+        let body = "t=\(token.t)&ck=\(token.ck)&appName=aliyun_drive&appEntrance=web&isMobile=false&lang=zh_CN&returnUrl=&fromSite=52&bizParams=&navlanguage=zh-CN&navPlatform=MacIntel&_bx-v=2.2.3"
         request.httpBody = body.data(using: .utf8)
 
         let (data, _) = try await session.data(for: request)
@@ -1548,7 +1548,7 @@ class CloudDriveManager: ObservableObject {
                     bizExtDecoded = decoded
                 }
             }
-            return .failed(message: "阿里: 已扫码但未找到 Token (bizExt长度=\(bizExtLen)). loginAction='\(loginAction.prefix(50))', loginResult='\(loginResult.prefix(50))'. bizExt解码前200字符: \(bizExtDecoded.prefix(200))")
+            return .failed(message: "阿里: 已扫码但未找到 Token (bizExt长度=\(bizExtLen)). loginAction='\(loginAction.prefix(50))', loginResult='\(loginResult.prefix(50))'. bizExt原始前500字符: \(bizExt.prefix(500)). bizExt解码前200字符: \(bizExtDecoded.prefix(200))")
         }
 
         // NEW/SCANED 状态
