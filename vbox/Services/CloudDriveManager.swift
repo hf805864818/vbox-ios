@@ -1657,11 +1657,12 @@ class CloudDriveManager: ObservableObject {
         return nil
     }
 
-    /// v2.3.3: GB18030 解码 (Swift 没有原生支持，用 Core Foundation)
+    /// v2.3.3: GB18030 解码 (Swift 用 Core Foundation 的 CFStringEncodings)
     private func decodeGB18030(_ data: Data) -> String? {
-        // 尝试用 GB_18030_2000 编码
-        let encoding = CFStringEncoding.GB_18030_2000
-        let cfEncoding = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings(rawValue: encoding.rawValue)))
+        // CFStringEncodings.gb_18030_2000 (Swift 正确写法)
+        let cfEncoding = CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.gb_18030_2000.rawValue)
+        )
         let nsEncoding = String.Encoding(rawValue: cfEncoding)
         return String(data: data, encoding: nsEncoding)
     }
