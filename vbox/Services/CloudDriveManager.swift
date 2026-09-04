@@ -1577,147 +1577,93 @@ class CloudDriveManager: ObservableObject {
         return .pending
     }
 
-    /// 解析 bizExt：支持多种编码格式 + 递归搜索 Token + 正则兜底
-    /// v2.3: 新增 URL-safe base64 解码（- → +, _ → /）和正则提取兜底
+    /// 解析 bizExt：v2.3.3 重写 — 参考aligo实现
+    /// 关键修复: 1) 过滤非base64字符 2) GB18030解码 3) 查找refreshToken(camelCase)
     private func parseAliBizExt(_ bizExt: String) -> AliQrPollResult? {
+        // 步骤1: 清理空白字符
         let cleaned = bizExt.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
 
-        // 添加 base64 填充
-        var padded = cleaned
+        // 步骤2: 过滤掉所有非base64字符 (Python的base64.b64decode默认忽略非base64字符)
+        // 标准base64字符: A-Z a-z 0-9 + / =
+        let base64Charset = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+        let filtered = cleaned.components(separatedBy: base64Charset.inverted).joined()
+
+        print("[Ali] bizExt 原始长度=\(cleaned.count), 过滤后长度=\(filtered.count), 移除了\(cleaned.count - filtered.count)个非base64字符")
+
+        // 步骤3: 补齐 padding
+        var padded = filtered
         while padded.count % 4 != 0 { padded += "=" }
 
-        // 尝试1：直接 UTF-8 JSON
-        if let data = padded.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            print("[Ali] bizExt 是直接 JSON, keys: \(Array(json.keys))")
-            if let result = extractAliTokens(from: json) { return result }
+        // 步骤4: 尝试 base64 解码
+        guard let decodedData = Data(base64Encoded: padded) else {
+            print("[Ali] ❌ base64解码失败 (过滤后), 前200字符: \(padded.prefix(200))")
+            // 兜底: 尝试原始字符串正则提取
+            if let result = extractTokensViaRegex(from: bizExt) {
+                print("[Ali] ✅ 原始字符串正则提取成功")
+                return result
+            }
+            return nil
         }
 
-        // 尝试2：标准 base64 解码（原始字符串）
-        if let decodedData = Data(base64Encoded: padded),
-           let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-            print("[Ali] bizExt base64 解码成功, keys: \(Array(json.keys))")
+        print("[Ali] base64解码成功, 字节数=\(decodedData.count)")
+
+        // 步骤5: 尝试 GB18030 解码 (aligo使用gb18030, 不是utf-8!)
+        // Swift 没有原生 GB18030 支持，用 CFStringTransform 或者手动尝试
+        let decodedString = decodeGB18030(decodedData) ?? String(data: decodedData, encoding: .utf8) ?? ""
+        if decodedString.isEmpty {
+            print("[Ali] ❌ GB18030和UTF-8解码均失败")
+            return nil
+        }
+
+        print("[Ali] 文本解码成功, 前300字符: \(decodedString.prefix(300))")
+
+        // 步骤6: 尝试 JSON 解析
+        if let jsonData = decodedString.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+            print("[Ali] JSON解析成功, keys: \(Array(json.keys))")
             if let result = extractAliTokens(from: json) { return result }
-        } else if let decodedData = Data(base64Encoded: padded) {
-            if let decodedString = String(data: decodedData, encoding: .utf8) {
-                print("[Ali] bizExt 解码但JSON解析失败, 前300字符: \(decodedString.prefix(300))")
-                // v2.3: JSON 解析失败时尝试正则提取
-                if let result = extractTokensViaRegex(from: decodedString) {
-                    print("[Ali] ✅ 正则提取 Token 成功 (标准 base64)")
-                    return result
+
+            // v2.3.3: 特别检查 pds_login_result.refreshToken (aligo的格式)
+            if let pdsResult = json["pds_login_result"] as? [String: Any] {
+                print("[Ali] pds_login_result keys: \(Array(pdsResult.keys))")
+                if let rt = pdsResult["refreshToken"] as? String,
+                   let at = pdsResult["accessToken"] as? String {
+                    let nick = pdsResult["nickName"] as? String ?? pdsResult["displayName"] as? String ?? "阿里云盘用户"
+                    print("[Ali] ✅ 从 pds_login_result 获取 refreshToken + accessToken 成功!")
+                    return .confirmed(refreshToken: rt, accessToken: at, nickName: nick)
                 }
-            }
-        } else {
-            print("[Ali] bizExt 标准 base64 解码失败, 前200字符: \(padded.prefix(200))")
-        }
-
-        // 尝试3（v2.3新增）：URL-safe base64 解码（- → +, _ → /）
-        let urlSafe = padded.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        if urlSafe != padded {
-            var urlSafePadded = urlSafe
-            while urlSafePadded.count % 4 != 0 { urlSafePadded += "=" }
-            if let decodedData = Data(base64Encoded: urlSafePadded),
-               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-                print("[Ali] bizExt URL-safe base64 解码成功, keys: \(Array(json.keys))")
-                if let result = extractAliTokens(from: json) { return result }
-            } else if let decodedData = Data(base64Encoded: urlSafePadded),
-                      let decodedString = String(data: decodedData, encoding: .utf8) {
-                print("[Ali] bizExt URL-safe 解码但JSON解析失败, 前300字符: \(decodedString.prefix(300))")
-                if let result = extractTokensViaRegex(from: decodedString) {
-                    print("[Ali] ✅ 正则提取 Token 成功 (URL-safe base64)")
-                    return result
-                }
-            }
-        }
-
-        // 尝试4：全局替换混淆字符 l->I, O->0 后重试
-        let fixed1 = padded.replacingOccurrences(of: "l", with: "I").replacingOccurrences(of: "O", with: "0")
-        if let decodedData = Data(base64Encoded: fixed1),
-           let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-            print("[Ali] bizExt (l->I,O->0) base64 解码成功, keys: \(Array(json.keys))")
-            if let result = extractAliTokens(from: json) { return result }
-        }
-
-        // 尝试5：全局替换混淆字符 I->l, 0->O 后重试
-        let fixed2 = padded.replacingOccurrences(of: "I", with: "l").replacingOccurrences(of: "0", with: "O")
-        if let decodedData = Data(base64Encoded: fixed2),
-           let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-            print("[Ali] bizExt (I->l,0->O) base64 解码成功, keys: \(Array(json.keys))")
-            if let result = extractAliTokens(from: json) { return result }
-        }
-
-        // 尝试6（v2.3.2新增）：$→+ 替换 (bx-v 2.2.3 bizExt可能用$代替+)
-        let fixedDollar = padded.replacingOccurrences(of: "$", with: "+")
-        if fixedDollar != padded {
-            var dollarPadded = fixedDollar
-            while dollarPadded.count % 4 != 0 { dollarPadded += "=" }
-            // 标准解码
-            if let decodedData = Data(base64Encoded: dollarPadded),
-               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-                print("[Ali] bizExt ($→+) base64 解码成功, keys: \(Array(json.keys))")
-                if let result = extractAliTokens(from: json) { return result }
-            }
-            // + l→I
-            let dollarLI = dollarPadded.replacingOccurrences(of: "l", with: "I")
-            if let decodedData = Data(base64Encoded: dollarLI),
-               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-                print("[Ali] bizExt ($→+,l→I) base64 解码成功, keys: \(Array(json.keys))")
-                if let result = extractAliTokens(from: json) { return result }
-            } else if let decodedData = Data(base64Encoded: dollarLI),
-                      let decodedString = String(data: decodedData, encoding: .utf8) {
-                print("[Ali] bizExt ($→+,l→I) 解码但JSON失败, 前300: \(decodedString.prefix(300))")
-                if let result = extractTokensViaRegex(from: decodedString) {
-                    print("[Ali] ✅ 正则提取 Token 成功 ($→+,l→I)")
-                    return result
+                // 可能只有 refreshToken
+                if let rt = pdsResult["refreshToken"] as? String {
+                    let nick = pdsResult["nickName"] as? String ?? "阿里云盘用户"
+                    print("[Ali] ✅ 从 pds_login_result 获取 refreshToken (无accessToken)")
+                    return .confirmed(refreshToken: rt, accessToken: "", nickName: nick)
                 }
             }
         }
 
-        // 尝试7（v2.3.2新增）：.→= 结尾替换 + 各种组合
-        let fixedDot = padded.replacingOccurrences(of: ".$", with: "=", options: .regularExpression)
-        if fixedDot != padded {
-            var dotPadded = fixedDot
-            while dotPadded.count % 4 != 0 { dotPadded += "=" }
-            if let decodedData = Data(base64Encoded: dotPadded),
-               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-                print("[Ali] bizExt (.→=结尾) base64 解码成功, keys: \(Array(json.keys))")
-                if let result = extractAliTokens(from: json) { return result }
-            }
-            // 组合: .→= + $→+ + l→I
-            let combo = fixedDot.replacingOccurrences(of: "$", with: "+").replacingOccurrences(of: "l", with: "I")
-            var comboPadded = combo
-            while comboPadded.count % 4 != 0 { comboPadded += "=" }
-            if let decodedData = Data(base64Encoded: comboPadded),
-               let json = try? JSONSerialization.jsonObject(with: decodedData) as? [String: Any] {
-                print("[Ali] bizExt (.→= + $→+ + l→I) 解码成功, keys: \(Array(json.keys))")
-                if let result = extractAliTokens(from: json) { return result }
-            } else if let decodedData = Data(base64Encoded: comboPadded),
-                      let decodedString = String(data: decodedData, encoding: .utf8) {
-                print("[Ali] bizExt (.→= + $→+ + l→I) 解码但JSON失败, 前300: \(decodedString.prefix(300))")
-                if let result = extractTokensViaRegex(from: decodedString) {
-                    print("[Ali] ✅ 正则提取 Token 成功 (组合替换)")
-                    return result
-                }
-            }
-        }
-
-        // 尝试8：URL 解码后重试
-        if let urlDecoded = bizExt.removingPercentEncoding,
-           urlDecoded != bizExt,
-           let urlData = urlDecoded.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: urlData) as? [String: Any] {
-            print("[Ali] bizExt URL 解码成功, keys: \(Array(json.keys))")
-            if let result = extractAliTokens(from: json) { return result }
-        }
-
-        // 尝试9（v2.3新增）：对原始 bizExt 字符串直接正则提取
-        if let result = extractTokensViaRegex(from: bizExt) {
-            print("[Ali] ✅ 正则提取 Token 成功 (原始字符串)")
+        // 步骤7: JSON解析失败时，正则提取
+        if let result = extractTokensViaRegex(from: decodedString) {
+            print("[Ali] ✅ 从解码文本正则提取 Token 成功")
             return result
         }
 
-        print("[Ali] ❌ 所有 bizExt 解析方式均失败, bizExt 长度: \(padded.count)")
+        // 步骤8: 兜底 — 原始 bizExt 正则提取
+        if let result = extractTokensViaRegex(from: bizExt) {
+            print("[Ali] ✅ 原始 bizExt 正则提取成功")
+            return result
+        }
+
+        print("[Ali] ❌ 所有 bizExt 解析方式均失败")
         return nil
+    }
+
+    /// v2.3.3: GB18030 解码 (Swift 没有原生支持，用 Core Foundation)
+    private func decodeGB18030(_ data: Data) -> String? {
+        // 尝试用 GB_18030_2000 编码
+        let encoding = CFStringEncoding.GB_18030_2000
+        let cfEncoding = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings(rawValue: encoding.rawValue)))
+        let nsEncoding = String.Encoding(rawValue: cfEncoding)
+        return String(data: data, encoding: nsEncoding)
     }
 
     /// v2.3: 从任意字符串中通过正则提取 refresh_token 和 access_token
@@ -1801,10 +1747,11 @@ class CloudDriveManager: ObservableObject {
     private func extractTokensFromDict(_ dict: [String: Any]) -> AliQrPollResult? {
         let rt = dict["refresh_token"] as? String ?? dict["refreshToken"] as? String
         let at = dict["access_token"] as? String ?? dict["accessToken"] as? String
-        let nickName = dict["nick_name"] as? String ?? dict["nickName"] as? String ?? "阿里云盘用户"
-        if let rt = rt, let at = at, !rt.isEmpty, !at.isEmpty {
-            print("[Ali] ✅ 找到 Token: refreshToken=\(rt.prefix(20))..., accessToken=\(at.prefix(20))...")
-            return .confirmed(refreshToken: rt, accessToken: at, nickName: nickName)
+        let nickName = dict["nick_name"] as? String ?? dict["nickName"] as? String ?? dict["displayName"] as? String ?? "阿里云盘用户"
+        if let rt = rt, !rt.isEmpty {
+            // v2.3.3: refreshToken 存在即可，accessToken 可选(aligo只取refreshToken)
+            print("[Ali] ✅ 找到 Token: refreshToken=\(rt.prefix(20))..., accessToken=\(at?.prefix(20) ?? "nil")")
+            return .confirmed(refreshToken: rt, accessToken: at ?? "", nickName: nickName)
         }
         return nil
     }
