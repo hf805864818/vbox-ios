@@ -130,6 +130,36 @@ final class GoProxyManager: ObservableObject {
         #endif
     }
 
+    // MARK: - 通用播放注册（阿里云盘等非夸克网盘）
+
+    /// 注册通用播放流，返回本地代理 URL
+    /// 用于阿里云盘等非夸克网盘的 m3u8/直链代理
+    /// - Parameters:
+    ///   - upstreamURL: 上游 URL（m3u8 或直链）
+    ///   - headers: 鉴权头（Referer、User-Agent 等）
+    /// - Returns: 代理地址；代理未运行时返回原始 URL（降级直链）
+    func registerStream(upstreamURL: String, headers: [String: String]) -> String {
+        guard isRunning else { return upstreamURL }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: headers),
+              let headersJSON = String(data: jsonData, encoding: .utf8) else {
+            return upstreamURL
+        }
+
+        #if canImport(Quarkproxy)
+        let proxyURL = QuarkproxyRegisterStream(upstreamURL, headersJSON)
+        if proxyURL.hasPrefix("http://127.0.0.1") {
+            print("[GoProxy] ✅ 通用注册: \(proxyURL)")
+            return proxyURL
+        } else {
+            print("[GoProxy] ❌ 通用注册失败: \(proxyURL)")
+            return upstreamURL
+        }
+        #else
+        return upstreamURL
+        #endif
+    }
+
     // MARK: - 状态与缓存
 
     func queryStatus() -> String {

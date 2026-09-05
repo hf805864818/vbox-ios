@@ -1170,44 +1170,38 @@ final class AliyunPgPlayManager {
     }
 
     /// 将 download_url 通过 Go 代理包装
-    /// 对应 pg.jar 的 getProxyDownloadUrl() 方法
+    /// 使用 GoProxyManager 的通用注册接口，统一处理 m3u8 重写 + 分片鉴权
     private func wrapWithGoProxy(
         downloadUrl: String,
         headers: [String: String]
     ) async throws -> String {
 
-        // 检查 Go 代理是否可用
-        let proxyBase = config.aliproxyUrl
-        guard let proxyCheckUrl = URL(string: "\(proxyBase)/health") else {
-            throw DriveError.noPlayURL("Go代理URL无效")
+        // 检查 Go 代理是否可用（通过 GoProxyManager 状态，不做独立健康检查）
+        guard GoProxyManager.shared.isRunning else {
+            throw DriveError.noPlayURL("Go代理未启动")
         }
 
-        // 健康检查（2秒超时）
-        var checkRequest = URLRequest(url: proxyCheckUrl)
-        checkRequest.timeoutInterval = 2
-        let (_, checkResponse) = try await session.data(for: checkRequest)
-        guard let http = checkResponse as? HTTPURLResponse,
-              http.statusCode == 200 else {
-            throw DriveError.noPlayURL("Go代理健康检查失败")
+        // 构建鉴权头：阿里 CDN 需要正确的 UA 和 Referer
+        var regHeaders = headers
+        if regHeaders["User-Agent"] == nil {
+            regHeaders["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        }
+        if regHeaders["Referer"] == nil {
+            regHeaders["Referer"] = "https://api.alipan.com"
         }
 
-        // 包装 URL 格式: http://127.0.0.1:10078/?url={base64(download_url)}&thread={n}
-        // 注: Go代理的具体URL格式取决于 aliproxy 的实现
-        // PG原始格式可能不同，这里使用通用格式
-        let encodedUrl = Data(downloadUrl.utf8).base64EncodedString()
-        let threadLimit = config.currentThreadLimit
+        // 通过 GoProxyManager 注册通用流（非夸克网盘路径）
+        let proxyURL = GoProxyManager.shared.registerStream(
+            upstreamURL: downloadUrl,
+            headers: regHeaders
+        )
 
-        // 拼接代理URL
-        var proxyUrl = "\(proxyBase)/?url=\(encodedUrl)&thread=\(threadLimit)"
-
-        // 添加 headers（如果有特殊 Referer 等）
-        if let referer = headers["Referer"] ?? headers["referer"], !referer.isEmpty {
-            proxyUrl += "&referer=\(referer.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? referer)"
+        if proxyURL.hasPrefix("http://127.0.0.1") {
+            pgLog("步骤6: Go代理 → ✅ proxy_url 已生成 (host=127.0.0.1, upstream_host=\(extractHost(downloadUrl)))")
+            return proxyURL
+        } else {
+            throw DriveError.noPlayURL("Go代理注册失败: \(proxyURL)")
         }
-
-        pgLog("步骤6: Go代理包装完成: thread=\(threadLimit), url_host=\(extractHost(downloadUrl))")
-
-        return proxyUrl
     }
 
     // MARK: - 步骤8: ★ 播放后清理
