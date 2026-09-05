@@ -1163,11 +1163,14 @@ final class DoubanImageProxyServer {
         // 避免 normalizedRange 注入默认 Range 导致百度返回 206，使 AVPlayer 资源探测失败。
         if method == "HEAD" {
             let contentType = streamContentType(for: item)
-            let header = "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+            // HLS (m3u8) 播放列表不支持 Range，返回 none 让 AVPlayer 走 HLS 协议而非断点续传
+            let isHls = contentType.contains("mpegurl")
+            let acceptRanges = isHls ? "none" : "bytes"
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nAccept-Ranges: \(acceptRanges)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
             connection.send(content: Data(header.utf8), completion: .contentProcessed { _ in
                 connection.cancel()
             })
-            print("📥 本地视频代理 HEAD 响应[\(item.provider)]: id=\(id), contentType=\(contentType)")
+            print("📥 本地视频代理 HEAD 响应[\(item.provider)]: id=\(id), contentType=\(contentType), acceptRanges=\(acceptRanges)")
             return
         }
 
@@ -1659,7 +1662,17 @@ final class DoubanImageProxyServer {
         switch ext {
         case "m3u8": return "application/vnd.apple.mpegurl"
         case "mp4", "m4v", "mov": return "video/mp4"
-        default: return "video/mp4"
+        default:
+            // 阿里云盘转码 CDN URL 无文件扩展名，通过 provider + 路径特征识别
+            // /lt/ = live transcoding, /qv/ = quality video
+            // 双重条件确保不影响其他网盘和阿里直链下载
+            if item.provider == "ali" {
+                let path = item.url.path.lowercased()
+                if path.contains("/lt/") || path.contains("/qv/") {
+                    return "application/vnd.apple.mpegurl"
+                }
+            }
+            return "video/mp4"
         }
     }
 
