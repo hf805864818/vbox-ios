@@ -142,6 +142,10 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 
 	playStart := time.Now()
 
+	// === 诊断日志：记录入口 ===
+	debugLog("DIAG ENTRY id=%s path=%s upstream=%s range=%s",
+		id, r.URL.Path, shortURL(entry.URL), r.Header.Get("Range"))
+
 	upReq, err := http.NewRequestWithContext(r.Context(), "GET", entry.URL, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -163,6 +167,20 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	// === 诊断日志：记录上游响应 ===
+	finalURL := resp.Request.URL.String()
+	redirected := finalURL != entry.URL
+	debugLog("DIAG RESP id=%s status=%d ct=%s ce=%s redirect=%v final=%s",
+		id, resp.StatusCode,
+		resp.Header.Get("Content-Type"),
+		resp.Header.Get("Content-Encoding"),
+		redirected,
+		shortURL(finalURL))
+	if redirected {
+		debugLog("DIAG REDIRECT id=%s from=%s to=%s",
+			id, shortURL(entry.URL), shortURL(finalURL))
+	}
+
 	bodyBytes := make([]byte, 0, 8192)
 	buf := make([]byte, 4096)
 	for {
@@ -172,6 +190,7 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
+				debugLog("DIAG BODY_READ_ERR id=%s err=%v read=%d", id, readErr, len(bodyBytes))
 				http.Error(w, readErr.Error(), http.StatusBadGateway)
 				return
 			}
@@ -181,6 +200,18 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+
+	// === 诊断日志：记录 body 预览 + m3u8 检测结果 ===
+	previewLen := min(500, len(bodyBytes))
+	bodyPreview := ""
+	if previewLen > 0 {
+		bodyPreview = string(bodyBytes[:previewLen])
+	}
+	ctLower := strings.ToLower(resp.Header.Get("Content-Type"))
+	ctMatch := strings.Contains(ctLower, "mpegurl") || strings.Contains(ctLower, "m3u8")
+	bodyMatch := len(bodyBytes) > 7 && strings.HasPrefix(string(bodyBytes), "#EXTM3U")
+	debugLog("DIAG BODY id=%s body_len=%d ct_match=%v body_match=%v preview=%q",
+		id, len(bodyBytes), ctMatch, bodyMatch, bodyPreview)
 
 	if isM3U8Content(resp.Header.Get("Content-Type"), bodyBytes) {
 		rest, _ := io.ReadAll(resp.Body)
@@ -222,8 +253,9 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 	}
 	io.Copy(w, resp.Body)
 
-	debugLog("handlePlay direct id=%s status=%d upstream_ms=%d",
-		id, resp.StatusCode, time.Since(playStart).Milliseconds())
+	debugLog("DIAG DIRECT id=%s status=%d ce=%s upstream_ms=%d",
+		id, resp.StatusCode, resp.Header.Get("Content-Encoding"),
+		time.Since(playStart).Milliseconds())
 }
 
 // ---- 分片代理（ts/媒体分片） ----
