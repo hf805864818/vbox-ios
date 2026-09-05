@@ -11,7 +11,7 @@
 //    3. 列举分享文件 (/adrive/v3/file/list，递归子文件夹)
 //    4. ★优先分享直链 (get_download_url + share_id + x-share-token)
 //    5. ★转存兜底 (/v2/file/copy 转存后取原画直链)
-//    6. ★Go代理多线程加速 (aliproxy)
+//    6. 阿里独立路链直链交付（不走 Go 代理，不影响其它网盘）
 //    7. 返回 parse=0 直接播放
 //    8. ★播放后清理 (/v2/file/delete 精确删除转存文件)
 //
@@ -30,6 +30,14 @@
 //                      CloudDriveAuthManager（含 client_id/secret 官方 API）提前到
 //                      首选，确保 OpenList 凭证能正确刷新为 ADrive token。
 //                      ⚠️ 仅影响阿里云盘 PG 路链，不影响百度/夸克/UC 等其它网盘。
+//
+//  v2.3.5 — 2026-09-05 — 阿里独立路链修复：
+//                      步骤6 不再调用 GoProxyManager（夸克路链），阿里直链交付，
+//                      转码 m3u8 由 AVPlayer 原生 HLS 直连，原画 download_url 由
+//                      PlayerViewsV2 走 /ali-stream 本地代理。
+//                      步骤7 转码 m3u8 不注入 api.alipan.com Referer / 桌面 UA，
+//                      避免视频 CDN 防盗链拒绝（-1102 没有访问权限）。
+//                      ⚠️ 仅影响阿里云盘 PG 路链，不影响百度/夸克/UC/115/迅雷。
 //
 
 import Foundation
@@ -282,35 +290,39 @@ final class AliyunPgPlayManager {
         }
 
         // ═══════════════════════════════════════════════════════════
-        // 步骤6: ★ Go代理多线程加速 (aliproxy)
+        // 步骤6: 阿里独立路链 — 不走 Quark GoProxyManager
+        //   转码 m3u8: 带签名的自鉴权 CDN 直链，AVPlayer 原生 HLS 播放
+        //   原画 download_url: 由 PlayerViewsV2 走 /ali-stream 本地代理
+        //   ⚠️ 不调用 GoProxyManager（夸克路链），确保不影响其它网盘
         // ═══════════════════════════════════════════════════════════
 
-        let proxyUrl: String
-        do {
-            proxyUrl = try await wrapWithGoProxy(
-                downloadUrl: downloadInfo.url,
-                headers: downloadInfo.headers
-            )
-            pgLog("步骤6: Go代理 → ✅ proxy_url 已生成 (thread=\(config.currentThreadLimit))")
-        } catch {
-            pgLog("步骤6: Go代理 → ⚠️ Go代理不可用，使用原始直链: \(error.localizedDescription)")
-            // Go代理不可用时降级使用原始直链（不是路链降级，是传输方式选择）
-            proxyUrl = downloadInfo.url
-        }
+        let proxyUrl = downloadInfo.url
+        pgLog("步骤6: 直链交付（阿里独立路链，不走Go代理）")
 
         // ═══════════════════════════════════════════════════════════
         // 步骤7: 返回播放信息 (parse=0 直接播放)
         // ═══════════════════════════════════════════════════════════
 
         var playHeaders = downloadInfo.headers
-        if playHeaders["User-Agent"] == nil {
-            playHeaders["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        }
-        if playHeaders["Referer"] == nil {
-            playHeaders["Referer"] = "https://api.alipan.com"
+        // 转码 m3u8 是带签名的自鉴权 CDN 直链（cn-beijing-video-preview.aliyundrive.net/lt/...）
+        // 注入 api.alipan.com Referer / 桌面 UA 会被视频 CDN 防盗链拒绝（-1102 没有访问权限）
+        // 仅对非转码 m3u8（如原画 download_url）保留默认鉴权头
+        let isAliTranscodeM3u8: Bool = {
+            guard let u = URL(string: downloadInfo.url),
+                  let h = u.host?.lowercased() else { return false }
+            let p = u.path.lowercased()
+            return h.contains("aliyun") && h.contains("video") && (p.contains("/lt/") || p.contains("/qv/"))
+        }()
+        if !isAliTranscodeM3u8 {
+            if playHeaders["User-Agent"] == nil {
+                playHeaders["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+            }
+            if playHeaders["Referer"] == nil {
+                playHeaders["Referer"] = "https://api.alipan.com"
+            }
         }
 
-        pgLog("步骤7: 播放 → ✅ parse=0, 交付播放器")
+        pgLog("步骤7: 播放 → ✅ parse=0, 交付播放器 (headers=\(playHeaders.keys.sorted().joined(separator: ",")))")
         pgLog("========== PG 4kz 路链完成 ==========")
 
         // 注册清理回调（步骤8）— 仅当走了转存兜底流程才需要清理
