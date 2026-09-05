@@ -3602,7 +3602,11 @@ class PlayerState: ObservableObject {
                 log("[PlayerV2] ⚠️ 夸克本地代理创建失败，回退直连")
             }
         } else if isAliPlaybackURL(url) {
-            if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "ali") {
+            if isAliVideoM3u8URL(url) {
+                // 转码 m3u8 直连，AVPlayer 原生支持 HLS，代理会破坏 m3u8 协议
+                finalURLString = url
+                log("[PlayerV2] 阿里云盘转码直连 (不走代理): m3u8")
+            } else if let localURL = DoubanImageProxyServer.shared.proxiedStreamURL(for: url, headers: headers, provider: "ali") {
                 finalURLString = localURL.absoluteString
                 log("[PlayerV2] 阿里云盘走本地代理: \(finalURLString)")
             } else {
@@ -4187,6 +4191,19 @@ class PlayerState: ObservableObject {
             return true
         }
         return host.hasSuffix(".aliyuncs.com") || host.contains("aliyun")
+    }
+
+    /// 阿里云盘转码 CDN m3u8 URL 识别
+    /// 三重条件确保不影响其他网盘和阿里直链：
+    /// 1. host 含 "aliyun" — 仅阿里云盘（排除百度/夸克/115/迅雷/UC）
+    /// 2. host 含 "video" — 仅视频转码 CDN（排除阿里数据 CDN *-data.aliyundrive.net）
+    /// 3. 路径含 /lt/ 或 /qv/ — 仅转码路径（排除阿里直链下载）
+    private func isAliVideoM3u8URL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else { return false }
+        let path = url.path.lowercased()
+        return host.contains("aliyun") && host.contains("video")
+               && (path.contains("/lt/") || path.contains("/qv/"))
     }
 
     private func isUCPlaybackURL(_ rawURL: String) -> Bool {
