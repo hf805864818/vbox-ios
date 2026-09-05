@@ -2470,19 +2470,12 @@ class CloudDriveManager: ObservableObject {
 
         let fallbackHeaders: [String: String]?
         if let fallbackURL {
-            if GoProxyManager.shared.isRunning {
-                // 兜底线路也走代理
-                let fbProxyURL = GoProxyManager.shared.registerQuarkStream(
-                    upstreamURL: fallbackURL,
-                    cookie: authCookie,
-                    deviceID: quarkDeviceID,
-                    source: fallbackSource ?? ""
-                )
-                _ = fbProxyURL
-                fallbackHeaders = [:]
-            } else {
-                fallbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
-            }
+            // 兜底线路不提前注册到 Go 代理，避免与主线路共享 stream id 导致互相覆盖
+            // （Go 代理 generateStreamID 基于时间戳前缀，短时间内多次注册会得到相同 id）
+            // 兜底触发时由 playDriveVideo 走正常路径：
+            //   - 转码 m3u8 → DoubanImageProxyServer /quark-m3u8
+            //   - 原画直链 → DoubanImageProxyServer /quark-stream
+            fallbackHeaders = quarkPlaybackHeaders(cookie: authCookie)
         } else {
             fallbackHeaders = nil
         }

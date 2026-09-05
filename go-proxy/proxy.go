@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
@@ -535,7 +536,12 @@ func prefetchCleanupLoop() {
 // ---- 工具函数 ----
 
 func generateStreamID(url string) string {
-	return fmt.Sprintf("%x", []byte(fmt.Sprintf("%d%s", time.Now().UnixNano(), url)))[:16]
+	// 使用 FNV-64a 哈希（时间戳+URL）生成16字符十六进制ID
+	// 旧实现只取时间戳前8字节的hex，约每100秒就会重复，
+	// 导致主线路与兜底线路注册时同ID互相覆盖，转码m3u8被原画替换，播放极慢。
+	h := fnv.New64a()
+	h.Write([]byte(fmt.Sprintf("%d%s", time.Now().UnixNano(), url)))
+	return fmt.Sprintf("%016x", h.Sum64())
 }
 
 // shortURL 截取 URL 最后 40 字符用于日志（含文件名和参数）
