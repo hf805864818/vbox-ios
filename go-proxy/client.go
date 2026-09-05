@@ -36,6 +36,27 @@ func initClient() {
 	httpClient = &http.Client{
 		Transport: transport,
 		Timeout:   0,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// 诊断日志：记录每次重定向
+			fromURL := "unknown"
+			if len(via) > 0 {
+				fromURL = via[len(via)-1].URL.String()
+			}
+			debugLog("DIAG REDIRECT_REQ %s -> %s", shortURL(fromURL), shortURL(req.URL.String()))
+			// 将原始请求的鉴权头转发到重定向目标（夸克 CDN 跨域可能需要）
+			for _, v := range via {
+				if v.Header.Get("Cookie") != "" && req.Header.Get("Cookie") == "" {
+					req.Header.Set("Cookie", v.Header.Get("Cookie"))
+				}
+				if v.Header.Get("User-Agent") != "" && req.Header.Get("User-Agent") == "" {
+					req.Header.Set("User-Agent", v.Header.Get("User-Agent"))
+				}
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
 	}
 }
 
