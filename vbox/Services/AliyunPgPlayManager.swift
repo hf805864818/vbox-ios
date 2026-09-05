@@ -195,54 +195,85 @@ final class AliyunPgPlayManager {
         }
 
         // ═══════════════════════════════════════════════════════════
-        // 步骤4: ★ 优先尝试分享直链（不转存，直接从分享取 download_url）
-        // 对齐原生 aliGetDownloadURL：file_id + share_id + x-share-token
+        // 步骤4: ★ 优先尝试分享转码/直链（不转存，直接从分享取播放地址）
+        // 4A: get_video_preview_play_info (转码 m3u8) — 对齐原生 aliGetVideoPreviewPlayInfo
+        // 4B: get_download_url (原画直链) — 对齐原生 aliGetDownloadURL
         // ═══════════════════════════════════════════════════════════
 
         var resolvedInfo: PgDownloadInfo?
         var savedFileId: String?
 
+        // 步骤4A: 分享转码直链（get_video_preview_play_info + x-share-token）
         do {
-            let info = try await getShareDownloadUrl(
+            let info = try await getShareVideoPreviewPlayInfo(
                 accessToken: accessToken,
                 fileId: targetFile.fileId,
-                shareId: shareId,
                 shareToken: shareToken
             )
             resolvedInfo = info
-            pgLog("步骤4: 分享直链 → ✅ download_url获取成功 (cdn=\(extractHost(info.url)))")
+            pgLog("步骤4A: 分享转码 → ✅ 转码地址获取成功 (cdn=\(extractHost(info.url)))")
         } catch {
-            pgLog("步骤4: 分享直链 → ⚠️ 失败: \(error.localizedDescription)，转入转存兜底")
+            pgLog("步骤4A: 分享转码 → ⚠️ 失败: \(error.localizedDescription)")
 
-            // ═══════════════════════════════════════════════════════
-            // 步骤5: ★ 转存兜底 — /v2/file/copy 转存后取原画直链
-            // ═══════════════════════════════════════════════════════
+            // 步骤4B: 分享直链（get_download_url + x-share-token）
             do {
-                let driveId = try await getUserDriveId(accessToken: accessToken)
-                let savedId = try await saveFile(
+                let info = try await getShareDownloadUrl(
                     accessToken: accessToken,
                     fileId: targetFile.fileId,
                     shareId: shareId,
-                    shareToken: shareToken,
-                    toDriveId: driveId
-                )
-                savedFileId = savedId
-                pgLog("步骤5: 转存 → ✅ saved_file_id=\(savedId)")
-
-                let info = try await getDownloadUrl(
-                    accessToken: accessToken,
-                    fileId: savedId,
-                    driveId: driveId
+                    shareToken: shareToken
                 )
                 resolvedInfo = info
-                pgLog("步骤5: 转存直链 → ✅ download_url获取成功 (cdn=\(extractHost(info.url)))")
+                pgLog("步骤4B: 分享直链 → ✅ download_url获取成功 (cdn=\(extractHost(info.url)))")
             } catch {
-                pgLog("步骤5: 转存路链 → ❌ 失败: \(error.localizedDescription)")
-                // 转存失败也要清理可能已转存的文件
-                if let savedId = savedFileId {
-                    scheduleCleanup(fileId: savedId, accessToken: accessToken)
+                pgLog("步骤4B: 分享直链 → ⚠️ 失败: \(error.localizedDescription)，转入转存兜底")
+
+                // ═══════════════════════════════════════════════════════
+                // 步骤5: ★ 转存兜底 — /v2/file/copy 转存后取播放地址
+                // 5A: get_video_preview_play_info (转码 m3u8) — 个人网盘版
+                // 5B: get_download_url (原画直链) — 个人网盘版
+                // ═══════════════════════════════════════════════════════
+                do {
+                    let driveId = try await getUserDriveId(accessToken: accessToken)
+                    let savedId = try await saveFile(
+                        accessToken: accessToken,
+                        fileId: targetFile.fileId,
+                        shareId: shareId,
+                        shareToken: shareToken,
+                        toDriveId: driveId
+                    )
+                    savedFileId = savedId
+                    pgLog("步骤5: 转存 → ✅ saved_file_id=\(savedId)")
+
+                    // 步骤5A: 优先获取转码播放地址（m3u8）
+                    do {
+                        let info = try await getVideoPreviewPlayInfo(
+                            accessToken: accessToken,
+                            fileId: savedId,
+                            driveId: driveId
+                        )
+                        resolvedInfo = info
+                        pgLog("步骤5A: 转码播放 → ✅ m3u8地址获取成功 (cdn=\(extractHost(info.url)))")
+                    } catch {
+                        pgLog("步骤5A: 转码播放 → ⚠️ 失败: \(error.localizedDescription)，尝试原始直链")
+
+                        // 步骤5B: 兜底用 get_download_url
+                        let info = try await getDownloadUrl(
+                            accessToken: accessToken,
+                            fileId: savedId,
+                            driveId: driveId
+                        )
+                        resolvedInfo = info
+                        pgLog("步骤5B: 转存直链 → ✅ download_url获取成功 (cdn=\(extractHost(info.url)))")
+                    }
+                } catch {
+                    pgLog("步骤5: 转存路链 → ❌ 失败: \(error.localizedDescription)")
+                    // 转存失败也要清理可能已转存的文件
+                    if let savedId = savedFileId {
+                        scheduleCleanup(fileId: savedId, accessToken: accessToken)
+                    }
+                    throw DriveError.noPlayURL("PG步骤4-5 获取播放直链失败: \(error.localizedDescription)")
                 }
-                throw DriveError.noPlayURL("PG步骤4-5 获取播放直链失败: \(error.localizedDescription)")
             }
         }
 
@@ -966,9 +997,12 @@ final class AliyunPgPlayManager {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        pgLog("步骤5: get_download_url 响应(\(statusCode)): \(respStr.prefix(500))")
+
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             throw DriveError.noPlayURL("get_download_url HTTP \(statusCode)")
         }
 
@@ -976,11 +1010,14 @@ final class AliyunPgPlayManager {
             throw DriveError.noPlayURL("get_download_url 响应解析失败")
         }
 
-        // 检查错误码
-        if let code = json["code"] as? String,
-           code != "OK" && code != "ok" && code != "0" {
+        // 检查错误码（兼容 String 和 Int 类型）
+        let codeStr = json["code"] as? String
+        let codeInt = json["code"] as? Int
+        let hasError = (codeStr != nil && codeStr != "OK" && codeStr != "ok" && codeStr != "0")
+                    || (codeInt != nil && codeInt != 0 && codeInt != 200)
+        if hasError {
             let message = json["message"] as? String ?? "未知错误"
-            throw DriveError.noPlayURL("get_download_url 错误: \(code) - \(message)")
+            throw DriveError.noPlayURL("get_download_url 错误: \(codeStr ?? "code=\(codeInt ?? -1)") - \(message)")
         }
 
         return try extractDownloadInfo(from: json)
@@ -1014,7 +1051,123 @@ final class AliyunPgPlayManager {
         return PgDownloadInfo(url: finalUrl, headers: headers)
     }
 
-    // MARK: - 步骤6: ★ Go代理多线程加速
+    // MARK: - 步骤4A: 分享转码播放地址（不转存，直接从分享取 m3u8）
+
+    /// 从分享获取视频转码播放地址（get_video_preview_play_info + x-share-token）
+    /// 对齐原生 aliGetVideoPreviewPlayInfo，用于分享直链 (get_download_url) 被 403 拦截时的替代方案
+    /// 成功则无需转存，直接播放
+    private func getShareVideoPreviewPlayInfo(
+        accessToken: String,
+        fileId: String,
+        shareToken: String
+    ) async throws -> PgDownloadInfo {
+
+        let url = URL(string: "\(config.aliApiBase)/adrive/v2/file/get_video_preview_play_info")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(shareToken, forHTTPHeaderField: "x-share-token")
+        request.setValue("https://www.alipan.com/", forHTTPHeaderField: "Referer")
+
+        let body: [String: Any] = [
+            "file_id": fileId,
+            "category": "live_transcoding"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        pgLog("分享转码(\(statusCode)): \(respStr.prefix(300))")
+
+        guard statusCode == 200 else {
+            throw DriveError.noPlayURL("分享转码 HTTP \(statusCode)")
+        }
+
+        return try extractVideoPreviewInfo(from: data)
+    }
+
+    // MARK: - 步骤5A: 个人网盘转码播放地址（转存后取 m3u8）
+
+    /// 从用户网盘（转存后的文件）获取视频转码播放地址
+    /// 对视频文件，get_download_url 可能返回 200 但无 url 字段，
+    /// 需要改用 get_video_preview_play_info 获取 m3u8 转码地址
+    /// 参考：阿里官方 GetVideoPreviewPlayInfo API
+    private func getVideoPreviewPlayInfo(
+        accessToken: String,
+        fileId: String,
+        driveId: String
+    ) async throws -> PgDownloadInfo {
+
+        let url = URL(string: "\(config.aliPdsApiBase)/adrive/v2/file/get_video_preview_play_info")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let body: [String: Any] = [
+            "drive_id": driveId,
+            "file_id": fileId,
+            "category": "live_transcoding"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await session.data(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let respStr = String(data: data, encoding: .utf8) ?? ""
+        pgLog("步骤5: get_video_preview_play_info 响应(\(statusCode)): \(respStr.prefix(500))")
+
+        guard statusCode == 200 else {
+            throw DriveError.noPlayURL("get_video_preview_play_info HTTP \(statusCode)")
+        }
+
+        return try extractVideoPreviewInfo(from: data)
+    }
+
+    /// 从 get_video_preview_play_info 响应中提取转码播放地址
+    /// 按画质优先级选择: QHD > FHD > HD > SD > LD
+    private func extractVideoPreviewInfo(from data: Data) throws -> PgDownloadInfo {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DriveError.noPlayURL("video_preview_play_info 响应解析失败")
+        }
+
+        // 检查错误码（兼容 String 和 Int）
+        let codeStr = json["code"] as? String
+        let codeInt = json["code"] as? Int
+        let hasError = (codeStr != nil && codeStr != "OK" && codeStr != "ok" && codeStr != "0")
+                    || (codeInt != nil && codeInt != 0 && codeInt != 200)
+        if hasError {
+            let message = json["message"] as? String ?? "未知错误"
+            throw DriveError.noPlayURL("video_preview_play_info 错误: \(codeStr ?? "code=\(codeInt ?? -1)") - \(message)")
+        }
+
+        guard let vpi = json["video_preview_play_info"] as? [String: Any],
+              let taskList = vpi["live_transcoding_task_list"] as? [[String: Any]] else {
+            throw DriveError.noPlayURL("video_preview_play_info 无转码任务列表")
+        }
+
+        // 按画质优先级选择: QHD > FHD > HD > SD > LD
+        let qualityOrder = ["QHD", "FHD", "HD", "SD", "LD"]
+        for quality in qualityOrder {
+            if let task = taskList.first(where: {
+                ($0["template_id"] as? String ?? "").uppercased().contains(quality)
+            }), let url = task["url"] as? String, !url.isEmpty {
+                pgLog("转码播放 → ✅ \(quality) 获取成功")
+                return PgDownloadInfo(url: url, headers: [:])
+            }
+        }
+
+        // 兜底：取第一个有 URL 的 task
+        if let task = taskList.first(where: {
+            ($0["url"] as? String ?? "").isEmpty == false
+        }), let url = task["url"] as? String, !url.isEmpty {
+            pgLog("转码播放 → ✅ 获取成功 (首个可用)")
+            return PgDownloadInfo(url: url, headers: [:])
+        }
+
+        throw DriveError.noPlayURL("video_preview_play_info 转码任务列表中无可用URL")
+    }
 
     /// 将 download_url 通过 Go 代理包装
     /// 对应 pg.jar 的 getProxyDownloadUrl() 方法
