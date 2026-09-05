@@ -696,8 +696,11 @@ final class AliyunPgPlayManager {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await session.data(for: request)
+        // ⚠️ 修复：阿里云盘 OpenAPI file/copy 转存成功时返回 HTTP 201 Created
+        // （而非 200）。此前只接受 200，导致转存实际成功却被误判为失败，
+        // 播放链路在"已转存成功"的情况下提前中断。
         guard let http = response as? HTTPURLResponse,
-              http.statusCode == 200 else {
+              http.statusCode == 200 || http.statusCode == 201 else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
             let respStr = String(data: data, encoding: .utf8) ?? ""
             pgLog("file/copy 响应(\(statusCode)): \(respStr.prefix(300))")
