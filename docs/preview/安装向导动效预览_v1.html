@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>vbox 安装向导 · 动效预览 v1</title>
+<style>
+  :root{
+    --rose:#E11D48;
+    --rose-deep:#BE123C;
+    --rose-soft:#FB7185;
+    --ink:#0D0D12;
+    --ink2:#1F1F29;
+    --paper:#F7F7FA;
+    --paper2:#E6E6ED;
+    --line:rgba(255,255,255,.10);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#2a2d34;
+    background-image:radial-gradient(circle at 20% 0%,#3a3e47 0%,#23262c 60%,#1a1c21 100%);
+    color:#e8eaee;
+    min-height:100vh;
+    padding:28px 20px 60px;
+  }
+  .page-head{max-width:1080px;margin:0 auto 20px}
+  .page-head h1{font-size:20px;margin:0 0 6px;font-weight:700;letter-spacing:.5px}
+  .page-head p{margin:0;color:#9aa1ad;font-size:13px;line-height:1.6}
+  .page-head code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:4px}
+
+  .toolbar{max-width:1080px;margin:18px auto 24px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .tabs{display:flex;gap:6px;background:rgba(255,255,255,.06);padding:4px;border-radius:12px}
+  .tab{
+    appearance:none;border:0;cursor:pointer;color:#c3c8d2;background:transparent;
+    padding:8px 16px;border-radius:9px;font-size:13px;font-weight:600;transition:.2s;
+  }
+  .tab:hover{color:#fff}
+  .tab.active{background:var(--rose);color:#fff;box-shadow:0 4px 14px rgba(225,29,72,.45)}
+  .btn{
+    appearance:none;border:1px solid rgba(255,255,255,.16);cursor:pointer;
+    background:rgba(255,255,255,.06);color:#e8eaee;padding:9px 18px;border-radius:10px;
+    font-size:13px;font-weight:600;transition:.2s;display:inline-flex;align-items:center;gap:8px;
+  }
+  .btn:hover{background:rgba(255,255,255,.13)}
+  .btn.primary{background:linear-gradient(135deg,var(--rose),var(--rose-deep));border-color:transparent;box-shadow:0 6px 18px rgba(225,29,72,.4)}
+
+  .stage{max-width:1080px;margin:0 auto;display:none}
+  .stage.active{display:block}
+
+  /* ────────────────────── 通用安装窗口壳 ────────────────────── */
+  .win{
+    width:660px;max-width:100%;border-radius:14px;overflow:hidden;
+    box-shadow:0 30px 70px rgba(0,0,0,.55),0 2px 0 rgba(255,255,255,.06) inset;
+    border:1px solid rgba(255,255,255,.09);
+  }
+  .win-title{
+    height:38px;display:flex;align-items:center;gap:10px;padding:0 12px;
+    font-size:12.5px;font-weight:600;letter-spacing:.3px;
+  }
+  .win-title .dot{width:15px;height:15px;border-radius:4px;background:linear-gradient(135deg,var(--rose),var(--rose-deep));box-shadow:0 0 10px rgba(225,29,72,.6)}
+  .win-title .sp{flex:1}
+  .winctl{display:flex;gap:14px;color:rgba(255,255,255,.5);font-size:12px}
+  .win-body{padding:26px 30px 30px}
+
+  .logo-wrap{display:flex;justify-content:center;align-items:center;position:relative;height:118px;margin-bottom:6px}
+
+  /* vbox 字标 */
+  .wordmark{
+    position:relative;font-weight:800;font-size:52px;letter-spacing:-1px;
+    display:inline-block;transform:rotate(-8deg);user-select:none;
+  }
+  .wordmark span{
+    background:linear-gradient(180deg,#fff 0%,#ffd9e1 55%,#ffe9ee 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 10px rgba(225,29,72,.55));
+  }
+  .swoosh{
+    position:absolute;left:-6px;right:-10px;top:60%;height:9px;border-radius:6px;
+    background:linear-gradient(90deg,transparent,var(--rose) 20%,var(--rose-soft) 60%,transparent);
+    opacity:.85;filter:blur(.3px);
+  }
+  /* 流光扫过 */
+  .shimmer{
+    position:absolute;inset:-10% -30%;pointer-events:none;
+    background:linear-gradient(115deg,transparent 35%,rgba(255,255,255,.55) 50%,transparent 65%);
+    mix-blend-mode:overlay;animation:sweep 2.6s ease-in-out infinite;
+  }
+  @keyframes sweep{0%{transform:translateX(-60%)}60%,100%{transform:translateX(60%)}}
+
+  /* 呼吸 */
+  .breathe{animation:breathe 2.6s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:rotate(-8deg) scale(1)}50%{transform:rotate(-8deg) scale(1.045)}}
+
+  /* 进度条 */
+  .prog{margin:22px 0 6px}
+  .prog-head{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:9px}
+  .prog-head .label{opacity:.75}
+  .prog-head .pct{font-variant-numeric:tabular-nums;font-weight:700}
+  .bar{height:9px;border-radius:6px;overflow:hidden;position:relative}
+  .bar .fill{
+    position:absolute;left:0;top:0;bottom:0;width:0;border-radius:6px;
+    transition:width .45s cubic-bezier(.22,.61,.36,1);overflow:hidden;
+  }
+  .bar .fill::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);
+    animation:sweep2 1.6s linear infinite;
+  }
+  @keyframes sweep2{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+  /* 步骤清单 */
+  .steps{display:flex;gap:8px;margin-top:20px}
+  .step{
+    flex:1;border-radius:10px;padding:10px 11px;font-size:11.5px;line-height:1.35;
+    display:flex;flex-direction:column;gap:7px;transition:.35s;position:relative;overflow:hidden;
+  }
+  .step .ico{
+    width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:800;transition:.35s;
+  }
+  .step .nm{opacity:.6;transition:.3s}
+  .step.done .nm{opacity:1}
+  .step.active{transform:translateY(-2px)}
+  .step .check{display:none}
+  .step.done .check{display:block}
+  .step.done .spin{display:none}
+  .step.active .spin{display:block}
+  .spin{display:none;width:11px;height:11px;border-radius:50%;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;animation:rot .7s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+
+  .foot{margin-top:24px;display:flex;align-items:center;justify-content:space-between;font-size:11.5px}
+  .glyph{opacity:.4}
+
+  /* ────────────────────── 方案 A：品牌流光（深色） ────────────────────── */
+  #A .win{background:linear-gradient(180deg,#1F1F29,#0D0D12)}
+  #A .win-title{background:rgba(255,255,255,.04);color:#cfd3db;border-bottom:1px solid rgba(255,255,255,.06)}
+  #A .bar{background:rgba(255,255,255,.08)}
+  #A .bar .fill{background:linear-gradient(90deg,var(--rose-deep),var(--rose),var(--rose-soft));box-shadow:0 0 16px rgba(225,29,72,.7)}
+  #A .step{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);color:#cfd3db}
+  #A .step .ico{background:rgba(255,255,255,.09);color:rgba(255,255,255,.5)}
+  #A .step.active{border-color:rgba(225,29,72,.75);box-shadow:0 0 0 1px rgba(225,29,72,.4),0 8px 20px rgba(225,29,72,.28)}
+  #A .step.active .ico{background:var(--rose);color:#fff;box-shadow:0 0 14px rgba(225,29,72,.8)}
+  #A .step.done .ico{background:rgba(225,29,72,.22);color:var(--rose-soft)}
+  #A .prog-head .pct{color:var(--rose-soft)}
+  #A .foot{color:rgba(255,255,255,.4)}
+
+  /* ────────────────────── 方案 B：星环粒子（深色） ────────────────────── */
+  #B .win{background:radial-gradient(120% 90% at 50% -10%,#20222b 0%,#111219 55%,#0A0B0F 100%)}
+  #B .win-title{background:rgba(255,255,255,.03);color:#c9cdd6;border-bottom:1px solid rgba(255,255,255,.05)}
+  #B .logo-wrap{height:150px}
+  #B .ring{
+    position:absolute;width:150px;height:150px;border-radius:50%;
+    background:conic-gradient(from 0deg,transparent 0 62%,rgba(225,29,72,.85) 76%,transparent 92%);
+    -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px));
+    mask:radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 3px));
+    animation:rot 2.4s linear infinite;filter:drop-shadow(0 0 12px rgba(225,29,72,.8));
+  }
+  #B .ring.r2{width:196px;height:196px;animation-duration:3.6s;animation-direction:reverse;opacity:.55;
+    background:conic-gradient(from 0deg,transparent 0 70%,rgba(251,113,133,.9) 84%,transparent 96%)}
+  #B .wordmark{font-size:46px}
+  #B .bar{background:rgba(255,255,255,.07);height:11px;border-radius:999px}
+  #B .bar .fill{background:linear-gradient(90deg,var(--rose-deep),var(--rose));box-shadow:0 0 20px rgba(225,29,72,.75);border-radius:999px}
+  #B .step{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);color:#c9cdd6;border-radius:12px}
+  #B .step .ico{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5)}
+  #B .step.active{border-color:rgba(251,113,133,.8);box-shadow:0 10px 24px rgba(225,29,72,.3)}
+  #B .step.active .ico{background:linear-gradient(135deg,var(--rose),var(--rose-soft));color:#fff}
+  #B .step.done .ico{background:rgba(225,29,72,.2);color:var(--rose-soft)}
+  #B .prog-head .pct{color:var(--rose-soft)}
+  #B .foot{color:rgba(255,255,255,.38)}
+
+  /* ────────────────────── 方案 C：现代浅色 ────────────────────── */
+  #C .win{background:#FDFDFF;border-color:rgba(0,0,0,.08)}
+  #C .win-title{background:linear-gradient(180deg,#fff,var(--paper));color:#5a606e;border-bottom:1px solid rgba(0,0,0,.07)}
+  #C .winctl{color:rgba(0,0,0,.35)}
+  #C .wordmark span{background:linear-gradient(180deg,var(--rose) 0%,var(--rose-deep) 60%,#8f0f34 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 8px rgba(225,29,72,.28))}
+  #C .bar{background:var(--paper2)}
+  #C .bar .fill{background:linear-gradient(90deg,var(--rose),var(--rose-deep));box-shadow:0 3px 12px rgba(225,29,72,.4)}
+  #C .bar .fill::after{background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.75) 50%,transparent 65%)}
+  #C .step{background:#fff;border:1px solid rgba(0,0,0,.07);color:#4a5060;box-shadow:0 2px 8px rgba(20,20,40,.05)}
+  #C .step .ico{background:#eef0f5;color:#9aa0ad}
+  #C .step.active{border-color:var(--rose);box-shadow:0 10px 24px rgba(225,29,72,.18)}
+  #C .step.active .ico{background:var(--rose);color:#fff}
+  #C .step.done .ico{background:rgba(225,29,72,.12);color:var(--rose)}
+  #C .prog-head .label{color:#6a7080}
+  #C .prog-head .pct{color:var(--rose)}
+  #C .foot{color:#9aa0ad}
+
+  .hint{max-width:1080px;margin:26px auto 0;color:#8b92a0;font-size:12px;line-height:1.7}
+  .hint b{color:#c9ced8}
+  .legend{max-width:1080px;margin:14px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:14px 16px}
+  .card h3{margin:0 0 6px;font-size:13.5px;color:#fff}
+  .card ul{margin:0;padding-left:18px;color:#a2a9b6;font-size:12px;line-height:1.75}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>vbox 安装向导 · 动效预览 v1</h1>
+  <p>目标：把 Windows 侧载安装包（<code>vbox-setup.exe</code>，Inno Setup）的向导界面改成「动态安装效果」——包含 <b>Logo 动效</b> + <b>进度条动画</b> + <b>分步骤清单</b>。下面 3 个方案供挑选，点「▶ 演示安装」看完整动效，点标签切换方案。</p>
+</div>
+
+<div class="toolbar">
+  <div class="tabs">
+    <button class="tab active" data-t="A">方案 A · 品牌流光（深色）</button>
+    <button class="tab" data-t="B">方案 B · 星环粒子（深色）</button>
+    <button class="tab" data-t="C">方案 C · 现代浅色</button>
+  </div>
+  <button class="btn primary" id="playBtn">▶ 演示安装</button>
+  <button class="btn" id="againBtn">↻ 重播</button>
+</div>
+
+<!-- ═══════════ 方案 A ═══════════ -->
+<section class="stage active" id="A">
+  <div class="win">
+    <div class="win-title"><span class="dot"></span>vbox 安装程序<span class="sp"></span><span class="winctl">—　▢　✕</span></div>
+    <div class="win-body">
+      <div class="logo-wrap">
+        <div class="wordmark breathe"><span>vbox</span><i class="swoosh"></i><i class="shimmer"></i></div>
+      </div>
+      <div class="prog">
+        <div class="prog-head"><span class="label" data-status>正在准备安装…</span><span class="pct" data-pct>0%</span></div>
+        <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+      <div class="steps" data-steps>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>1</div><div class="nm">准备安装</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>2</div><div class="nm">解压程序文件</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>3</div><div class="nm">部署 Node 引擎</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>4</div><div class="nm">创建桌面快捷方式</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>5</div><div class="nm">安装完成</div></div>
+      </div>
+      <div class="foot"><span>安装位置 C:\Program Files\vbox</span><span class="glyph">v1.0.0</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 方案 B ═══════════ -->
+<section class="stage" id="B">
+  <div class="win">
+    <div class="win-title"><span class="dot"></span>vbox 安装程序<span class="sp"></span><span class="winctl">—　▢　✕</span></div>
+    <div class="win-body">
+      <div class="logo-wrap">
+        <div class="ring"></div><div class="ring r2"></div>
+        <div class="wordmark"><span>vbox</span><i class="shimmer"></i></div>
+      </div>
+      <div class="prog">
+        <div class="prog-head"><span class="label" data-status>正在准备安装…</span><span class="pct" data-pct>0%</span></div>
+        <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+      <div class="steps" data-steps>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>1</div><div class="nm">准备安装</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>2</div><div class="nm">解压程序文件</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>3</div><div class="nm">部署 Node 引擎</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>4</div><div class="nm">创建快捷方式</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>5</div><div class="nm">安装完成</div></div>
+      </div>
+      <div class="foot"><span>安装位置 C:\Program Files\vbox</span><span class="glyph">v1.0.0</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 方案 C ═══════════ -->
+<section class="stage" id="C">
+  <div class="win">
+    <div class="win-title"><span class="dot"></span>vbox 安装程序<span class="sp"></span><span class="winctl">—　▢　✕</span></div>
+    <div class="win-body">
+      <div class="logo-wrap">
+        <div class="wordmark breathe"><span>vbox</span><i class="swoosh"></i><i class="shimmer"></i></div>
+      </div>
+      <div class="prog">
+        <div class="prog-head"><span class="label" data-status>正在准备安装…</span><span class="pct" data-pct>0%</span></div>
+        <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+      <div class="steps" data-steps>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>1</div><div class="nm">准备安装</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>2</div><div class="nm">解压程序文件</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>3</div><div class="nm">部署 Node 引擎</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>4</div><div class="nm">创建快捷方式</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>5</div><div class="nm">安装完成</div></div>
+      </div>
+      <div class="foot"><span>安装位置 C:\Program Files\vbox</span><span class="glyph">v1.0.0</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="legend">
+  <div class="card"><h3>方案 A · 品牌流光（深色）</h3><ul><li>与 App 启动页同源的深色渐变底</li><li>Logo 呼吸缩放 + 流光扫过 + 发光投影</li><li>进度条渐变填充 + 内部流光 + 外发光</li><li>推荐：与 App 视觉最统一，实现成本最低</li></ul></div>
+  <div class="card"><h3>方案 B · 星环粒子（深色）</h3><ul><li>Logo 外双层旋转星环（粒子感）</li><li>视觉冲击更强，科技感</li><li>进度条圆角胶囊 + 发光</li><li>适合强调「引擎/科技」定位</li></ul></div>
+  <div class="card"><h3>方案 C · 现代浅色</h3><ul><li>浅色底 + 玫瑰红点缀，干净</li><li>与 Windows 浅色主题更协调</li><li>进度条与步骤卡阴影更轻</li><li>适合白天/浅色系统偏好用户</li></ul></div>
+</div>
+
+<div class="hint">
+  <b>说明：</b>以上为纯前端动效原型（HTML/CSS），仅用于确认视觉方向。<br/>
+  选定方案后我再给「如何在 Inno Setup 落地」的实施方案（不同方案的落地难度差别较大，见下一步说明）。
+</div>
+
+<script>
+  // ── 标签切换 ──
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll('.stage').forEach(s => s.classList.remove('active'));
+    document.getElementById(t.dataset.t).classList.add('active');
+    run();
+  }));
+
+  const TOTAL = 4000; // 演示总时长 ms
+  const KEYFRAMES = [
+    { p: 0,   s: '正在准备安装…' },
+    { p: 8,   s: '正在解压程序文件…' },
+    { p: 38,  s: '正在写入 vbox.exe 及依赖…' },
+    { p: 62,  s: '正在部署 Node 常驻引擎…' },
+    { p: 86,  s: '正在创建桌面快捷方式…' },
+    { p: 100, s: '安装完成，正在启动 vbox…' },
+  ];
+
+  let timer = null, raf = null, t0 = 0;
+
+  function currentStage(){ return document.querySelector('.stage.active'); }
+
+  function reset(){
+    const st = currentStage();
+    st.querySelectorAll('[data-fill]').forEach(f => f.style.width = '0%');
+    st.querySelectorAll('[data-pct]').forEach(p => p.textContent = '0%');
+    st.querySelectorAll('[data-status]').forEach(s => s.textContent = '正在准备安装…');
+    st.querySelectorAll('.step').forEach(s => s.classList.remove('active','done'));
+  }
+
+  function paint(pr){
+    const st = currentStage();
+    // 状态文案 + 百分比
+    let s = KEYFRAMES[0].s;
+    for (const k of KEYFRAMES) if (pr >= k.p) s = k.s;
+    st.querySelectorAll('[data-status]').forEach(e => e.textContent = s);
+    st.querySelectorAll('[data-pct]').forEach(e => e.textContent = Math.round(pr) + '%');
+    st.querySelectorAll('[data-fill]').forEach(e => e.style.width = pr + '%');
+    // 步骤：按进度分 5 档
+    const steps = st.querySelectorAll('.step');
+    const idx = Math.min(steps.length - 1, Math.floor(pr / (100 / steps.length)));
+    steps.forEach((el, i) => {
+      el.classList.toggle('done', i < idx || pr >= 100);
+      el.classList.toggle('active', i === idx && pr < 100);
+    });
+  }
+
+  function run(){
+    cancelAnimationFrame(raf); clearTimeout(timer);
+    reset();
+    t0 = performance.now();
+    const tick = (now) => {
+      const pr = Math.min(100, (now - t0) / TOTAL * 100);
+      paint(pr);
+      if (pr < 100) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+
+  document.getElementById('playBtn').addEventListener('click', run);
+  document.getElementById('againBtn').addEventListener('click', run);
+
+  // 首屏自动演示一次
+  window.addEventListener('load', () => setTimeout(run, 350));
+</script>
+</body>
+</html>

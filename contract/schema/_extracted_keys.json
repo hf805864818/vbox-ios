@@ -1,0 +1,767 @@
+{
+  "a1b2c3d4e5f60708": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "YBoxService2.swift:149"
+    ]
+  },
+  "abcdefghijklmnopqrstuvwxyz0123456789": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "ExtscreenCrypto.swift:144"
+    ]
+  },
+  "active_subscription_index": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "SubscriptionManager.swift:20",
+      "SubscriptionManager.swift:15"
+    ]
+  },
+  "app": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "UpdateManager.swift:37"
+    ]
+  },
+  "app_dev_log_enabled": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:60"
+    ]
+  },
+  "app_dev_log_level": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:61"
+    ]
+  },
+  "app_enable_tmdb": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:53"
+    ]
+  },
+  "app_last_launch_version": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:65"
+    ]
+  },
+  "app_log_crash_marker": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppLogStore.swift:249"
+    ]
+  },
+  "app_log_enabled": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppLogStore.swift:247"
+    ]
+  },
+  "app_log_min_level": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppLogStore.swift:248"
+    ]
+  },
+  "app_skin_follows_system": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:52"
+    ]
+  },
+  "app_skin_mode": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:51"
+    ]
+  },
+  "app_tmdb_proxy_token": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:56",
+      "TMDBService.swift:24"
+    ]
+  },
+  "app_tmdb_proxy_url": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:54",
+      "TMDBService.swift:22"
+    ]
+  },
+  "app_tmdb_use_token": {
+    "type": "bool",
+    "default": "false",
+    "evidence": [
+      "AppSettings.swift:55",
+      "TMDBService.swift:23"
+    ]
+  },
+  "app_welfare_enabled": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:59"
+    ]
+  },
+  "app_welfare_password": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:58"
+    ]
+  },
+  "app_welfare_unlocked": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AppSettings.swift:57"
+    ]
+  },
+  "baidu_file_list_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:505",
+      "CloudDriveManager.swift:128"
+    ]
+  },
+  "baidu_ibox_play_item_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:635",
+      "CloudDriveManager.swift:127"
+    ]
+  },
+  "baidu_local_pcs_device_id": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:794",
+      "CloudDriveManager.swift:5666"
+    ]
+  },
+  "baidu_play_item_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:627",
+      "CloudDriveManager.swift:126"
+    ]
+  },
+  "baidu_play_result_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:619",
+      "CloudDriveManager.swift:125"
+    ]
+  },
+  "baidu_route_diagnostics_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:332",
+      "CloudDriveManager.swift:132"
+    ]
+  },
+  "baidu_share_context_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:461",
+      "CloudDriveManager.swift:129"
+    ]
+  },
+  "baidu_verify_cooldown_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:475",
+      "CloudDriveManager.swift:130"
+    ]
+  },
+  "baidu_verify_cooldowns_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveAuthManager.swift:1332",
+      "CloudDriveAuthManager.swift:79"
+    ]
+  },
+  "bundle_sources_enabled": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:9"
+    ]
+  },
+  "cached_subscribe_config": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "SubscriptionManager.swift:284",
+      "SubscriptionManager.swift:16"
+    ]
+  },
+  "cloud_drive_cleanup_queue_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:1227",
+      "CloudDriveManager.swift:133"
+    ]
+  },
+  "cloud_drive_credentials_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "SecureCredentialStore.swift:6",
+      "CloudDriveAuthManager.swift:3119"
+    ]
+  },
+  "cloud_drive_sort_order_v1": {
+    "type": "stringArray",
+    "default": null,
+    "evidence": [
+      "CloudDriveSortManager.swift:60",
+      "CloudDriveSortManager.swift:7"
+    ]
+  },
+  "cloud_play_item_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:647",
+      "CloudDriveManager.swift:758"
+    ]
+  },
+  "custom_danmaku_source_enabled": {
+    "type": "bool",
+    "default": null,
+    "evidence": [
+      "LogVarDanmakuService.swift:39"
+    ]
+  },
+  "custom_danmaku_source_url": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "LogVarDanmakuService.swift:41"
+    ]
+  },
+  "drpy_js_腾云驾雾": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "TencentVideoNativeSpider.swift:11"
+    ]
+  },
+  "enable_dual_mode": {
+    "type": "bool",
+    "default": "true }",
+    "evidence": [
+      "SpiderManager.swift:112"
+    ]
+  },
+  "fallback_enabled": {
+    "type": "bool",
+    "default": "true",
+    "evidence": [
+      "SpiderManager.swift:102"
+    ]
+  },
+  "feedback": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "FeedbackService.swift:15"
+    ]
+  },
+  "fuli_remote_platform_order_v2": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "RemoteWelfareHomeView.swift:336"
+    ]
+  },
+  "fuli_remote_source_enabled": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "WelfarePlatformConfigStore.swift:47"
+    ]
+  },
+  "fuli_remote_source_last_config_version": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "WelfarePlatformConfigStore.swift:51"
+    ]
+  },
+  "fuli_remote_source_last_success_time": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "WelfarePlatformConfigStore.swift:49"
+    ]
+  },
+  "l3srvtd7p42l0d0x1u8d7yc8ye9kki4d": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:9094",
+      "CloudDriveAuthManager.swift:907"
+    ]
+  },
+  "live_tv_current_source": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "LiveTVService.swift:298",
+      "LiveTVService.swift:279"
+    ]
+  },
+  "live_tv_custom_sources": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "LiveTVService.swift:282",
+      "LiveTVService.swift:278"
+    ]
+  },
+  "live_tv_local_channels": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "LiveTVService.swift:391"
+    ]
+  },
+  "mdtv_iv_idx": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "MDTVService.swift:219"
+    ]
+  },
+  "mdtv_key_idx": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "MDTVService.swift:214",
+      "MDTVService.swift:248"
+    ]
+  },
+  "mdtv_key_verified": {
+    "type": "bool",
+    "default": null,
+    "evidence": [
+      "MDTVService.swift:251"
+    ]
+  },
+  "mdtv_mode_idx": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "MDTVService.swift:224",
+      "MDTVService.swift:249"
+    ]
+  },
+  "music_queue_index": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "AudioPlayerManager.swift:609",
+      "AudioPlayerManager.swift:591"
+    ]
+  },
+  "music_queue_items": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "AudioPlayerManager.swift:606",
+      "AudioPlayerManager.swift:615"
+    ]
+  },
+  "one_platform_iv_idx": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "OnePlatformService.swift:194"
+    ]
+  },
+  "one_platform_key_idx": {
+    "type": "int",
+    "default": null,
+    "evidence": [
+      "OnePlatformService.swift:190"
+    ]
+  },
+  "one_platform_token": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "OnePlatformService.swift:168"
+    ]
+  },
+  "one_platform_userkey": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "OnePlatformService.swift:173"
+    ]
+  },
+  "one_platform_uuid": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "OnePlatformService.swift:178"
+    ]
+  },
+  "pg_ali_auto_cleanup": {
+    "type": "bool",
+    "default": "true }",
+    "evidence": [
+      "AliyunPgConfig.swift:110"
+    ]
+  },
+  "pg_ali_cleanup_delay": {
+    "type": "float",
+    "default": "60 }",
+    "evidence": [
+      "AliyunPgConfig.swift:116"
+    ]
+  },
+  "pg_ali_enabled": {
+    "type": "bool",
+    "default": null,
+    "evidence": [
+      "AliyunPgConfig.swift:26"
+    ]
+  },
+  "pg_ali_is_vip": {
+    "type": "bool",
+    "default": "true }",
+    "evidence": [
+      "AliyunPgConfig.swift:49"
+    ]
+  },
+  "pg_ali_proxy_port": {
+    "type": "int",
+    "default": "10078 }",
+    "evidence": [
+      "AliyunPgConfig.swift:69"
+    ]
+  },
+  "pg_ali_thread_limit": {
+    "type": "int",
+    "default": "32 }",
+    "evidence": [
+      "AliyunPgConfig.swift:55"
+    ]
+  },
+  "pg_ali_thread_night": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "AliyunPgConfig.swift:61"
+    ]
+  },
+  "pg_ali_transfer_dir": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "AliyunPgConfig.swift:104"
+    ]
+  },
+  "pg_ali_vod_flags": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "AliyunPgConfig.swift:37"
+    ]
+  },
+  "pg_source": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AliyunPgConfig.swift:176"
+    ]
+  },
+  "player_auto_play_next": {
+    "type": "bool",
+    "default": "true {",
+    "evidence": [
+      "PlayerViewsV2.swift:936"
+    ]
+  },
+  "player_background_play": {
+    "type": "bool",
+    "default": "true {",
+    "evidence": [
+      "PlayerViewsV2.swift:939"
+    ]
+  },
+  "player_long_press_speed": {
+    "type": "float",
+    "default": "2.0 {",
+    "evidence": [
+      "PlayerViewsV2.swift:908"
+    ]
+  },
+  "player_pip_enabled": {
+    "type": "bool",
+    "default": "true {",
+    "evidence": [
+      "PlayerViewsV2.swift:942"
+    ]
+  },
+  "push_play_items_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "BackupManager.swift:413",
+      "BackupManager.swift:417"
+    ]
+  },
+  "qr_scan": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "AliyunPgConfig.swift:178"
+    ]
+  },
+  "quark_device_id": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:2664"
+    ]
+  },
+  "quark_saved_fid_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:1002",
+      "CloudDriveManager.swift:135"
+    ]
+  },
+  "quark_vbox_folder_cache_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:960",
+      "CloudDriveManager.swift:134"
+    ]
+  },
+  "remote_default_last_config_version": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:11"
+    ]
+  },
+  "remote_default_last_sync_app_version": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:14"
+    ]
+  },
+  "remote_default_last_sync_error": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:13"
+    ]
+  },
+  "remote_default_last_sync_time": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:12"
+    ]
+  },
+  "remote_default_manifest_url": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:10"
+    ]
+  },
+  "remote_default_source_enabled": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:8"
+    ]
+  },
+  "remote_node_bundle_url": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:15"
+    ]
+  },
+  "remote_node_bundle_ver": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "RemoteSourceConfigManager.swift:16"
+    ]
+  },
+  "samsung": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "ExtscreenCrypto.swift:22"
+    ]
+  },
+  "saved_drive_tokens": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "CloudDriveManager.swift:931",
+      "CloudDriveManager.swift:124"
+    ]
+  },
+  "saved_drive_tokens_v1": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "SecureCredentialStore.swift:8"
+    ]
+  },
+  "searchHistory": {
+    "type": "stringArray",
+    "default": null,
+    "evidence": [
+      "MainViews.swift:1803"
+    ]
+  },
+  "show_debug_overlay": {
+    "type": "bool",
+    "default": null,
+    "evidence": [
+      "PlayerViewsV2.swift:945"
+    ]
+  },
+  "show_search_debug": {
+    "type": "bool",
+    "default": null,
+    "evidence": [
+      "MainViews.swift:1426"
+    ]
+  },
+  "subscribed_config_urls": {
+    "type": "stringArray",
+    "default": null,
+    "evidence": [
+      "SubscriptionManager.swift:19",
+      "SubscriptionManager.swift:14"
+    ]
+  },
+  "tg_search_channel_mode_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "TGSearchConfigStore.swift:139",
+      "TGSearchConfigStore.swift:12"
+    ]
+  },
+  "tg_search_channels_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "TGSearchConfigStore.swift:144",
+      "TGSearchConfigStore.swift:11"
+    ]
+  },
+  "tg_search_proxy_url_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "TGSearchConfigStore.swift:137",
+      "TGSearchConfigStore.swift:10"
+    ]
+  },
+  "today": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "LiveTVView.swift:1935"
+    ]
+  },
+  "user_parsers": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "SpiderManager.swift:286"
+    ]
+  },
+  "vbox_sqlite_migration_done": {
+    "type": "bool",
+    "default": null,
+    "evidence": [
+      "DatabaseManager.swift:221",
+      "DatabaseManager.swift:220"
+    ]
+  },
+  "welfare_custom_domains_v2": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "WelfareDomainStore.swift:66",
+      "WelfareDomainStore.swift:11"
+    ]
+  },
+  "welfare_platform_order": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "WelfareHomeView.swift:398"
+    ]
+  },
+  "welfare_proxy_enabled_platforms_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "WelfareProxyStore.swift:101",
+      "WelfareProxyStore.swift:10"
+    ]
+  },
+  "welfare_proxy_url_v1": {
+    "type": "string",
+    "default": null,
+    "evidence": [
+      "WelfareProxyStore.swift:100",
+      "WelfareProxyStore.swift:9"
+    ]
+  },
+  "wy": {
+    "type": "unknown",
+    "default": null,
+    "evidence": [
+      "NodeSpiderEngine.swift:418"
+    ]
+  }
+}

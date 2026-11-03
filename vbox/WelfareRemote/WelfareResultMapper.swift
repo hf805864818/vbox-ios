@@ -20,7 +20,13 @@ struct WelfareResultMapper {
 
     func mapHome(_ result: HomeContentResult) -> FuliHomeResult {
         let categories = (result.class ?? []).map {
-            FuliCategory(typeId: $0.typeId, typeName: $0.typeName)
+            FuliCategory(
+                typeId: $0.typeId,
+                typeName: $0.typeName,
+                subCategories: $0.subCategories?.map {
+                    FuliCategory(typeId: $0.typeId, typeName: $0.typeName)
+                }
+            )
         }
         let videos = (result.list ?? []).compactMap { mapVideo($0) }
         return FuliHomeResult(categories: categories, videos: videos)

@@ -5,6 +5,10 @@ on:
   push:
     paths:
       - 'quickjs/**'
+      - 'scripts/build_quickjs_wrapper.sh'
+      - 'scripts/build-quickjs-windows.ps1'
+      - 'scripts/bundle-quickjs-windows.ps1'
+      - 'scripts/bundle-quickjs-macos.sh'
       - '.github/workflows/build-quickjs.yml'
 
 jobs:
@@ -66,3 +70,81 @@ jobs:
             vbox/Libraries/libquickjs.a
             vbox/Libraries/quickjs.h
             vbox/Libraries/quickjs-libc.h
+
+  # ── 桌面端 QuickJS（G-03-B：Windows/macOS JS 引擎随包分发）──────────────
+  # 域层 `_effectiveEngineType` 将 JS 站点映射为 quickJS，桌面端 JS 蜘蛛依赖
+  # libvbox_quickjs；本 job 验证 mingw-w64 与 clang 两条编译链（vq_* 十一符号）。
+  build-desktop-windows:
+    name: Build QuickJS vbox_quickjs.dll (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # QuickJS 依赖 GCC 扩展（__int128/__attribute__），MSVC 不可编译 → mingw-w64
+      - name: 🧰 Setup MSYS2 (mingw-w64 gcc)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      # setup-msys2 把 MSYS2 解压到动作私有目录（未必是镜像自带的 C:\msys64），
+      # 经其自带 msys2 shell 用 cygpath 探测真实安装根并写入 MSYS2_ROOT，
+      # 供 build-quickjs-windows.ps1 定位 mingw-w64 gcc。
+      - name: 🧭 Resolve MSYS2 root
+        shell: msys2 {0}
+        run: echo "MSYS2_ROOT=$(cygpath -w /)" >> "$GITHUB_ENV"
+
+      - name: 🏗️ Build + 符号冒烟 vbox_quickjs.dll
+        shell: pwsh
+        run: .\scripts\build-quickjs-windows.ps1
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-quickjs-windows
+          path: build/vbox-quickjs/vbox_quickjs.dll
+          retention-days: 14
+
+  build-desktop-macos:
+    name: Build libvbox_quickjs.dylib (macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🏗️ Build libvbox_quickjs.dylib（vendored QuickJS，@rpath 安装名）
+        run: |
+          bash scripts/build_quickjs_wrapper.sh build/vbox-quickjs
+          DYLIB="build/vbox-quickjs/libvbox_quickjs.dylib"
+          ls -lh "$DYLIB"
+          otool -L "$DYLIB"
+
+      - name: 🧪 Smoke：vq_* 语义（dlopen + eval 21*2）
+        run: |
+          python3 - build/vbox-quickjs/libvbox_quickjs.dylib <<'PY'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          lib.vq_create_runtime.restype = ctypes.c_void_p
+          lib.vq_create_context.restype = ctypes.c_void_p
+          lib.vq_create_context.argtypes = [ctypes.c_void_p]
+          lib.vq_eval.restype = ctypes.c_void_p
+          lib.vq_eval.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+          lib.vq_free_buffer.argtypes = [ctypes.c_void_p]
+          lib.vq_free_context.argtypes = [ctypes.c_void_p]
+          lib.vq_free_runtime.argtypes = [ctypes.c_void_p]
+          rt = lib.vq_create_runtime(); ctx = lib.vq_create_context(rt)
+          ptr = lib.vq_eval(ctx, b"21*2")
+          val = ctypes.string_at(ptr).decode()
+          lib.vq_free_buffer(ptr); lib.vq_free_context(ctx); lib.vq_free_runtime(rt)
+          assert val == "42", val
+          print(f"✅ vq_* 语义冒烟通过（eval 21*2 → {val}）")
+          PY
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-quickjs-macos
+          path: build/vbox-quickjs/libvbox_quickjs.dylib
+          retention-days: 14

@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/q2787244398/vboxapp/contract/schema/welfare_v1.json",
+  "title": "vbox 福利平台配置 welfare_platforms.json",
+  "description": "契约层 schema v1.0 · 来源：vbox-Ai/api sources/welfare_platforms.json 实测（90 平台 / 29 字段）+ welfare-js/README.md 发布要求",
+  "type": "object",
+  "required": ["schemaVersion", "categories", "platforms"],
+  "properties": {
+    "_meta": { "type": "object" },
+    "_meta_version_override": { "type": "object" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "categories": {
+      "type": "array",
+      "description": "分类（实测 3 个：video / live / comic）",
+      "items": {
+        "type": "object",
+        "required": ["key", "name"],
+        "properties": {
+          "key": { "type": "string", "enum": ["video", "live", "comic"] },
+          "name": { "type": "string", "examples": ["视频", "直播", "漫画"] },
+          "icon": { "type": "string", "examples": ["play.rectangle.fill"] }
+        }
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "description": "平台列表（实测 90 个）",
+      "items": { "$ref": "#/$defs/platform" }
+    }
+  },
+
+  "$defs": {
+    "platform": {
+      "type": "object",
+      "required": ["platformKey", "name", "category"],
+      "description": "福利平台（实测 29 个字段名）",
+      "properties": {
+        "platformKey": {
+          "type": "string",
+          "description": "平台唯一键（注意：非 key）",
+          "examples": ["ybox_xiangjiao", "missav", "daily_battle"]
+        },
+        "name": { "type": "string", "examples": ["香蕉秀", "MissAV"] },
+        "category": { "type": "string", "enum": ["video", "live", "comic"] },
+        "icon": { "type": "string", "description": "SF Symbol 名", "examples": ["leaf.fill", "film.fill"] },
+        "desc": { "type": "string" },
+        "serviceType": {
+          "type": "string",
+          "description": "服务类型；福利 Spider 为 welfare_spider，专用 API 为 ybox_special",
+          "examples": ["welfare_spider", "ybox_special"]
+        },
+        "defaultHosts": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" },
+          "description": "默认域名列表（可被 domain_overrides.json 覆盖）"
+        },
+        "sortOrder": { "type": "integer" },
+        "defaultProxy": { "type": "boolean" },
+        "notes": { "type": "string" },
+
+        "api": { "type": "string", "description": "脚本路径，如 ./sources/welfare-js/xxx.py" },
+        "apiKind": { "type": "string" },
+        "apiPath": { "type": "string" },
+        "scriptType": { "type": "string", "enum": ["python", "javascript"] },
+        "engine": { "type": "string", "examples": ["python", "spider"] },
+        "contentType": { "type": "string" },
+
+        "headers": { "type": "object" },
+        "sslBypass": { "type": "boolean" },
+        "imageSSLBypass": { "type": "boolean" },
+        "imageReferer": { "type": "string" },
+
+        "rootTypeId": { "type": "string" },
+        "rootTypeName": { "type": "string" },
+        "detailMode": { "type": "string" },
+        "itemRule": { "type": "object" },
+        "childDiscovery": { "type": "object" },
+
+        "visibleInNormalSpider": {
+          "type": "boolean",
+          "description": "⚠️ 强制 false（福利脚本不得进入普通蜘蛛链路）"
+        },
+        "visibleInGlobalSearch": {
+          "type": "boolean",
+          "description": "⚠️ 强制 false（不参与全局搜索）"
+        },
+        "visibleInHome": {
+          "type": "boolean",
+          "description": "⚠️ 强制 false（不在首页展示）"
+        }
+      },
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "$comment": "三重隔离约定（来自 welfare-js/README.md 发布要求）",
+          "if": { "properties": { "serviceType": { "const": "welfare_spider" } } },
+          "then": {
+            "properties": {
+              "visibleInNormalSpider": { "const": false },
+              "visibleInGlobalSearch": { "const": false },
+              "visibleInHome": { "const": false }
+            }
+          }
+        }
+      ]
+    }
+  },
+
+  "$comment_isolation": [
+    "福利 Spider 脚本只允许放在 sources/welfare-js/",
+    "福利平台只允许配置在 welfare_platforms.json",
+    "不得加入 spider_sources.json",
+    "visibleInNormalSpider / visibleInGlobalSearch / visibleInHome 必须为 false",
+    "福利平台只使用 domain_overrides.json 做域名覆盖，不做远程源控制显示"
+  ],
+
+  "$comment_publish": [
+    "新增或修改福利 Spider 后，需同步重新生成并提交：",
+    "  sources/welfare_platforms.json",
+    "  sources/all_sources.json",
+    "  sources/manifest.json",
+    "  sources/manifest.version",
+    "  sources/welfare-js/*.py"
+  ]
+}

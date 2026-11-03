@@ -4,10 +4,30 @@ Build/
 *.ipa
 *.zip
 .mpv-cache/
+# 桌面端内置 CPython 下载缓存（ND-02-desktop，bundle-python-*.{ps1,sh}，含 ~48MB pbs 包）
+.python-cache/
 vbox/Libraries/MPV/MPVKitDependencies/*.xcframework/
 vbox/Libraries/MPV/Freedom/*.xcframework/
 vbox/Libraries/NodeMobile/NodeMobile.xcframework/
+# Android Node 引擎预编译库与头文件（ND-01-native，CI 由 fetch-nodejs-mobile-android.sh 就位）
+android/app/src/main/jniLibs/**/libnode.so
+android/app/src/main/jni/libnode/
 __pycache__/
+
+# 编译产物（v6.1 补充：根目录曾误入库 6 个 .o）
+*.o
+*.obj
+.obj/
+
+# Flutter / Dart 构建产物
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+coverage/
+
+# Golden 测试失败诊断产物（flutter 运行时生成，不入库）
+test/golden/failures/
 
 # 阶段3+阶段4 临时备份目录（不推送）
 dead-code-review-step4/
@@ -17,3 +37,10 @@ dead-code-review-step6/
 vbox/Resources/noderuntime/.startup.ack
 vbox/Resources/noderuntime/.relisten
 vbox/Resources/noderuntime/.relisten.ack
+.uploads/
+
+# Windows 安装包构建产物（路线 A：Inno 静默内核 + .NET 壳）
+windows/installer/Output/
+windows/setup-shell/bin/
+windows/setup-shell/obj/
+windows/setup-shell/out/

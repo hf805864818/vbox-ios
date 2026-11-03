@@ -1,0 +1,56 @@
+{
+  "title": "视觉回归配对清单（Flutter golden ↔ iOS 基准图）· C1",
+  "note": "每页一条：ref = iOS 基准图（docs/ui_baseline/ios_ref/），cmp = Flutter 金色基线（test/golden/goldens/）。路径均相对仓库根。新增页面接入方式：追加一条（baseline 先留 null）→ 跑 `--update-baseline` 登记实测分 → 提交。",
+  "gateNote": "门禁口径 = 相对基线（baseline − tolerance），即「回归即红」。计划 §3.6 的绝对 SSIM ≥ 0.95 跨设备不可达（iOS 真机截图 vs Flutter 测试渲染，实测 0.25~0.45），留待 J.3 终检重定口径。",
+  "tolerance": 0.02,
+  "pairs": [
+    {
+      "family": "首页",
+      "ref": "docs/ui_baseline/ios_ref/vbox首页主页面.PNG",
+      "cmp": "test/golden/goldens/home_portrait.png",
+      "baseline": 0.4435
+    },
+    {
+      "family": "豆瓣排行榜",
+      "ref": "docs/ui_baseline/ios_ref/豆瓣排行榜页面.PNG",
+      "cmp": "test/golden/goldens/douban_ranking.png",
+      "baseline": 0.2539
+    },
+    {
+      "family": "空搜索页",
+      "ref": "docs/ui_baseline/ios_ref/搜索页面(未搜索资源的时候).PNG",
+      "cmp": "test/golden/goldens/search_empty_portrait.png",
+      "baseline": 0.5491
+    },
+    {
+      "family": "个人中心",
+      "ref": "docs/ui_baseline/ios_ref/个人中心主页面.PNG",
+      "cmp": "test/golden/goldens/profile_portrait.png",
+      "baseline": 0.7117
+    },
+    {
+      "family": "账号登录",
+      "ref": "docs/ui_baseline/ios_ref/个人中心账号登陆页面.PNG",
+      "cmp": "test/golden/goldens/login_sheet.png",
+      "baseline": 0.7852
+    },
+    {
+      "family": "设置页",
+      "ref": "docs/ui_baseline/ios_ref/整个设置页面可以上下滑动查看更多.PNG",
+      "cmp": "test/golden/goldens/settings_portrait.png",
+      "baseline": 0.6883
+    },
+    {
+      "family": "福利专区直播栏目",
+      "ref": "docs/ui_baseline/ios_ref/福利页面直播栏目.PNG",
+      "cmp": "test/golden/goldens/welfare_live_portrait.png",
+      "baseline": 0.8193
+    },
+    {
+      "family": "福利专区设置页",
+      "ref": "docs/ui_baseline/ios_ref/福利专区设置页面可上下滑动查看更多.PNG",
+      "cmp": "test/golden/goldens/welfare_settings_portrait.png",
+      "baseline": 0.3647
+    }
+  ]
+}

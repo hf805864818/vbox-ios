@@ -1,0 +1,18 @@
+; vbox JavaScriptCore import library export table (batch Q · Q-03, Windows JSC).
+;
+; Playwright's webkit-win64.zip ships JavaScriptCore.dll WITHOUT a .lib, so the
+; import library must be rebuilt from the DLL's exported symbols. scripts/
+; build-jsc-windows.ps1 feeds this file to MSVC lib.exe:
+;     lib /def:JavaScriptCore.def /machine:x64 /out:JavaScriptCore.lib
+;
+; Only the 8 JSC C API symbols used by jsc/wrapper.c are listed. On x64 there is
+; no name decoration, so these names match the DLL's exports exactly.
+EXPORTS
+    JSGlobalContextCreate
+    JSGlobalContextRelease
+    JSStringCreateWithUTF8CString
+    JSStringGetMaximumUTF8CStringSize
+    JSStringGetUTF8CString
+    JSStringRelease
+    JSEvaluateScript
+    JSValueToStringCopy

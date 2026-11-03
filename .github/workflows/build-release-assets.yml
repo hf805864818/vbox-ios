@@ -1,0 +1,461 @@
+# 三端发布打包（G-09 前置物料 P4/P5，S.6/S.7）
+#
+# 背景：flutter-check 的三端 job 只做 `--debug` 编译验证（解锁 E.10b 门禁「三端编译」），
+# 产物不保留；build-ipa 管道只产出 iOS IPA。真机验收清单（docs/真机验收清单_G09_G10.md）
+# P5 要求的 GitHub Release 资产（vbox-arm64.apk / vbox-v7a.apk / vbox-setup.exe / vbox.dmg）
+# 此前无任何工作流产出 → 本工作流补齐。
+#
+# 触发方式（自动 · 主路径）：跟随 build-ipa 管道 —— iOS 构建成功（workflow_run completed/success）
+# 后自动执行，把三端安装包追加到「同一个 Release」（该 Release 已含 vbox.ipa，tag 来自 iOS
+# 版本号，例如 v3.1649），从而实现「代码一变动即产出 ipa + APK + EXE + DMG」。
+# 另保留 workflow_dispatch 手动触发（可显式指定 release_tag）。
+# iOS 构建失败时本工作流整体跳过，绝不产出残包。
+#
+# 分发决策（D28）：libmpv 原生二进制不入 git 仓库，由 scripts/fetch_libmpv.sh 从
+# q2787244398/vbox-deps 的 Release 资产下载并随 DMG / EXE 分发（该仓库公开，无需 secret；
+# 亦可配 secrets.LIBMPV_DEPS_TOKEN / LIBMPV_DEPS_URL 覆盖）。Windows 资产为单一自包含
+# libmpv-*.dll；macOS 为动态库集合 libmpv-macos-*.tar.gz（libmpv.dylib + @rpath 依赖 dylib）。
+#
+# 签名（S.6）：Android 自签名即可但更新必须同签名。签名密钥以 secrets 注入：
+#   ANDROID_KEYSTORE_BASE64（vbox-release.jks 的 base64）、ANDROID_KEYSTORE_PASSWORD、
+#   ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD
+# 未配置时回退 debug 签名 APK（可安装，P4 同签名覆盖验证待配置后重跑）。
+# Windows 代码签名 / macOS 公证均为可选（S.6：侧载可接受）。
+
+name: Build Release Assets (APK / EXE / DMG)
+
+on:
+  # 主路径：iOS（build-ipa）构建成功完成后自动触发
+  workflow_run:
+    workflows: ["Build IPA (巨魔安装版)"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          目标 Release tag。留空则自动取最近一个含 vbox.ipa 资产的 Release
+          （即 build-ipa 刚创建的版本，如 v3.1649）；也可手动填写其他 tag。
+        required: false
+        type: string
+
+# 建 Release / 上传资产需要写权限
+permissions:
+  contents: write
+
+# 按分支串行：同一分支只保留最新一次打包，新触发取消仍在跑的旧构建。
+# 连续推送时旧代码产出的安装包会被顶掉，避免「旧代码编译失败/缺最新内容」仍占机时或误出残包。
+concurrency:
+  group: build-release-assets-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Android：release APK（arm64 + v7a）+ S.6 自签名 ────────────────
+  build-android:
+    name: Build Android APK (arm64 + v7a)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+          cache: true
+
+      # 版本号同步：Flutter 侧 pubspec.yaml / AppInfo 从仓库唯一真相源 `.version`
+      # 派生（与 iOS build-ipa.yml 同口径），使设置页与启动页版本号随仓库变动自适应。
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
+
+      - run: flutter pub get
+
+      # file_picker 10.3.3 硬编码 kotlinOptions jvmTarget=1.8，而 Flutter 工具链为
+      # 插件子项目统一设置 Java 11 → KGP jvm-target 校验失败。Gradle 侧注入会被
+      # KGP 在子项目求值期注册的配置覆盖（时序不可靠），故直接修正插件源码声明，
+      # 使其与宿主 Java 11 自洽。升级 file_picker（12+/13+ 已迁移内置 Kotlin）后移除。
+      - name: Align file_picker kotlin jvmTarget with host Java 11
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUB_CACHE_DIR="${PUB_CACHE:-$HOME/.pub-cache}"
+          FILE="$(find "$PUB_CACHE_DIR/hosted" -type f -path "*file_picker-10.3.3/android/build.gradle" | head -n 1)"
+          test -n "$FILE" || { echo "❌ 未找到 file_picker 10.3.3 android/build.gradle"; exit 1; }
+          echo "Patching: $FILE"
+          sed -i "s/jvmTarget = '1.8'/jvmTarget = '11'/" "$FILE"
+          grep -n "jvmTarget" "$FILE"
+
+      # 批次 Q · Q-02：就位四 ABI libjsc.so（JSC 主引擎，AGP externalNativeBuild 前置）
+      - name: Fetch Android JSC prebuilt libs (Q-02)
+        run: bash scripts/fetch-jsc-android.sh
+
+      # 批次 I · ND-01-native：就位 Node 引擎预编译库（对齐 iOS build-ipa.yml 下载 NodeMobile）
+      - name: Fetch Android Node engine prebuilt libs (ND-01)
+        run: bash scripts/fetch-nodejs-mobile-android.sh
+
+      # 批次 RT-运1：Chaquopy 强制要求 ndk.abiFilters 非空，而 AGP 9 禁止其与 splits
+      # （Flutter `--split-per-abi`）并存 → 改为「分 ABI 多次构建」，产出等价的分 ABI 包。
+      # `-Pdisable-abi-filtering=true` 阻止 Flutter Gradle 插件在非 split 构建中覆写
+      # app 模块 defaultConfig.ndk.abiFilters（见 android/app/build.gradle.kts）。
+      - name: Build release APKs (per-ABI)
+        run: |
+          set -euo pipefail
+          OUT=build/app/outputs/flutter-apk
+          build_abi() {
+            local abi="$1" target="$2" name="$3"
+            flutter build apk --release \
+              -Pdisable-abi-filtering=true -PvboxAbi="$abi" \
+              --target-platform "$target"
+            cp "$OUT/app-release.apk" "vbox-$name.apk"
+          }
+          build_abi arm64-v8a   android-arm64 arm64
+          build_abi armeabi-v7a android-arm   v7a
+          ls -lh vbox-*.apk
+
+      - name: Sign with release keystore (S.6, P4)
+        env:
+          KS_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          BT="$(ls "$SDK_ROOT"/build-tools | sort -V | tail -1)"
+          APKSIGNER="$SDK_ROOT/build-tools/$BT/apksigner"
+          if [ -n "$KS_BASE64" ] && [ -n "$KS_PASS" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASS" ]; then
+            echo "$KS_BASE64" | base64 -d > vbox-release.jks
+            for n in arm64 v7a; do
+              "$APKSIGNER" sign --ks vbox-release.jks \
+                --ks-pass "env:KS_PASS" --ks-key-alias "$KEY_ALIAS" --key-pass "env:KEY_PASS" \
+                --v1-signing-enabled true --v2-signing-enabled true \
+                --out "vbox-$n.signed.apk" "vbox-$n.apk"
+              mv "vbox-$n.signed.apk" "vbox-$n.apk"
+            done
+            "$APKSIGNER" verify --print-certs vbox-arm64.apk | head -3
+            echo "✅ 已用 release 密钥签名（v1+v2）"
+          else
+            echo "⚠️ 未配置 ANDROID_KEYSTORE_* secrets，产出 debug 签名 APK（可安装；"
+            echo "   P4 同签名覆盖更新验证需配置密钥后重跑本工作流）"
+          fi
+          ls -lh vbox-*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbox-apk
+          path: |
+            vbox-arm64.apk
+            vbox-v7a.apk
+          retention-days: 14
+
+  # ── Windows：release 构建 + libmpv dll + Inno Setup → vbox-setup.exe ──
+  build-windows:
+    name: Build Windows installer (vbox-setup.exe)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+          cache: true
+
+      # 版本号同步：Flutter 侧 pubspec.yaml / AppInfo 从仓库唯一真相源 `.version`
+      # 派生（与 iOS build-ipa.yml 同口径），安装包版本号与设置页显示一致。
+      - name: Sync version from .version
+        run: python scripts/sync_version.py
+
+      - run: flutter pub get
+
+      - name: Fetch libmpv dll (D28)
+        shell: bash
+        env:
+          # 不对 vbox-deps 传送 GITHUB_TOKEN：它仅限本仓库（跨仓库读取会 404）。
+          # vbox-deps 为公开仓库，留空即匿名读取；若改为私有，再配 secrets.LIBMPV_DEPS_TOKEN。
+          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN }}
+          LIBMPV_DEPS_URL: ${{ secrets.LIBMPV_DEPS_URL }}
+        run: |
+          bash scripts/fetch_libmpv.sh --os windows --arch x86_64 --cache-dir .mpv-cache
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      # 批次 C · C-11：libmpv 运行时随 release 目录分发（fetch 复用 .mpv-cache 缓存 +
+      # sha256 校验 + 改名 mpv-2.dll + 拷入 runner/Release/，与 bundle-jsc-windows.ps1 同模式）
+      - name: Bundle libmpv dll into release dir (C-11)
+        shell: pwsh
+        run: .\scripts\bundle-libmpv-windows.ps1 -Config Release
+
+      # 批次 Q · Q-03：JSC 引擎随 release 目录分发（fetch + MSVC 构建 + 拷贝 + 冒烟）
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Bundle JSC dll into release dir (Q-03)
+        shell: pwsh
+        run: .\scripts\bundle-jsc-windows.ps1 -Config Release
+
+      # ND-02-desktop：Node 引擎随 release 目录分发（<exeDir>/noderuntime/node.exe，
+      # ProcessNodeHost 探测链 ② 命中）——对齐 iOS「引擎随包内置、零外部依赖」，
+      # 用户免装 Node.js，Node 常驻系统开箱即用。
+      - name: Bundle Node engine into release dir (ND-02)
+        shell: pwsh
+        run: .\scripts\bundle-node-windows.ps1 -Config Release
+
+      # ND-02-desktop：内置 CPython 随 release 目录分发（<exeDir>/pyruntime/python.exe
+      # + python-stdlib，StdioPythonRuntime 探测链 ① 命中）——让桌面端 `.py` 源免装
+      # 系统 Python 即可用（对齐 iOS「引擎随包内置」）。须在 Inno Setup 编译前就位：
+      # installer.iss 递归打包 Release\*，pyruntime/ 由此自动携带。
+      - name: Bundle Python runtime into release dir (ND-02-desktop)
+        shell: pwsh
+        run: .\scripts\bundle-python-windows.ps1 -Config Release
+
+      # 注：WebView2 固定版运行时（<exeDir>/webview2/）已移除随包分发，安装包
+      # 体积回到 ~246MB。取号原生桥会回退系统 Evergreen 运行时检测；系统未装
+      # WebView2 的机器由后续方案（引导安装 / WinHTTP 取号）兜底，见讨论结论。
+
+      # G-03-B：QuickJS JS 引擎随 release 目录分发。域层 `_effectiveEngineType`
+      # 将 JS 站点（javaScriptCore）映射为 quickJS（见 content_browse_usecases.dart），
+      # 故桌面端 JS 蜘蛛依赖 libvbox_quickjs；此前从未随包分发 → 切源分类无数据、
+      # 报「QuickJs 原生库未打包」。QuickJS 依赖 GCC 扩展（__int128/__attribute__，
+      # MSVC 不可编译）→ 用 MSYS2 mingw-w64 gcc 编译 vbox_quickjs.dll。
+      - name: Setup MSYS2 (mingw-w64 gcc for QuickJS)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      # 见 build-quickjs.yml：探测 setup-msys2 真实安装根，供 PS 脚本定位 gcc。
+      - name: Resolve MSYS2 root
+        shell: msys2 {0}
+        run: echo "MSYS2_ROOT=$(cygpath -w /)" >> "$GITHUB_ENV"
+
+      - name: Bundle QuickJS dll into release dir (G-03-B)
+        shell: pwsh
+        run: .\scripts\bundle-quickjs-windows.ps1 -Config Release
+
+      - name: Resolve version from pubspec
+        id: version
+        shell: bash
+        run: |
+          VER="$(grep -E '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+          test -n "$VER" || { echo "❌ 未从 pubspec.yaml 解析到版本号"; exit 1; }
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "注入安装包版本号: ${VER}"
+
+      # 路线 A ①：编译「静默安装内核」——复用既有 installer.iss，安装逻辑零改动，
+      # 仅新增进度上报钩子；产物改名 vbox-installer-core.exe，作为壳的内嵌资源。
+      - name: Compile installer core (Inno Setup)
+        shell: pwsh
+        env:
+          VBOX_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=$env:VBOX_VERSION" "windows/installer/installer.iss"
+          if (-not (Test-Path "windows/installer/Output/vbox-installer-core.exe")) {
+            throw "❌ 未生成安装内核 windows/installer/Output/vbox-installer-core.exe"
+          }
+
+      # 路线 A ②：构建 UI 壳（.NET 8 WPF + WebView2），把 core + 定稿 HTML/素材内嵌进单文件。
+      # 交付物仍是 S.7 命名 vbox-setup.exe（双击即壳，无任何 Inno 原生向导窗口）。
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build setup shell
+        shell: pwsh
+        env:
+          VBOX_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dotnet publish windows/setup-shell/VboxSetupShell.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeAllContentForSelfExtract=true `
+            -p:InstallerVersion=$env:VBOX_VERSION `
+            -p:CoreExe=..\installer\Output\vbox-installer-core.exe `
+            -o windows/setup-shell/out
+          if (-not (Test-Path "windows/setup-shell/out/VboxSetupShell.exe")) {
+            throw "❌ 未生成安装壳 windows/setup-shell/out/VboxSetupShell.exe"
+          }
+
+      # 路线 A ③：产物改名，保持 S.7 命名（vbox-setup.exe 归壳所有）
+      - name: Rename to S.7 name (vbox-setup.exe)
+        shell: bash
+        run: |
+          mv windows/setup-shell/out/VboxSetupShell.exe vbox-setup.exe
+          ls -lh vbox-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbox-windows
+          path: vbox-setup.exe
+          retention-days: 14
+
+  # ── macOS：release 构建 + libmpv dylib + hdiutil → vbox.dmg ─────────
+  build-macos:
+    name: Build macOS DMG (vbox.dmg)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+          cache: true
+
+      # 版本号同步：Flutter 侧 pubspec.yaml / AppInfo 从仓库唯一真相源 `.version`
+      # 派生（与 iOS build-ipa.yml 同口径），使设置页与启动页版本号随仓库变动自适应。
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
+
+      - run: flutter pub get
+
+      - name: Fetch libmpv dylib (D28)
+        env:
+          # 不对 vbox-deps 传送 GITHUB_TOKEN：它仅限本仓库（跨仓库读取会 404）。
+          # vbox-deps 为公开仓库，留空即匿名读取；若改为私有，再配 secrets.LIBMPV_DEPS_TOKEN。
+          LIBMPV_DEPS_TOKEN: ${{ secrets.LIBMPV_DEPS_TOKEN }}
+          LIBMPV_DEPS_URL: ${{ secrets.LIBMPV_DEPS_URL }}
+        run: |
+          ARCH="$(uname -m)"
+          bash scripts/fetch_libmpv.sh --os macos --arch "$ARCH" --cache-dir .mpv-cache
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      # 批次 Q · Q-04：JSC dylib 随 App 分发（Contents/Frameworks，rpath 解析）。
+      # 先于 libmpv 段执行：libmpv 段的 re-sign 已覆盖追加 dylib 后的签名失效问题。
+      - name: Bundle JSC dylib into app (Q-04)
+        run: bash scripts/bundle-jsc-macos.sh --config Release
+
+      - name: Bundle libmpv dylib set into app Frameworks
+        run: |
+          APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
+          mkdir -p "$APP/Contents/Frameworks"
+          # D28：macOS 为动态库集合（libmpv.dylib + @rpath/libav*.dylib 等同组依赖），
+          # 整组拷入 Frameworks，由 App 主二进制的 @executable_path/../Frameworks rpath 解析。
+          cp .mpv-cache/*.dylib "$APP/Contents/Frameworks/"
+          ls -lh "$APP/Contents/Frameworks/"
+
+      # ND-02-desktop：Node 引擎随 App 分发（Contents/MacOS/noderuntime/node，
+      # 探测链 ② 落点）——须在统一 re-sign 之前（re-sign 覆盖嵌套二进制签名）。
+      - name: Bundle Node engine into app (ND-02)
+        run: bash scripts/bundle-node-macos.sh --config Release
+
+      # ND-02-desktop：内置 CPython 随 App 分发（Contents/Resources/pyruntime/bin/python3
+      # + python-stdlib，StdioPythonRuntime 探测链 ① 命中）。**落点是 Resources 数据区**：
+      # codesign 把 Contents/MacOS 下整棵子树视为代码，python-stdlib 的 *.py 会被判为
+      # 「未签名的嵌套代码」而令 App 重签失败。须在统一 re-sign 之前：脚本已对
+      # pyruntime 内嵌套 Mach-O（python3 / *.dylib / *.so）递归 ad-hoc 签名，
+      # 末段 re-sign 再统一覆盖（与 Node/QuickJS 同约束）。
+      - name: Bundle Python runtime into app (ND-02-desktop)
+        run: bash scripts/bundle-python-macos.sh --config Release
+
+      # G-03-B：QuickJS JS 引擎随 App 分发（Contents/Frameworks，rpath 解析）。
+      # 域层将 JS 站点映射为 quickJS，桌面端 JS 蜘蛛依赖 libvbox_quickjs。
+      # 须在统一 re-sign 之前（本步自签 dylib+App，末段 re-sign 再统一覆盖）。
+      - name: Bundle QuickJS dylib into app (G-03-B)
+        run: bash scripts/bundle-quickjs-macos.sh --config Release
+
+      - name: Ad-hoc re-sign app (S.6 侧载，未公证)
+        run: |
+          APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
+          # 向 Frameworks 追加 dylib 会使 Flutter 的 ad-hoc 签名失效 → 先签嵌套 dylib 再签 App 本体。
+          codesign --force --sign - "$APP/Contents/Frameworks/"*.dylib
+          # ND-02-desktop：pyruntime 内含大量嵌套 Mach-O（bin/python3、*.dylib、*.so），
+          # 须在 App 本体签名前递归 ad-hoc 签名，否则嵌套二进制未签会被 Gatekeeper 拦截。
+          # 打包脚本已签过一遍，此处幂等覆盖，确保与 App 本体签名一致。
+          find "$APP/Contents/Resources/pyruntime" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null \
+            | while IFS= read -r -d '' f; do codesign --force --sign - "$f" >/dev/null 2>&1 || true; done
+          codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$APP"
+          codesign --verify --verbose=2 "$APP"
+
+      - name: Create DMG
+        run: |
+          APP="$(ls -d build/macos/Build/Products/Release/*.app | head -1)"
+          hdiutil create -volname vbox -srcfolder "$APP" -ov -format UDZO vbox.dmg
+          ls -lh vbox.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vbox-macos
+          path: vbox.dmg
+          retention-days: 14
+
+  # ── 汇总：下载三端产物，挂到 Release（同一 vbox.ipa 所在 tag）────────
+  attach-to-release:
+    name: Attach assets to Release
+    needs: [build-android, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # ① 手动指定优先
+          if [ -n "${INPUT_TAG:-}" ]; then
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+            echo "使用手动指定 tag: ${INPUT_TAG}"
+            exit 0
+          fi
+          # ② 自动模式：取最近一个「含 .ipa 资产」的 Release —— 即 build-ipa 刚创建的版本，
+          #    保证三端安装包与 iOS IPA 落在同一 Release / 同一版本号
+          TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=20" \
+            --jq '[.[] | select(any(.assets[]; .name | endswith(".ipa")))] | .[0].tag_name' 2>/dev/null || true)"
+          # ③ 兜底：无 IPA Release 时，改按 iOS Info.plist 版本号推导（与 build-ipa 同源）
+          if [ -z "${TAG:-}" ] || [ "${TAG}" = "null" ]; then
+            VER="$(python3 -c "import re;t=open('vbox/Info.plist').read();m=re.search(r'<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>',t);print(m.group(1) if m else '')")"
+            TAG="v${VER}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "解析到 Release tag: ${TAG}"
+
+      - name: Upload assets to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          cd assets
+          ls -lh
+          FILES=(vbox-arm64.apk vbox-v7a.apk vbox-setup.exe vbox.dmg)
+          for f in "${FILES[@]}"; do
+            test -f "$f" || { echo "❌ 缺少资产 $f"; exit 1; }
+          done
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "✅ Release $TAG 已存在，追加资产（与 vbox.ipa 同 Release）"
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+          else
+            echo "Release $TAG 不存在，创建并上传资产"
+            gh release create "$TAG" "${FILES[@]}" --title "$TAG" \
+              --notes "vbox 平台安装包（Android APK / Windows EXE / macOS DMG），由 build-release-assets 工作流产出"
+          fi
+          echo "=== Release $TAG 当前资产 ==="
+          gh release view "$TAG" --json assets -q '.assets[].name'

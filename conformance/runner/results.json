@@ -1,0 +1,505 @@
+{
+ "total": 83,
+ "passed": 83,
+ "failed": 0,
+ "results": [
+  {
+   "suite": "spider",
+   "name": "schemaVersion 为 1.0",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "homeContent 请求/响应结构合法",
+   "ok": true,
+   "detail": "request.op=homeContent ok=True"
+  },
+  {
+   "suite": "spider",
+   "name": "searchContent 请求/响应结构合法",
+   "ok": true,
+   "detail": "request.op=searchContent ok=True"
+  },
+  {
+   "suite": "spider",
+   "name": "categoryContent 请求/响应结构合法",
+   "ok": true,
+   "detail": "request.op=categoryContent ok=True"
+  },
+  {
+   "suite": "spider",
+   "name": "detailContent 请求/响应结构合法",
+   "ok": true,
+   "detail": "request.op=detailContent ok=True"
+  },
+  {
+   "suite": "spider",
+   "name": "playerContent 请求/响应结构合法",
+   "ok": true,
+   "detail": "request.op=playerContent ok=True"
+  },
+  {
+   "suite": "spider",
+   "name": "容错[typeIdAsInt] type_id 为 Int 时转 String",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[vodIdAsInt] vod_id/vod_name/vod_pic 支持 String/Int/Double",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlsBackfill] urls 缺省且 url 非空 → urls = [url]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlsBackfillEmpty] url 为空 → urls 保持 null",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlAsArray] url 数组形态（多线路/多音质蜘蛛）→ urls=全列表、url=首元素",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlAsArrayBeatsUrlsKey] url 数组形态下 urls 键不再参与（iOS init(from:) 优先级）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[urlAsArrayEmpty] url 空数组 → urls=[]（非 null）、url=null",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[availQualitiesDefault] availQualities 缺省为 []",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "容错[missingOptional] 可选字段缺失不报错",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "错误码含 E_REGISTER / E_SCRIPT_LOAD",
+   "ok": true,
+   "detail": "实为 ['E_REGISTER', 'E_SCRIPT_LOAD']"
+  },
+  {
+   "suite": "spider",
+   "name": "契约声明错误前缀 Error",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "契约声明错误前缀 TypeError",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "契约声明错误前缀 ReferenceError",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "契约声明错误前缀 SyntaxError",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "gb2312/gb18030 归一为 GBK（同一家族）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "未知编码降级 base64",
+   "ok": true,
+   "detail": "实为 base64"
+  },
+  {
+   "suite": "spider",
+   "name": "big5 / latin1 映射齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "五操作 data 字段形状齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "spider",
+   "name": "站点模式判定一致（15 例）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "sqlite",
+   "name": "用户表数量与契约一致（9 表）",
+   "ok": true,
+   "detail": "fixture=['apiyuan', 'download', 'favorite', 'history', 'jiexisetting', 'search_history', 'settings', 'subscription', 'zhanyuan']"
+  },
+  {
+   "suite": "sqlite",
+   "name": "全部表字段级一致",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "sqlite",
+   "name": "download 的 4 个 v4 列存在且可空",
+   "ok": true,
+   "detail": "缺失或非空: []"
+  },
+  {
+   "suite": "sqlite",
+   "name": "download 基线列仍为 NOT NULL",
+   "ok": true,
+   "detail": "被放宽: []"
+  },
+  {
+   "suite": "sqlite",
+   "name": "zhanyuan 唯一约束为 (name, dyurl)",
+   "ok": true,
+   "detail": "实为 [('name', 'dyurl')]"
+  },
+  {
+   "suite": "sqlite",
+   "name": "全部行可读回并 JSON 化（10 行）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "schemaVersion 为 1.0",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "加密参数 = PBKDF2-HMAC-SHA256 + AES-256-GCM",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "迭代 100000 / salt16 / iv12 / key32",
+   "ok": true,
+   "detail": "实为 100000/16/12/32"
+  },
+  {
+   "suite": "backup",
+   "name": "GCM tag 16 字节且无 AAD",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "fixture 含 unencryptedEnvelope",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "fixture 含 encryptedEnvelope",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "fixture 含 payload",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "加密信封字段齐备",
+   "ok": true,
+   "detail": "缺 set()"
+  },
+  {
+   "suite": "backup",
+   "name": "加密信封 encrypted=true",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "契约 §7 白名单解析出 14 键（实为 14）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "defaults 键全部在白名单内",
+   "ok": true,
+   "detail": "越界 []"
+  },
+  {
+   "suite": "backup",
+   "name": "未加密备份仅含前 11 键（不含福利 3 键）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "个人设置快照仅 username/avatarBase64/defaults",
+   "ok": true,
+   "detail": "实为 ['$comment', 'avatarBase64', 'defaults', 'username']"
+  },
+  {
+   "suite": "backup",
+   "name": "旧备份缺 lxPlugins 字段（须能解码为空字典）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "PBKDF2(100k) + AES-256-GCM 往返一致",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "密文与 tag 分离（备份格式要求 tag 独立存放）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "错误口令解密失败（GCM 校验生效）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "声明测试用例（11 条）均带 platforms",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "backup",
+   "name": "风险清单已声明",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "schemaVersion 为 1",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "configVersion 格式 = YYYY.MM.DD.N",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "默认 TTL = 21600（6h）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "必需文件条目 = allSources",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "已知文件键 10 个（实为 10）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[validFull]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[missingAllSources]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[badConfigVersion]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[defaultsApplied]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "用例[minAppVersionOptional]",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "manifest",
+   "name": "全部用例通过（5 例）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "schemaVersion 为 1.0",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 javaScriptCore rawValue=JavaScriptCore",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 quickJS rawValue=QuickJS",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 node rawValue=Node",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 nodeLX rawValue=NodeLX",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "引擎 python rawValue=python",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 isAvailable 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 createRuntime 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 createContext 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 freeContext 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 freeRuntime 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "bridge 方法 eval 双端齐备",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_create_runtime' / 'vj_create_runtime'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_create_context' / 'vj_create_context'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_free_runtime' / 'vj_free_runtime'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_free_context' / 'vj_free_context'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_eval' / 'vj_eval'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "C 符号 'vq_free_string' / 'vj_free_string'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "free_string 双端 2 参（ctx + str）",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "降级可观测标记 'JSC 引擎不可用'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "降级可观测标记 '自动降级 QuickJS'",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "suite": "engine",
+   "name": "降级可观测标记 '已降级为 QuickJS 引擎'",
+   "ok": true,
+   "detail": ""
+  }
+ ]
+}

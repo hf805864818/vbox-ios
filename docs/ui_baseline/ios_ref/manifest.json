@@ -1,0 +1,31 @@
+{
+  "title": "iOS UI 参考图归档（只读基准）· 35 张 → 19 个页面族",
+  "source": "/workspace/.uploads/ui_extract/vbox多端ui/（vbox多端ui.zip 解压）",
+  "planSection": "docs/第2轮开发计划_功能补全_v2.6.md §2.1（UI 图清单）· §3.7（视觉回归）",
+  "note": "只读基准：本目录为 iOS 侧 UI 截图原始归档，不做任何修改；逐页 SSIM 比对（≥0.95）由 scripts/visual_regression.py 按页面族配对产出。福利「视频栏目」「漫画栏目」两张系内容合规过滤对象，仅作版式参考（与「直播栏目」同构）。",
+  "families": [
+    { "no": 1,  "family": "首页",              "files": ["vbox首页主页面.PNG"] },
+    { "no": 2,  "family": "切换源浮层",         "files": ["首页页面打开切换源悬浮页面.PNG"] },
+    { "no": 3,  "family": "搜索·空态",          "files": ["搜索页面(未搜索资源的时候).PNG"] },
+    { "no": 4,  "family": "搜索·结果",          "files": ["搜索页面(资源出来结果后的界面).PNG"] },
+    { "no": 5,  "family": "豆瓣排行榜",          "files": ["豆瓣排行榜页面.PNG"] },
+    { "no": 6,  "family": "短剧",              "files": ["短剧页面.PNG"] },
+    { "no": 7,  "family": "详情页",              "files": ["详情页剧集页面顶层数据内容可以上下滑动，底部是对应资源封面图.PNG", "详情页剧集页面顶层数据内容可以上下滑动，底部是对应资源封面图1.PNG"] },
+    { "no": 8,  "family": "详情·剧集展开",       "files": ["详情页剧集列表展开界面.PNG"] },
+    { "no": 9,  "family": "详情·下载选择",       "files": ["详情页剧集列表展开准备下载界面.PNG"] },
+    { "no": 10, "family": "个人中心",            "files": ["个人中心主页面.PNG"] },
+    { "no": 11, "family": "账号登录",            "files": ["个人中心账号登陆页面.PNG"] },
+    { "no": 12, "family": "设置页",              "files": ["整个设置页面可以上下滑动查看更多.PNG"] },
+    { "no": 13, "family": "直播",              "files": ["直播页面.PNG"] },
+    { "no": 14, "family": "网盘授权",            "files": ["网盘账号授权页面.PNG"] },
+    { "no": 15, "family": "网盘排序",            "files": ["网盘排序界面.PNG"] },
+    { "no": 16, "family": "福利入口",            "files": ["福利专区入口界面.PNG"] },
+    { "no": 17, "family": "福利三栏目",          "files": ["福利页面直播栏目.PNG", "福利页面主页面视频栏目.PNG", "福利页面漫画栏目.PNG"] },
+    { "no": 18, "family": "切换源分类数据",       "files": ["切换源分类数据页面显示.PNG"] },
+    { "no": 19, "family": "播放器（横/竖）",      "files": ["播放器界面UI/横屏效果/IMG_5220.PNG", "播放器界面UI/横屏效果/IMG_5221.PNG", "播放器界面UI/横屏效果/IMG_5222.PNG", "播放器界面UI/横屏效果/IMG_5223.PNG", "播放器界面UI/横屏效果/IMG_5224.PNG", "播放器界面UI/横屏效果/IMG_5225.PNG", "播放器界面UI/横屏效果/IMG_5228.PNG", "播放器界面UI/竖屏效果/IMG_5229.PNG", "播放器界面UI/竖屏效果/IMG_5230.PNG", "播放器界面UI/竖屏效果/IMG_5231.PNG", "播放器界面UI/竖屏效果/IMG_5232.PNG", "播放器界面UI/竖屏效果/IMG_5233.PNG"] }
+  ],
+  "extras": [
+    { "family": "福利·设置", "files": ["福利专区设置页面可上下滑动查看更多.PNG"] },
+    { "family": "Bug 反馈", "files": ["Bug 反馈界面.PNG"] }
+  ]
+}

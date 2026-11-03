@@ -1,0 +1,77 @@
+# Bug 报告模板（人测产出）
+# 契约层文件 · contract/docs/bug_report_template.yaml
+# 用途：人测阶段结构化反馈，AI 可直接解析，减少信息损耗
+# 命名规范：bug_report_YYYYMMDD_NNN.yaml
+
+id: BUG-001                      # 唯一编号，按序递增
+title: "简短描述现象（一句话）"
+platform: android_tv             # android_phone | android_tv | windows | macos | ios
+device: "设备型号（含系统版本）"   # 例：小米盒子4 (Android 9)
+build: "v0.1.0+15 (arm64)"       # 版本+构建号+ABI
+ui_mode: tv                      # phone | tv | desktop
+reporter: ""                     # 测试人（可留空）
+
+severity: high                   # critical | high | medium | low
+frequency: always                # always | often | sometimes | once
+
+reproduction:                    # 复现步骤（精确、可重复）
+  - "启动 App"
+  - "进入首页"
+  - "（具体操作）"
+
+expected: "预期行为（一句话）"
+actual: "实际行为（一句话）"
+
+evidence:                        # 证据文件（放在同目录）
+  screenshot: ""                 # 截图文件名，如 bug001_focus.png
+  video: ""                      # 录屏文件名
+  logcat: ""                     # 日志文件名
+  crash_trace: ""                # 崩溃堆栈文件名
+
+last_working_build: ""           # 上一个正常版本（可选，用于定位回归）
+first_seen_build: ""             # 首次出现版本（可选）
+
+related:                         # 关联信息（可选）
+  module: ""                     # 涉及模块，如 spider/player/database
+  contract: ""                   # 是否涉及契约，如 contract/schema/schema_v1.sql
+  decision: ""                   # 关联决策，如 D12
+
+notes: ""                        # 补充说明
+
+# ────────────────────────────────────────────────────────────
+# severity 定义
+#   critical : 崩溃 / 数据丢失 / 核心功能不可用
+#   high     : 主要功能异常，有绕行方案
+#   medium   : 次要功能异常或体验问题
+#   low      : 外观 / 文案 / 极端场景
+#
+# frequency 定义
+#   always    : 100% 复现
+#   often     : >50% 复现
+#   sometimes : <50% 复现
+#   once      : 仅出现一次，无法复现
+# ────────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────
+# 示例（供参考，实际报告请删除此段）
+# ────────────────────────────────────────────────────────────
+# id: BUG-018
+# title: "TV 端首页第二行末尾焦点丢失"
+# platform: android_tv
+# device: "小米盒子4 (Android 9)"
+# build: "v0.1.0+15 (arm64)"
+# ui_mode: tv
+# severity: medium
+# frequency: always
+# reproduction:
+#   - "启动 App 进入 TV 首页"
+#   - "遥控器向下移动到第二行"
+#   - "向右移动到最后一个卡片"
+#   - "再按一次右键"
+# expected: "焦点循环到行首，或跳转到下一行"
+# actual: "焦点消失，画面无高亮元素"
+# evidence:
+#   screenshot: "bug018_focus_lost.png"
+#   video: "bug018_focus_lost.mp4"
+#   logcat: "bug018_logcat.txt"
+# notes: "第一行末尾正常，仅第二行复现"

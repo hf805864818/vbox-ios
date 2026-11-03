@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>vbox 安装向导 · 方案 C 浅色 + 启动页 Logo 动效 v2</title>
+<style>
+  :root{
+    --rose:#E11D48;
+    --rose-deep:#BE123C;
+    --rose-soft:#FB7185;
+    --paper:#F7F7FA;
+    --paper2:#E6E6ED;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#2a2d34;
+    background-image:radial-gradient(circle at 20% 0%,#3a3e47 0%,#23262c 60%,#1a1c21 100%);
+    color:#e8eaee;min-height:100vh;padding:28px 20px 60px;
+  }
+  .page-head{max-width:760px;margin:0 auto 20px}
+  .page-head h1{font-size:20px;margin:0 0 6px;font-weight:700;letter-spacing:.5px}
+  .page-head p{margin:0;color:#9aa1ad;font-size:13px;line-height:1.7}
+  .page-head code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:4px}
+
+  .toolbar{max-width:760px;margin:18px auto 22px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .tabs{display:flex;gap:6px;background:rgba(255,255,255,.06);padding:4px;border-radius:12px}
+  .tab{appearance:none;border:0;cursor:pointer;color:#c3c8d2;background:transparent;
+    padding:8px 16px;border-radius:9px;font-size:13px;font-weight:600;transition:.2s}
+  .tab:hover{color:#fff}
+  .tab.active{background:var(--rose);color:#fff;box-shadow:0 4px 14px rgba(225,29,72,.45)}
+  .btn{
+    appearance:none;border:1px solid rgba(255,255,255,.16);cursor:pointer;
+    background:rgba(255,255,255,.06);color:#e8eaee;padding:9px 18px;border-radius:10px;
+    font-size:13px;font-weight:600;transition:.2s;display:inline-flex;align-items:center;gap:8px;
+  }
+  .btn:hover{background:rgba(255,255,255,.13)}
+  .btn.primary{background:linear-gradient(135deg,var(--rose),var(--rose-deep));border-color:transparent;box-shadow:0 6px 18px rgba(225,29,72,.4)}
+  .note{font-size:12px;color:#8b92a0}
+  .toolbar .sep{flex:1}
+
+  .stage{max-width:760px;margin:0 auto;display:none}
+  .stage.active{display:block}
+
+  /* ───────── 安装窗口壳（方案 C 浅色） ───────── */
+  .win{
+    width:660px;max-width:100%;border-radius:14px;overflow:hidden;
+    box-shadow:0 30px 70px rgba(0,0,0,.55),0 2px 0 rgba(255,255,255,.06) inset;
+    border:1px solid rgba(0,0,0,.08);
+    background:#FDFDFF;
+  }
+  .win-title{
+    height:38px;display:flex;align-items:center;gap:10px;padding:0 12px;
+    font-size:12.5px;font-weight:600;letter-spacing:.3px;
+    background:linear-gradient(180deg,#fff,var(--paper));
+    color:#5a606e;border-bottom:1px solid rgba(0,0,0,.07);
+  }
+  /* 标题栏图标 = 软件图标（app_icon.png） */
+  .win-title .app-icon{width:17px;height:17px;border-radius:4px;display:block;
+    box-shadow:0 1px 4px rgba(0,0,0,.22)}
+  .win-title .sp{flex:1}
+  .winctl{display:flex;gap:14px;color:rgba(0,0,0,.35);font-size:12px}
+  .win-body{padding:16px 30px 30px}
+
+  /* ═══════════════════════════════════════════════════════════
+     启动页 Logo 动效（1:1 复刻 VboxSplashView）
+     四字母四角飞入聚拢 → swoosh 扫入 → 发光 → 呼吸/浮动循环
+     本版：无品牌岛、字母直接落浅底、加一层淡玫瑰光晕
+     ═══════════════════════════════════════════════════════════ */
+  .logo-wrap-box{position:relative;display:flex;align-items:center;justify-content:center;
+    margin:12px auto 2px;height:140px}
+
+  /* 淡玫瑰色光晕（在 Logo 背后，柔光晕开） */
+  .logo-glow{
+    position:absolute;left:50%;top:50%;width:320px;height:210px;margin:-105px 0 0 -160px;
+    border-radius:50%;pointer-events:none;
+    background:radial-gradient(ellipse at center,
+      rgba(225,29,72,.20) 0%, rgba(225,29,72,.09) 40%, rgba(225,29,72,0) 72%);
+    opacity:0;animation:roseGlowIn 1s ease-out .70s both;
+  }
+  @keyframes roseGlowIn{from{opacity:0}to{opacity:1}}
+
+  .tilt{position:relative;z-index:1;transform:rotate(-8deg)}
+  /* 呼吸 / 浮动幅度：加大，让 1.00s 起的循环动效更明显（缩放 1→1.08、浮动 ±13px） */
+  .floatw{animation:floaty 3.0s ease-in-out 1s infinite alternate both}
+  @keyframes floaty{from{transform:translateY(-13px)}to{transform:translateY(13px)}}
+  .breath{animation:breathe 2.4s ease-in-out 1s infinite alternate both}
+  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.08)}}
+
+  /* 原始比例（scale 1.0） */
+  .canvas{position:relative;width:182.2px;height:100px;transform:scale(1.0);overflow:visible}
+
+  .ltr{position:absolute;display:block}
+  .ltr-v{left:0;      top:0;      width:81px;  height:100px; --dx:-500px; --dy:-350px; --rot:-30deg; --d:0s}
+  .ltr-b{left:50.5px; top:12.7px; width:43.6px;height:85px;  --dx:-500px; --dy:350px;  --rot:25deg;  --d:.08s}
+  .ltr-o{left:89.1px; top:12.7px; width:37.8px;height:85px;  --dx:500px;  --dy:-350px; --rot:30deg;  --d:.14s}
+  .ltr-x{left:115.9px;top:12.7px; width:66.3px;height:85px;  --dx:500px;  --dy:350px;  --rot:-25deg; --d:.20s}
+
+  .canvas .ltr{
+    animation:enter .9s cubic-bezier(.34,1.56,.64,1) var(--d) both,
+              fadeIn .42s ease-out var(--d) both;
+  }
+  @keyframes enter{
+    from{transform:translate(var(--dx),var(--dy)) rotate(var(--rot))}
+    to  {transform:translate(0,0) rotate(0deg)}
+  }
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+  .swoosh{
+    position:absolute;left:0;top:72.3px;width:182.2px;height:34.9px;display:block;
+    animation:swooshMove .62s cubic-bezier(.16,1,.3,1) .30s both,
+              swooshFade .34s linear .30s both;
+  }
+  @keyframes swooshMove{from{transform:translateX(-160px) rotate(4deg)}to{transform:translateX(0) rotate(4deg)}}
+  @keyframes swooshFade{from{opacity:0}to{opacity:.96}}
+
+  .glow-layer{position:absolute;inset:0;filter:blur(14px);opacity:0;
+    animation:glowIn .45s ease-out .70s both}
+  @keyframes glowIn{from{opacity:0}to{opacity:.5}}
+  .glow-layer .ltr{animation:none;opacity:1}
+
+  /* 静态（非动画）Logo：目录页页头用，直接呈现聚合终态 */
+  .canvas.static{transform:scale(.86)}
+  .canvas.static .ltr{animation:none!important;opacity:1;transform:none}
+  .canvas.static .swoosh{animation:none!important;opacity:.96;transform:rotate(4deg)}
+  .canvas.static .glow-layer{animation:none!important;opacity:.5}
+
+  /* 图片加载失败兜底 */
+  .fallback-wordmark{display:none;font-weight:800;font-size:52px;letter-spacing:-1px;
+    transform:rotate(-8deg);color:var(--rose);text-shadow:0 8px 22px rgba(225,29,72,.28)}
+  .logo-wrap-box.fallback .tilt{display:none}
+  .logo-wrap-box.fallback .fallback-wordmark{display:block}
+
+  /* ───────── 进度条 + 步骤（方案 C 原样） ───────── */
+  .prog{margin:18px 0 6px}
+  .prog-head{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:9px}
+  .prog-head .label{color:#6a7080;opacity:.95}
+  .prog-head .pct{font-variant-numeric:tabular-nums;font-weight:700;color:var(--rose)}
+  .bar{height:9px;border-radius:6px;overflow:hidden;position:relative;background:var(--paper2)}
+  .bar .fill{
+    position:absolute;left:0;top:0;bottom:0;width:0;border-radius:6px;overflow:hidden;
+    background:linear-gradient(90deg,var(--rose),var(--rose-deep));
+    box-shadow:0 3px 12px rgba(225,29,72,.4);
+    transition:width .45s cubic-bezier(.22,.61,.36,1);
+  }
+  .bar .fill::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.75) 50%,transparent 65%);
+    animation:sweep2 1.6s linear infinite;
+  }
+  @keyframes sweep2{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+  .steps{display:flex;gap:8px;margin-top:20px}
+  .step{
+    flex:1;background:#fff;border:1px solid rgba(0,0,0,.07);color:#4a5060;
+    box-shadow:0 2px 8px rgba(20,20,40,.05);
+    border-radius:10px;padding:10px 11px;font-size:11.5px;line-height:1.35;
+    display:flex;flex-direction:column;gap:7px;transition:.35s;
+  }
+  .step .ico{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:800;background:#eef0f5;color:#9aa0ad;transition:.35s}
+  .step .nm{opacity:.6;transition:.3s}
+  .step.done .nm{opacity:1}
+  .step.active{transform:translateY(-2px);border-color:var(--rose);box-shadow:0 10px 24px rgba(225,29,72,.18)}
+  .step.active .ico{background:var(--rose);color:#fff}
+  .step.done .ico{background:rgba(225,29,72,.12);color:var(--rose)}
+  .step .check{display:none}
+  .step.done .check{display:block}
+  .step.done .spin{display:none}
+  .step.active .spin{display:block}
+  .spin{display:none;width:11px;height:11px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:rot .7s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+
+  .foot{margin-top:24px;display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:#9aa0ad}
+  .foot .glyph{opacity:.7;color:#b6bcc7}
+
+  /* ───────── 选择安装位置页（同一套视觉） ───────── */
+  .dir-title{font-size:16px;font-weight:700;color:#2d3240;text-align:center;margin:4px 0 4px}
+  .dir-desc{font-size:12.5px;color:#6a7080;text-align:center;line-height:1.7;margin:0 0 18px}
+  .field-row{display:flex;gap:10px;align-items:center}
+  .path-input{
+    flex:1;height:38px;border-radius:9px;border:1px solid rgba(0,0,0,.13);background:#fff;
+    padding:0 12px;font-size:12.5px;color:#3d4350;display:flex;align-items:center;
+    box-shadow:inset 0 1px 2px rgba(20,20,40,.04);
+  }
+  .path-input .caret{width:1.5px;height:15px;background:var(--rose);margin-left:1px;animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+  .btn-s{
+    height:38px;padding:0 16px;border-radius:9px;border:1px solid rgba(0,0,0,.13);
+    background:#fff;color:#3d4350;font-size:12.5px;font-weight:600;cursor:pointer;transition:.2s;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .btn-s:hover{border-color:var(--rose);color:var(--rose)}
+  .disk-line{margin-top:12px;font-size:11.5px;color:#8b92a0;display:flex;align-items:center;gap:7px}
+  .disk-line .ic{width:6px;height:6px;border-radius:50%;background:#22c55e}
+  .dir-warn{margin-top:14px;font-size:11.5px;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;
+    border-radius:9px;padding:9px 12px;line-height:1.6}
+  .dir-actions{margin-top:22px;display:flex;justify-content:flex-end;gap:10px}
+  .btn-p{
+    height:40px;padding:0 22px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:.2s;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .btn-p.ghost{background:#fff;border:1px solid rgba(0,0,0,.13);color:#4a5060}
+  .btn-p.ghost:hover{border-color:#aab}
+  .btn-p.solid{background:linear-gradient(135deg,var(--rose),var(--rose-deep));border:0;color:#fff;
+    box-shadow:0 8px 20px rgba(225,29,72,.35)}
+  .step-dots{display:flex;gap:6px;justify-content:center;margin-top:26px}
+  .step-dots i{width:26px;height:4px;border-radius:3px;background:var(--paper2);display:block}
+  .step-dots i.on{background:var(--rose)}
+
+  .hint{max-width:760px;margin:26px auto 0;color:#8b92a0;font-size:12px;line-height:1.8}
+  .hint b{color:#c9ced8}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>方案 C · 现代浅色 + 启动页 Logo 动效 v2</h1>
+  <p>字母用启动页<b>原素材</b>（3D 金属 V），无品牌岛、直接落在浅色底上，原始比例 1.0；<b>新增一层淡玫瑰色光晕</b>；标题栏图标换成<b>软件图标</b>；并补了<b>「选择安装位置」页</b>（同一套视觉）供对比。动画参数 1:1 取自 <code>vbox_splash_view.dart</code>。</p>
+</div>
+
+<div class="toolbar">
+  <div class="tabs">
+    <button class="tab active" data-t="pg-install">① 安装中（进度页）</button>
+    <button class="tab" data-t="pg-dir">② 选择安装位置</button>
+  </div>
+  <span class="sep"></span>
+  <button class="btn primary" id="playBtn">▶ 演示安装</button>
+  <button class="btn" id="logoBtn">↻ 只看 Logo 动画</button>
+</div>
+
+<!-- ═══════════ ① 安装中（进度页） ═══════════ -->
+<section class="stage active" id="pg-install">
+  <div class="win">
+    <div class="win-title">
+      <img class="app-icon" src="../../assets/brand/app_icon.png" alt="vbox">
+      vbox 安装程序<span class="sp"></span><span class="winctl">—　▢　✕</span>
+    </div>
+    <div class="win-body">
+
+      <div class="logo-wrap-box" id="logoStage">
+        <div class="logo-glow"></div>
+        <span class="fallback-wordmark">vbox</span>
+        <div class="tilt">
+          <div class="floatw">
+            <div class="breath">
+              <div class="canvas">
+                <!-- swoosh 托底：置于字母之下（对齐启动页 Stack 顺序） -->
+                <img class="swoosh" src="../../assets/splash/splash_swoosh.png" alt="">
+                <div class="glow-layer">
+                  <img class="ltr ltr-v" src="../../assets/splash/splash_letter_V.png" alt="">
+                  <img class="ltr ltr-b" src="../../assets/splash/splash_letter_b.png" alt="">
+                  <img class="ltr ltr-o" src="../../assets/splash/splash_letter_o.png" alt="">
+                  <img class="ltr ltr-x" src="../../assets/splash/splash_letter_x.png" alt="">
+                </div>
+                <img class="ltr ltr-v" src="../../assets/splash/splash_letter_V.png" alt="">
+                <img class="ltr ltr-b" src="../../assets/splash/splash_letter_b.png" alt="">
+                <img class="ltr ltr-o" src="../../assets/splash/splash_letter_o.png" alt="">
+                <img class="ltr ltr-x" src="../../assets/splash/splash_letter_x.png" alt="">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="prog">
+        <div class="prog-head"><span class="label" data-status>正在准备安装…</span><span class="pct" data-pct>0%</span></div>
+        <div class="bar"><div class="fill" data-fill></div></div>
+      </div>
+
+      <div class="steps" data-steps>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>1</div><div class="nm">准备安装</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>2</div><div class="nm">解压程序文件</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>3</div><div class="nm">部署 Node 引擎</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>4</div><div class="nm">创建快捷方式</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>5</div><div class="nm">安装完成</div></div>
+      </div>
+
+      <div class="foot"><span>安装位置 C:\Program Files\vbox</span><span class="glyph">v1.0.0</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ ② 选择安装位置页 ═══════════ -->
+<section class="stage" id="pg-dir">
+  <div class="win">
+    <div class="win-title">
+      <img class="app-icon" src="../../assets/brand/app_icon.png" alt="vbox">
+      vbox 安装程序<span class="sp"></span><span class="winctl">—　▢　✕</span>
+    </div>
+    <div class="win-body">
+
+      <!-- 页头 Logo（静态终态，同一套视觉） -->
+      <div class="logo-wrap-box" id="logoStatic" style="height:112px;margin-top:6px">
+        <div class="logo-glow" style="height:180px;margin:-90px 0 0 -160px;opacity:1;animation:none"></div>
+        <span class="fallback-wordmark" style="font-size:44px">vbox</span>
+        <div class="tilt">
+          <div class="breath" style="animation:none">
+            <div class="canvas static">
+              <!-- swoosh 托底：置于字母之下 -->
+              <img class="swoosh" src="../../assets/splash/splash_swoosh.png" alt="">
+              <div class="glow-layer">
+                <img class="ltr ltr-v" src="../../assets/splash/splash_letter_V.png" alt="">
+                <img class="ltr ltr-b" src="../../assets/splash/splash_letter_b.png" alt="">
+                <img class="ltr ltr-o" src="../../assets/splash/splash_letter_o.png" alt="">
+                <img class="ltr ltr-x" src="../../assets/splash/splash_letter_x.png" alt="">
+              </div>
+              <img class="ltr ltr-v" src="../../assets/splash/splash_letter_V.png" alt="">
+              <img class="ltr ltr-b" src="../../assets/splash/splash_letter_b.png" alt="">
+              <img class="ltr ltr-o" src="../../assets/splash/splash_letter_o.png" alt="">
+              <img class="ltr ltr-x" src="../../assets/splash/splash_letter_x.png" alt="">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="dir-title">选择安装位置</h2>
+      <p class="dir-desc">vbox 将安装到下面的文件夹。要安装到其他文件夹，请点击「浏览」。</p>
+
+      <div class="field-row">
+        <div class="path-input">C:\Program Files\vbox<span class="caret"></span></div>
+        <button class="btn-s">浏览…</button>
+      </div>
+
+      <div class="disk-line"><span class="ic"></span>目标磁盘至少需要 320 MB 可用空间（当前可用 48.2 GB）</div>
+
+      <div class="dir-warn">提示：若已安装旧版本，安装程序会先结束正在运行的 vbox / Node 常驻进程，再覆盖安装。</div>
+
+      <div class="dir-actions">
+        <button class="btn-p ghost">上一步</button>
+        <button class="btn-p solid">安装</button>
+      </div>
+
+      <div class="step-dots">
+        <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="hint">
+  <b>动画时序（对齐启动页）：</b>V 0.00s 左上飞入 · b 0.08s 左下 · o 0.14s 右上 · x 0.20s 右下 → 0.30s swoosh 从左扫入 → 0.70s 发光 + 玫瑰光晕 → 1.00s 起呼吸(2.4s)+浮动(3.0s)无限循环。<br/>
+  <b>本次改动：</b>①新增淡玫瑰色光晕；②标题栏图标换成软件图标 <code>app_icon.png</code>；③新增「选择安装位置」页（同一套窗口壳 + 静态 Logo 页头）；④修正 swoosh 与字母的层级——swoosh 移到字母<b>下方</b>，改为<b>字母压住斜杆</b>，与启动页 <code>Stack</code> 顺序（swoosh 在前、字母在后）一致。
+</div>
+
+<script>
+  // ── 页面切换 ──
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll('.stage').forEach(s => s.classList.remove('active'));
+    document.getElementById(t.dataset.t).classList.add('active');
+  }));
+
+  // ── 图片兜底 ──
+  function bindImgFallback(){
+    document.querySelectorAll('.logo-wrap-box').forEach(box => {
+      box.querySelectorAll('img.ltr').forEach(im => {
+        im.addEventListener('error', () => box.classList.add('fallback'));
+      });
+    });
+  }
+
+  // ── 重播 Logo（安装进度页） ──
+  function replayLogo(){
+    const st = document.getElementById('logoStage');
+    if (!st) return;
+    const clone = st.cloneNode(true);
+    st.parentNode.replaceChild(clone, st);
+    bindImgFallback();
+  }
+
+  // ── 安装进度演示 ──
+  const TOTAL = 4200;
+  const KEYFRAMES = [
+    { p: 0,   s: '正在准备安装…' },
+    { p: 8,   s: '正在解压程序文件…' },
+    { p: 38,  s: '正在写入 vbox.exe 及依赖…' },
+    { p: 62,  s: '正在部署 Node 常驻引擎…' },
+    { p: 86,  s: '正在创建桌面快捷方式…' },
+    { p: 100, s: '安装完成，正在启动 vbox…' },
+  ];
+  let raf = null, t0 = 0;
+
+  function resetProgress(){
+    const fills = [...document.querySelectorAll('#pg-install [data-fill]')];
+    fills.forEach(f => { f.style.transition = 'none'; f.style.width = '0%'; });
+    void document.body.offsetWidth;
+    fills.forEach(f => { f.style.transition = ''; });
+    document.querySelectorAll('#pg-install [data-pct]').forEach(p => p.textContent = '0%');
+    document.querySelectorAll('#pg-install [data-status]').forEach(s => s.textContent = '正在准备安装…');
+    document.querySelectorAll('#pg-install .step').forEach(s => s.classList.remove('active','done'));
+  }
+  function paint(pr){
+    let s = KEYFRAMES[0].s;
+    for (const k of KEYFRAMES) if (pr >= k.p) s = k.s;
+    document.querySelectorAll('#pg-install [data-status]').forEach(e => e.textContent = s);
+    document.querySelectorAll('#pg-install [data-pct]').forEach(e => e.textContent = Math.round(pr) + '%');
+    document.querySelectorAll('#pg-install [data-fill]').forEach(e => e.style.width = pr + '%');
+    const steps = document.querySelectorAll('#pg-install .step');
+    const idx = Math.min(steps.length - 1, Math.floor(pr / (100 / steps.length)));
+    steps.forEach((el, i) => {
+      el.classList.toggle('done', i < idx || pr >= 100);
+      el.classList.toggle('active', i === idx && pr < 100);
+    });
+  }
+  function runInstall(){
+    // 切到进度页
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.t === 'pg-install'));
+    document.querySelectorAll('.stage').forEach(s => s.classList.toggle('active', s.id === 'pg-install'));
+    cancelAnimationFrame(raf);
+    resetProgress(); replayLogo();
+    t0 = performance.now();
+    const tick = (now) => {
+      const pr = Math.min(100, (now - t0) / TOTAL * 100);
+      paint(pr);
+      if (pr < 100) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+
+  document.getElementById('playBtn').addEventListener('click', runInstall);
+  document.getElementById('logoBtn').addEventListener('click', replayLogo);
+
+  window.addEventListener('load', () => {
+    bindImgFallback();
+    setTimeout(runInstall, 400);
+  });
+</script>
+</body>
+</html>

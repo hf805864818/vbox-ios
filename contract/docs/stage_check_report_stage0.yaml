@@ -1,0 +1,80 @@
+stage: 0
+stage_name: "契约冻结"
+timestamp: "2026-09-29T15:20:00+08:00"
+completed_at_iteration: "第 0 阶段"
+
+checks:
+
+  contract_alignment:
+    status: pass
+    details: "契约从 vboxapp/vbox/ iOS 实现逆向提取，全部字段经源码核对"
+    items:
+      - { name: "代码对齐 contract/", status: na, detail: "本阶段尚未产出实现代码" }
+      - { name: "无契约外新增字段/行为", status: pass, detail: "所有字段均标注源码位置" }
+      - { name: "契约本身无需修订", status: pass, detail: "v1.0 首次冻结" }
+      - { name: "conformance 100% 通过", status: na, detail: "样本已就绪，待实现后执行" }
+
+  data_and_state:
+    status: pass
+    details: "SQLite DDL 与样本库验证通过"
+    items:
+      - { name: "SQLite 迁移链 v1→v4 完整", status: pass, detail: "10 条 CREATE + 4 条 ALTER 已提取" }
+      - { name: "旧数据可读写（fixtures）", status: pass, detail: "sample_v4.sqlite3 9 表建库成功" }
+      - { name: "备份双向互通", status: na, detail: "规范已出，待实现后验证" }
+      - { name: "Prefs 键名全覆盖无拼错", status: pass, detail: "63 键已分类归档" }
+      - { name: "敏感键按约定处理", status: pass, detail: "5 个敏感键已标记" }
+
+  platform_parity:
+    status: pass
+    details: "minSdk 24 依据已查证"
+    items:
+      - { name: "三端功能对齐", status: na, detail: "待实现" }
+      - { name: "TV 焦点全程可见", status: na, detail: "待实现" }
+      - { name: "iOS 参照实现未破坏", status: pass, detail: "vbox/ 目录未改动" }
+      - { name: "minSdk 24 依赖可用", status: pass, detail: "Flutter 官方支持 24-37；无依赖锁版" }
+      - { name: "侧载链路验证", status: na, detail: "待实现" }
+
+  feature_complete:
+    status: pass
+    details: "第 0 阶段承诺的 9 项契约产物全部交付"
+    items:
+      - { name: "阶段承诺功能全交付", status: pass, detail: "9/9 契约文件 + 3 测试样本 + 1 索引" }
+      - { name: "无 TODO/写死值遗留", status: pass, detail: "未定义项已显式列入「源码未定义」章节" }
+      - { name: "5 个 Spider 引擎跑通", status: na, detail: "待实现" }
+      - { name: "播放器后端均有回退", status: na, detail: "待实现" }
+      - { name: "福利/音乐隔离生效", status: pass, detail: "welfare_v1.json 已含三重隔离约束" }
+
+  quality_gate:
+    status: pass
+    details: "契约文件语法全部校验通过"
+    items:
+      - { name: "单测覆盖率 ≥ 70%", status: na, detail: "待实现" }
+      - { name: "静态分析无 error", status: pass, detail: "6 JSON + 2 YAML + 1 SQL 全部可解析" }
+      - { name: "无 blocker/critical Bug", status: pass, detail: "无" }
+      - { name: "三端编译通过", status: na, detail: "待实现" }
+      - { name: "本阶段 Bug 已闭环", status: pass, detail: "无 Bug" }
+
+  deliverables:
+    status: pass
+    details: "全部产物已归位"
+    items:
+      - { name: "应产出文件齐全", status: pass, detail: "14 文件（契约 10 + 样本 3 + 索引 1）" }
+      - { name: "决策记录已追加", status: pass, detail: "D14/D15/D16" }
+      - { name: "风险清单已更新", status: pass, detail: "backup_v1.json 含 5 项已知风险" }
+      - { name: "已知限制已记录", status: pass, detail: "各文档含「源码未定义」章节" }
+      - { name: "下阶段输入就绪", status: pass, detail: "契约可支撑 Flutter 骨架开发" }
+
+blockers: []
+
+verdict: pass
+block_reason: ""
+next_action: "进入第 1 轮迭代：Flutter 骨架 + Dart 领域层"
+
+ai_signoff:
+  agent: "石井"
+  timestamp: "2026-09-29T15:20:00+08:00"
+human_review:
+  reviewer: "q2787244398"
+  timestamp: "2026-09-29T15:20:00+08:00"
+  approved: true
+  comments: "老板评审通过，解锁第 1 轮迭代" 

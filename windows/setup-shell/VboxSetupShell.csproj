@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       vbox 安装程序 · UI 壳（路线 A）
+       无边框 WPF 窗口 + WebView2 承载定稿 HTML（Assets/installer.html）。
+       内嵌「静默安装内核」vbox-installer-core.exe，运行时释放到临时目录后
+       以 /VERYSILENT 执行，并轮询其进度文件驱动页面动画。
+       ══════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- 允许在非 Windows 主机上还原/编译（CI 为 windows-latest，此处仅兜底）。 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>VboxSetupShell</AssemblyName>
+    <RootNamespace>VboxSetupShell</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- 壳与 core 同名会冲突：core 由 /p:CoreExe 指定，默认取 installer.iss 的产物。 -->
+    <CoreExe Condition="'$(CoreExe)' == ''">..\installer\Output\vbox-installer-core.exe</CoreExe>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+  </ItemGroup>
+
+  <!-- ── HTML + Logo 素材：按「逻辑名 = Assets 下的相对路径」内嵌，
+         运行时原样释放到临时目录供 WebView2 以 file:// 载入。 ── -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\installer.html"            LogicalName="installer.html" />
+    <EmbeddedResource Include="Assets\brand\app_icon.png"        LogicalName="brand/app_icon.png" />
+    <EmbeddedResource Include="Assets\splash\splash_letter_V.png" LogicalName="splash/splash_letter_V.png" />
+    <EmbeddedResource Include="Assets\splash\splash_letter_b.png" LogicalName="splash/splash_letter_b.png" />
+    <EmbeddedResource Include="Assets\splash\splash_letter_o.png" LogicalName="splash/splash_letter_o.png" />
+    <EmbeddedResource Include="Assets\splash\splash_letter_x.png" LogicalName="splash/splash_letter_x.png" />
+    <EmbeddedResource Include="Assets\splash\splash_swoosh.png"   LogicalName="splash/splash_swoosh.png" />
+  </ItemGroup>
+
+  <!-- ── 静默安装内核：构建时由 CI 以 /p:CoreExe=<路径> 注入并内嵌 ── -->
+  <ItemGroup Condition="Exists('$(CoreExe)')">
+    <EmbeddedResource Include="$(CoreExe)" LogicalName="core/vbox-installer-core.exe" />
+  </ItemGroup>
+
+  <!-- ── 版本号：由 CI 以 /p:InstallerVersion=<ver> 注入，写成内嵌 version.txt ── -->
+  <Target Name="WriteInstallerVersion"
+          BeforeTargets="ResolveReferences"
+          Condition="'$(InstallerVersion)' != ''">
+    <PropertyGroup>
+      <_VboxVersionFile>$(IntermediateOutputPath)installer-version.txt</_VboxVersionFile>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_VboxVersionFile)" Lines="$(InstallerVersion)" Overwrite="true" />
+  </Target>
+
+  <ItemGroup Condition="'$(InstallerVersion)' != ''">
+    <EmbeddedResource Include="$(IntermediateOutputPath)installer-version.txt" LogicalName="version.txt" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,117 @@
+# 阶段遗漏检查报告 · 第 1 轮（核心骨架）（D13 / E.10b）
+# 契约层文件 · contract/docs/stage_check_report_stage1.yaml
+# 依据模板：stage_check_template.yaml（命名规范 stage_check_report_stage<N>.yaml）
+# 本报告对应的主方案文档版本：docs/VBOX_PLAN_v6.35.md（v6.32 批次：Spider 引擎三端口径落定 D31 + 残留漂移订正；真机验收后移至第 2 轮末，D30；v6.33 为第 2 轮批次 A「设计基座」首批交付，v6.34 为其续交付 A-05 / A-06，v6.35 为批次 A/B/Q 三批次全交付收口，均不改第 1 轮结论）
+
+stage: 1
+stage_name: "核心骨架"
+timestamp: "2026-10-01T12:00:00+08:00"
+completed_at_iteration: "第 1 轮迭代（代码侧完成，D13 门禁通过；G-09/G-10 真机验收后移至第 2 轮末，D30）"
+
+# ────────────────────────────────────────────────────────────
+# 六类扫描（E.10b.2）
+# status 取值：pass | fail | partial | na
+# ────────────────────────────────────────────────────────────
+checks:
+
+  # ① 契约一致性
+  contract_alignment:
+    status: pass
+    details: "lib/ 100 文件全部对齐 contract/；conformance 本地实测通过；契约 v1.3（B3 敏感键 5→7，双侧同步）"
+    items:
+      - { name: "代码对齐 contract/", status: pass, detail: "check_contract_sync 通过（98 键 / 21 组 / storage 逐键一致）；G-02-A 平台层 wire 值对齐契约 §2.5" }
+      - { name: "无契约外新增字段/行为", status: pass, detail: "check_contract_completeness / check_models_roundtrip 通过" }
+      - { name: "契约本身需修订", status: pass, detail: "v6.27 契约升 v1.3（B3：baidu_local_pcs_device_id / saved_drive_tokens 敏感化），Dart 镜像同步，守卫全绿" }
+      - { name: "conformance 100% 通过", status: pass, detail: "conformance/runner 本地实测全绿（45/45，2026-09-30）" }
+
+  # ② 数据与状态
+  data_and_state:
+    status: pass
+    details: "SQLite 迁移链 / fixtures / Prefs 98 键 / 敏感键 7 项全部通过守卫校验（B2/B3 v6.27 裁定闭环）"
+    items:
+      - { name: "SQLite 迁移链 v1→v4 完整", status: pass, detail: "check_migration_chain 通过（10 CREATE + 4 ALTER）" }
+      - { name: "旧数据可读写（fixtures）", status: pass, detail: "sample_v4.sqlite3 9 表建库 + 读写断言通过" }
+      - { name: "备份双向互通", status: pass, detail: "check_backup_contract 通过（backup_v1.json）" }
+      - { name: "Prefs 键名全覆盖无拼错", status: pass, detail: "98 键（D17）check_prefs_manager / check_contract_completeness 通过" }
+      - { name: "敏感键按约定处理", status: pass, detail: "7 个敏感键 + keychain + credential_extra 全部走 SecureStore（B2/B3 裁定，v6.27）" }
+
+  # ③ 平台差异
+  platform_parity:
+    status: pass
+    details: "G-01 UI 三形态 + G-02-A/B + G-02-C 代码 + G-03-A/B 已交付；真机类行为（G-09 / G-10）整体后移至第 2 轮末（D30），本轮不计入门禁"
+    items:
+      - { name: "三端功能对齐", status: pass, detail: "G-01 phone/desktop/tv 形态 ✅；Android Media3 + SystemPlugin + MediaPlaybackService ✅（G-02-A/C）；macOS AVPlayer ✅（G-02-B）；Windows libmpv 分发 D28 ✅；播放器端到端回退真机验收后移至第 2 轮末（G-09，D30）" }
+      - { name: "TV 焦点全程可见", status: pass, detail: "G-01 tv 形态已交付（FocusTraversalGroup + TabBar autofocus，含单测）；D-pad 遥控真机行为后移至第 2 轮末（G-10，D30）" }
+      - { name: "iOS 参照实现未破坏", status: pass, detail: "vbox/ 目录零改动（D1 契约共享，零改造原则）" }
+      - { name: "minSdk 24 依赖可用", status: pass, detail: "D12 已查证；media3 / libvlc-all 纯 Gradle 依赖零 NDK（P.30）" }
+      - { name: "侧载链路验证", status: na, detail: "D11 侧载分发；安装 + 自更新真机验收整体后移至第 2 轮末（G-09，D30），清单已就绪" }
+
+  # ④ 功能完整性
+  feature_complete:
+    status: pass
+    details: "第 1 轮代码侧功能块全部交付（UI 三形态 / 详情页接线 / 播放器 / Spider 引擎 / 平台插件）；端到端回退（G-09）与 TV 遥控（G-10）真机验收后移至第 2 轮末（D30）"
+    items:
+      - { name: "阶段承诺功能全交付", status: pass, detail: "契约/数据/领域/入口形态/详情页·播放入口接线（v6.25）✅；G-02-B/C + G-03-B 平台层 ✅；真机验收类（G-09/G-10）后移至第 2 轮末（D30）" }
+      - { name: "无 TODO/写死值遗留", status: pass, detail: "守卫 check_dart_imports / check_docs_consistency 通过；未定义项均已登记" }
+      - { name: "5 个 Spider 引擎跑通", status: pass, detail: "G-03-A 桥接协议层 + G-03-B QuickJS FFI / Node / Python 运行时分发（D29）✅；JavaScriptCore 集成口径由 D31 落定（三端 JSC 为主引擎 / QuickJS 降级备份；Windows 可行性由门禁 Q-01 把关）" }
+      - { name: "播放器后端均有回退", status: pass, detail: "A21.5 selectBackend 设计冻结 + Dart 降级链 + 单测 ✅；Android Media3→libVLC、macOS AVPlayer→libmpv 代码链路 ✅；端到端回退真机验收后移至第 2 轮末（G-09，D30）" }
+      - { name: "福利/音乐隔离生效", status: pass, detail: "welfare_v1.json 三重隔离约束 + 领域层校验通过" }
+
+  # ⑤ 质量基线
+  quality_gate:
+    status: partial
+    details: "覆盖率 73.6%（v6.30 本机 lcov 实测）达标；555 用例过，零触达 27/100 全分类排除（G-05 收尾，v6.26）；Python 守卫 11/11 本地实测"
+    items:
+      - { name: "单测覆盖率 ≥ 70%", status: pass, detail: "v6.30 本机 flutter test --coverage 实测全 lib 整体 73.6%；555 用例全通过；零触达 27/100 已全分类排除（G-05，v6.26）" }
+      - { name: "静态分析无 error", status: pass, detail: "CI flutter-analyze 通道就绪（G-07/G-08 已解除）；本地 Python 守卫 11/11 通过" }
+      - { name: "无 blocker/critical Bug", status: pass, detail: "无；P.32 §5 导入包名编译级问题已修复闭环" }
+      - { name: "三端编译通过", status: pass, detail: "CI build-android / build-macos / build-windows / build-native-quickjs jobs 全绿（G-07 解除）" }
+      - { name: "本阶段 Bug 已闭环", status: pass, detail: "CodecCapability 缺导入、PlayerController 误标 @override、MainFlutterWindow registrar 可选绑定、测试包名等均已修复" }
+
+  # ⑥ 交付物与文档
+  deliverables:
+    status: pass
+    details: "lib 100 文件 / test 46 文件 / 契约 8 文件 / 守卫 11 脚本；文档 v6.32（本报告批次）；决策 D1-D31"
+    items:
+      - { name: "应产出文件齐全", status: pass, detail: "lib/ 100 + test/ 46 + contract/schema/ 8 + scripts/check_*.py 11 + conformance 全量 + 真机验收清单（G-09/G-10）" }
+      - { name: "决策记录已追加", status: pass, detail: "D1-D31 全表维护（v6.32 新增 D31 Spider 引擎三端口径；v6.31 新增 D30 真机验收排期），编号唯一性守卫通过" }
+      - { name: "风险清单已更新", status: pass, detail: "P.28-P.37 逐轮登记；P.36 G-05 收尾/真机清单、P.37 遗留清理裁定" }
+      - { name: "已知限制已记录", status: pass, detail: "环境口径 v6.51 起：本机不安装 Flutter SDK（Trae 沙箱按会话创建、工作区不跨会话保留），Dart 编译/静态/单测/构建一律由 CI（flutter-check.yml）承担；三端原生 build 仍由 CI 承担" }
+      - { name: "下阶段输入就绪", status: pass, detail: "第 1 轮代码侧已过 D13 门禁（真机验收后移至第 2 轮末，D30）；下批输入 = 第 2 轮功能补全（含 UI 令牌层 G1/G2）+ 第 2 轮末 G-09/G-10 全量真机" }
+
+# ────────────────────────────────────────────────────────────
+# 阻断项（本轮无阻断；真机类验收后移至第 2 轮末，见 D30）
+# ────────────────────────────────────────────────────────────
+blockers: []
+
+# 后移登记（不计入第 1 轮门禁，并入第 2 轮 E.10b，见 D30）
+deferred:
+  - id: G-09
+    desc: "侧载链路 / 自更新 / 播放器端到端回退真机验收（Media3→libVLC、AVPlayer→libmpv 回退实测）"
+    severity: medium
+    target: "第 2 轮末"
+    plan: "按 docs/真机验收清单_G09_G10.md 执行（需硬件，人工验收）"
+  - id: G-10
+    desc: "TV D-pad 遥控真机行为验收（G-01 tv 形态已交付，真机行为未验）"
+    severity: low
+    target: "第 2 轮末"
+    plan: "与 G-09 真机批次合并（同一清单）"
+
+# ────────────────────────────────────────────────────────────
+# 结论
+# ────────────────────────────────────────────────────────────
+verdict: pass
+block_reason: ""
+next_action: "第 1 轮解锁 → 启动第 2 轮功能补全（含 UI 令牌层 G1/G2）；第 2 轮末执行 G-09 / G-10 全量真机验收（docs/真机验收清单_G09_G10.md）→ 刷新 stage2 verdict"
+
+# ────────────────────────────────────────────────────────────
+# 签核
+# ────────────────────────────────────────────────────────────
+ai_signoff:
+  agent: "石井"
+  timestamp: "2026-10-01T12:00:00+08:00"
+human_review:
+  reviewer: "q2787244398"
+  timestamp: ""
+  approved: false
+  comments: "待老板评审：v6.32 批次（Spider 引擎三端口径 D31 + 残留漂移订正；真机验收整体后移至第 2 轮末，D30）确认后，启动第 2 轮功能补全"

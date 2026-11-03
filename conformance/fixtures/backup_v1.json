@@ -1,0 +1,196 @@
+{
+  "$comment": "一致性测试样本 · 备份格式 v1.0 · iOS ↔ Flutter 双向验证",
+  "schemaVersion": "1.0",
+
+  "cryptoParams": {
+    "$comment": "从 BackupManager.swift 提取的精确参数，Flutter 端必须完全一致",
+    "pbkdf2Iterations": 100000,
+    "saltLength": 16,
+    "ivLength": 12,
+    "keyLength": 32,
+    "prf": "HMAC-SHA256",
+    "cipher": "AES-256-GCM",
+    "kdf": "PBKDF2-HMAC-SHA256",
+    "cipherStringInFile": "AES-256-GCM",
+    "kdfStringInFile": "PBKDF2-HMAC-SHA256",
+    "gcmTagLength": 16,
+    "aad": null,
+    "passwordEncoding": "UTF-8",
+    "base64Variant": "standard"
+  },
+
+  "unencryptedEnvelope": {
+    "$comment": "未加密备份的完整形态（字段值仅示意）",
+    "schemaVersion": 1,
+    "meta": {
+      "appName": "vbox",
+      "appVersion": "1.0.0",
+      "createdAt": 1759100000,
+      "account": "",
+      "username": "tester",
+      "device": "iPhone"
+    },
+    "encrypted": false,
+    "cipher": null,
+    "kdf": null,
+    "salt": null,
+    "iv": null,
+    "authTag": null,
+    "payload": "<base64 of BackupPayload JSON>"
+  },
+
+  "encryptedEnvelope": {
+    "schemaVersion": 1,
+    "meta": { "appName": "vbox", "appVersion": "1.0.0", "createdAt": 1759100000, "account": "", "username": "tester", "device": "iPhone" },
+    "encrypted": true,
+    "cipher": "AES-256-GCM",
+    "kdf": "PBKDF2-HMAC-SHA256",
+    "salt": "<base64, 16 bytes>",
+    "iv": "<base64, 12 bytes>",
+    "authTag": "<base64, 16 bytes>",
+    "payload": "<base64 of ciphertext, tag EXCLUDED>"
+  },
+
+  "payload": {
+    "account": "",
+    "categories": {
+      "watchHistory": "<base64 of [HistoryRecord] JSON>",
+      "favorites": "<base64 of [FavoriteRecord] JSON>",
+      "downloads": "<base64 of [DownloadRecord] JSON>",
+      "subscriptions": "<base64 of [SubscriptionRecord] JSON>",
+      "siteConfigs": "<base64 of SiteConfigsSnapshot JSON>",
+      "personalSettings": "<base64 of PersonalSettingsSnapshot JSON>",
+      "remoteSources": "<base64 of RemoteSourcesSnapshot JSON>",
+      "searchHistory": "<base64 of search history JSON>",
+      "cloudCredentials": "<base64 of CredentialsSnapshot JSON>"
+    }
+  },
+
+  "siteConfigsSnapshot": {
+    "zhanyuan": [
+      { "id": 1, "name": "测试站", "searchUrl": "https://a.com", "searchUA": "", "playUA": "",
+        "websearchurl": "", "searchname": "", "searchid": "", "searchpic": "", "searchstarr": "",
+        "detaillist": "", "detailxl": "", "detailjs": "", "detailjsurl": "",
+        "isActive": true, "updatedAt": 1759100000, "dyurl": "sub1" }
+    ],
+    "apiyuan": [
+      { "id": 1, "name": "测试API", "searchurl": "https://b.com/api", "searchua": "",
+        "detailurl": "", "detailua": "", "isActive": true, "dyurl": "sub1" }
+    ],
+    "jiexi": [
+      { "bianma": "j1", "zhuurl": "https://z.com", "beiurl": "" }
+    ]
+  },
+
+  "personalSettingsSnapshot": {
+    "$comment": "defaults 仅含 14 键白名单；前 11 键常态，后 3 键福利仅加密时含",
+    "username": "tester",
+    "avatarBase64": null,
+    "defaults": {
+      "app_skin_mode": "dark",
+      "app_skin_follows_system": "true",
+      "app_enable_tmdb": "false",
+      "app_tmdb_proxy_url": "",
+      "app_tmdb_use_token": "false",
+      "app_tmdb_proxy_token": "",
+      "app_dev_log_enabled": "false",
+      "app_dev_log_level": "2",
+      "remote_default_source_enabled": "true",
+      "bundle_sources_enabled": "false",
+      "remote_default_manifest_url": "https://vbox-ai.github.io/api/sources/manifest.json"
+    }
+  },
+
+  "remoteSourcesSnapshot": {
+    "$comment": "lxPlugins 必须可缺省（旧备份无此字段 → 空字典）",
+    "version": "2026.09.29.3",
+    "manifest": null,
+    "allSources": null,
+    "spiderJS": {},
+    "lxPlugins": {}
+  },
+
+  "remoteSourcesSnapshotLegacy": {
+    "$comment": "旧版备份（无 lxPlugins 字段）— 必须能成功解码",
+    "version": "2026.01.01.1",
+    "spiderJS": {}
+  },
+
+  "testCases": [
+    {
+      "name": "encrypt_decrypt_roundtrip",
+      "desc": "加密后解密应得原文",
+      "input": "任意 JSON",
+      "expected": "解密结果 == 原文",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "cross_platform_ios_to_flutter",
+      "desc": "iOS 导出加密备份 → Flutter 导入",
+      "expected": "导入成功，数据一致",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "cross_platform_flutter_to_ios",
+      "desc": "Flutter 导出加密备份 → iOS 导入",
+      "expected": "导入成功，数据一致",
+      "platforms": ["flutter", "ios"]
+    },
+    {
+      "name": "unencrypted_both_ways",
+      "desc": "未加密备份双向导入",
+      "expected": "成功",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "legacy_no_lxplugins",
+      "desc": "旧备份缺 lxPlugins 字段",
+      "expected": "解码成功，lxPlugins == {}",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "wrong_password",
+      "desc": "错误口令",
+      "expected": "抛 wrongPassword 错误",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "schema_too_new",
+      "desc": "schemaVersion = 2",
+      "expected": "抛 schemaTooNew 错误",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "utf8_password_byte_length",
+      "desc": "中文口令（UTF-8 字节长 ≠ 字符长）",
+      "expected": "两端派生相同密钥",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "all_9_categories",
+      "desc": "9 个类目逐个往返",
+      "expected": "全部一致",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "merge_strategy",
+      "desc": "冲突策略 = merge",
+      "expected": "保留本机数据并合并",
+      "platforms": ["ios", "flutter"]
+    },
+    {
+      "name": "overwrite_strategy",
+      "desc": "冲突策略 = overwrite",
+      "expected": "先清空再写入",
+      "platforms": ["ios", "flutter"]
+    }
+  ],
+
+  "knownRisks": [
+    "GCM tag 拆分方式：CryptoKit ciphertext 不含 tag，需独立存 authTag",
+    "Base64 变体：必须用标准（非 URL-safe）",
+    "中文口令字节长度：必须用 utf8.count 而非 character count",
+    "PBKDF2 100000 次在低端设备可能 >1s，需放 isolate",
+    "源码未使用压缩：不得引入 gzip/zlib"
+  ]
+}

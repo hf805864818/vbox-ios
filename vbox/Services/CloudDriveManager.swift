@@ -4284,8 +4284,7 @@ class CloudDriveManager: ObservableObject {
 
     struct QuarkQrLoginToken {
         let token: String
-        let clientId: String   // 生成 token 时使用 386；轮询时 PC 抓包用 532，这里都保留
-        let pollClientId: String
+        let clientId: String    // 二维码 / 轮询统一 386，对齐 Node startQuark/pollQuark（问题 1）
         let qrPayload: String   // 真实二维码内容，抓包为 su.quark.cn 跳转链接，不是 token 原文
     }
 
@@ -4305,12 +4304,12 @@ class CloudDriveManager: ObservableObject {
     }
 
     /// 第一步：生成扫码登录 token，并拼出抓包里的二维码跳转链接。
-    func quarkCreateQrToken(clientId: String = "386", pollClientId: String = "532") async throws -> QuarkQrLoginToken {
+    func quarkCreateQrToken(clientId: String = "386") async throws -> QuarkQrLoginToken {
         var components = URLComponents(string: "https://uop.quark.cn/cas/ajax/getTokenForQrcodeLogin")!
         components.queryItems = [
             URLQueryItem(name: "pr", value: "ucpro"),
             URLQueryItem(name: "fr", value: "pc"),
-            URLQueryItem(name: "sys", value: "darwin"),
+            URLQueryItem(name: "sys", value: "win32"),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased())
@@ -4319,7 +4318,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
@@ -4337,8 +4336,8 @@ class CloudDriveManager: ObservableObject {
             let message = (json["message"] as? String) ?? "夸克扫码 token 接口异常"
             throw DriveError.noPlayURL("夸克: \(message)")
         }
-        let qrPayload = quarkQRCodePayload(token: token, clientId: pollClientId)
-        return QuarkQrLoginToken(token: token, clientId: clientId, pollClientId: pollClientId, qrPayload: qrPayload)
+        let qrPayload = quarkQRCodePayload(token: token, clientId: clientId)
+        return QuarkQrLoginToken(token: token, clientId: clientId, qrPayload: qrPayload)
     }
 
     private func quarkQRCodePayload(token: String, clientId: String) -> String {
@@ -4346,6 +4345,8 @@ class CloudDriveManager: ObservableObject {
         components.queryItems = [
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "sch", value: "pckk@other_ch"),
+            URLQueryItem(name: "sve", value: "3.1.8"),
             URLQueryItem(name: "ssb", value: "weblogin"),
             URLQueryItem(name: "uc_param_str", value: ""),
             URLQueryItem(name: "uc_biz_str", value: "S:custom|OPT:SAREA@0|OPT:IMMERSIVE@1|OPT:BACK_BTN_STYLE@0")
@@ -4357,7 +4358,10 @@ class CloudDriveManager: ObservableObject {
     func quarkPollQrStatus(token: QuarkQrLoginToken) async throws -> QuarkQrPollResult {
         var components = URLComponents(string: "https://uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken")!
         components.queryItems = [
-            URLQueryItem(name: "client_id", value: token.pollClientId),
+            URLQueryItem(name: "pr", value: "ucpro"),
+            URLQueryItem(name: "fr", value: "pc"),
+            URLQueryItem(name: "sys", value: "win32"),
+            URLQueryItem(name: "client_id", value: token.clientId),
             URLQueryItem(name: "v", value: "1.2"),
             URLQueryItem(name: "request_id", value: UUID().uuidString.lowercased()),
             URLQueryItem(name: "token", value: token.token)
@@ -4366,7 +4370,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let (data, _) = try await session.data(for: request)
@@ -4404,7 +4408,7 @@ class CloudDriveManager: ObservableObject {
         request.httpMethod = "GET"
         request.setValue("https://pan.quark.cn", forHTTPHeaderField: "Origin")
         request.setValue("https://pan.quark.cn/", forHTTPHeaderField: "Referer")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.54 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         // 使用一次性配置以拿到 set-cookie

@@ -1,0 +1,32 @@
+<Window x:Class="VboxSetupShell.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="vbox 安装程序"
+        Width="700" Height="560"
+        MinWidth="700" MinHeight="560"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="#FDFDFF"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Loaded="OnLoaded"
+        Closing="OnClosing">
+
+  <!-- 无边框窗口：标题栏与「最小化 / 关闭」按钮均由定稿 HTML 自绘
+       （CSS 的 -webkit-app-region:drag 让标题栏可拖拽移动窗口）。 -->
+  <Grid>
+    <wv2:WebView2 x:Name="Web" DefaultBackgroundColor="White" />
+
+    <!-- 兜底提示层：WebView2 Runtime 缺失时短暂显示（随后回退到 core 的原生向导） -->
+    <Grid x:Name="FallbackPane" Background="#FDFDFF" Visibility="Collapsed">
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+        <TextBlock Text="vbox" FontSize="40" FontWeight="Bold" Foreground="#E11D48"
+                   HorizontalAlignment="Center" />
+        <TextBlock x:Name="FallbackText" Margin="0,14,0,0" FontSize="12.5" Foreground="#6A7080"
+                   HorizontalAlignment="Center" Text="正在切换到原生安装向导…" />
+      </StackPanel>
+    </Grid>
+  </Grid>
+</Window>

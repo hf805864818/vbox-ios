@@ -1,0 +1,52 @@
+{
+  "$comment": "双引擎双跑一致性样本 · 跨引擎语义探针 + 五操作 golden（Q-06）。\n本文件是 JSC 主引擎 / QuickJS 降级引擎「结果一致」的唯一真相源：\n同一份 JS 蜘蛛脚本 + 同一组跨引擎语义探针，通过 quickjs/jsc 各自的\nC wrapper（vq_*/vj_* 同 ABI）执行后，输出必须与下方 expected 完全一致。\n\n探针 kind：\n  · exact  —— 输出须与 expected 逐字节相等（ES 规范保证的稳定表示）\n  · prefix —— 输出须以 expected 为前缀（契约 §5 错误检测：只认错误\n             类型前缀，不认各家引擎的完整报错文案，承认差异只保留前缀）\n  · ignore —— 仅执行不比对（蜘蛛定义等副作用脚本）\n\nknownDivergences：真实登记的双引擎原始差异（均已在 Dart 层由 B-05a\nprelude 抹平，非契约缺陷）：\n  · console/print：QuickJS wrapper（对齐 iOS QuickJSBridge setupBridge）\n    注册 no-op console.log/console.error/print；JSC wrapper 不注册。\n    两引擎在 Dart loadScript 时均先注入 SpiderJsGlobals.prelude 重新\n    定义 console/print，用户脚本可见语义一致 —— 故本探针组不含\n    typeof console/print 的原始比对，避免误报。",
+  "schemaVersion": "1.0",
+  "engines": [
+    "quickJS",
+    "javaScriptCore"
+  ],
+  "knownDivergences": [
+    {
+      "subject": "console/print no-op 注册",
+      "quickJS": "wrapper 注册 no-op console.log/console.error/print（对齐 iOS QuickJSBridge.setupBridge）",
+      "javaScriptCore": "wrapper 不注册（Q-05 决策：console/print 改由 prelude 注入，避免双重定义）",
+      "resolution": "Dart loadScript 先注入 SpiderJsGlobals.prelude 重定义，两引擎用户脚本语义一致"
+    }
+  ],
+  "probes": [
+    { "id": "arithAdd", "kind": "exact", "script": "1+1", "expected": "2" },
+    { "id": "stringConcatCoercion", "kind": "exact", "script": "'1'+1", "expected": "11" },
+    { "id": "floatShortestRepr", "kind": "exact", "script": "0.1+0.2", "expected": "0.30000000000000004" },
+    { "id": "typeofObject", "kind": "exact", "script": "typeof {}", "expected": "object" },
+    { "id": "typeofArray", "kind": "exact", "script": "typeof []", "expected": "object" },
+    { "id": "typeofNull", "kind": "exact", "script": "typeof null", "expected": "object" },
+    { "id": "typeofUndefined", "kind": "exact", "script": "typeof undefined", "expected": "undefined" },
+    { "id": "typeofNaN", "kind": "exact", "script": "typeof NaN", "expected": "number" },
+    { "id": "typeofNumber", "kind": "exact", "script": "typeof 0", "expected": "number" },
+    { "id": "typeofString", "kind": "exact", "script": "typeof ''", "expected": "string" },
+    { "id": "stringUndefined", "kind": "exact", "script": "String(undefined)", "expected": "undefined" },
+    { "id": "stringNull", "kind": "exact", "script": "String(null)", "expected": "null" },
+    { "id": "stringNaN", "kind": "exact", "script": "String(NaN)", "expected": "NaN" },
+    { "id": "stringInfinity", "kind": "exact", "script": "String(Infinity)", "expected": "Infinity" },
+    { "id": "stringFalse", "kind": "exact", "script": "String(false)", "expected": "false" },
+    { "id": "jsonObjectKeyOrder", "kind": "exact", "script": "JSON.stringify({'vod_id':'1','vod_name':'x'})", "expected": "{\"vod_id\":\"1\",\"vod_name\":\"x\"}" },
+    { "id": "jsonNestedArray", "kind": "exact", "script": "JSON.stringify([1,'a',{'x':null}])", "expected": "[1,\"a\",{\"x\":null}]" },
+    { "id": "arrayMapJoin", "kind": "exact", "script": "[1,2,3].map(function(x){return x*2;}).join(',')", "expected": "2,4,6" },
+    { "id": "jsonParseAccess", "kind": "exact", "script": "JSON.parse('{\"a\":true}').a", "expected": "true" },
+    { "id": "utf8JsonRoundtrip", "kind": "exact", "script": "JSON.stringify({'name':'示例影片'})", "expected": "{\"name\":\"示例影片\"}" },
+    { "id": "typeErrorPrefix", "kind": "prefix", "script": "(function(){try{null.foo}catch(e){return String(e)}})()", "expected": "TypeError" },
+    { "id": "syntaxErrorPrefix", "kind": "prefix", "script": "(function(){try{JSON.parse('{')}catch(e){return String(e)}})()", "expected": "SyntaxError" },
+    { "id": "referenceErrorPrefix", "kind": "prefix", "script": "(function(){try{return __noSuchVar_xyz}catch(e){return String(e)}})()", "expected": "ReferenceError" },
+    { "id": "noAtobLeak", "kind": "exact", "script": "typeof atob", "expected": "undefined" },
+    { "id": "noBtoaLeak", "kind": "exact", "script": "typeof btoa", "expected": "undefined" },
+    { "id": "noHttpLeak", "kind": "exact", "script": "typeof http", "expected": "undefined" },
+    { "id": "noReqLeak", "kind": "exact", "script": "typeof req", "expected": "undefined" },
+    { "id": "noVboxLogLeak", "kind": "exact", "script": "typeof __vboxLog", "expected": "undefined" },
+    { "id": "defineSpider", "kind": "ignore", "script": "var spider = {homeContent:function(){return {'class':[{'type_id':'1','type_name':'电影'}],'list':[{'vod_id':'1001','vod_name':'示例影片','vod_pic':'https://cdn.test/1.jpg'}]};},searchContent:function(keyword,quick,pg){return {'page':1,'pagecount':5,'list':[{'vod_id':'2','vod_name':keyword}]};},categoryContent:function(tid,pg,filter){return {'page':1,'pagecount':1,'limit':20,'total':1,'list':[{'vod_id':'3','vod_name':'分类片'}]};},detailContent:function(ids){return {'list':[{'vod_id':ids,'vod_name':'详情片'}]};},playerContent:function(flag,id,vip){return {'parse':0,'url':'https://cdn.test/index.m3u8','header':{'User-Agent':'okhttp/4.12'}};}};__JS_SPIDER__ = spider;", "expected": "" },
+    { "id": "opHomeContent", "kind": "exact", "script": "JSON.stringify(__JS_SPIDER__.homeContent())", "expected": "{\"class\":[{\"type_id\":\"1\",\"type_name\":\"电影\"}],\"list\":[{\"vod_id\":\"1001\",\"vod_name\":\"示例影片\",\"vod_pic\":\"https://cdn.test/1.jpg\"}]}" },
+    { "id": "opSearchContent", "kind": "exact", "script": "JSON.stringify(__JS_SPIDER__.searchContent('功夫','false','1'))", "expected": "{\"page\":1,\"pagecount\":5,\"list\":[{\"vod_id\":\"2\",\"vod_name\":\"功夫\"}]}" },
+    { "id": "opCategoryContent", "kind": "exact", "script": "JSON.stringify(__JS_SPIDER__.categoryContent('1','1',''))", "expected": "{\"page\":1,\"pagecount\":1,\"limit\":20,\"total\":1,\"list\":[{\"vod_id\":\"3\",\"vod_name\":\"分类片\"}]}" },
+    { "id": "opDetailContent", "kind": "exact", "script": "JSON.stringify(__JS_SPIDER__.detailContent('1001'))", "expected": "{\"list\":[{\"vod_id\":\"1001\",\"vod_name\":\"详情片\"}]}" },
+    { "id": "opPlayerContent", "kind": "exact", "script": "JSON.stringify(__JS_SPIDER__.playerContent('默认','1001','false'))", "expected": "{\"parse\":0,\"url\":\"https://cdn.test/index.m3u8\",\"header\":{\"User-Agent\":\"okhttp/4.12\"}}" }
+  ]
+}

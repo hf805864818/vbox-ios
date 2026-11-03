@@ -1,0 +1,124 @@
+name: vbox
+description: VBox 多端聚合视频播放器（Android / Android TV / Windows / macOS）
+publish_to: 'none'
+version: 3.1894.0+1894
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── 状态与路由 ──
+  provider: ^6.1.2
+
+  # ── 数据库（对齐 contract/schema/schema_v1.sql）──
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3        # Windows / macOS 桌面端
+
+  # ── 偏好存储（对齐 contract/schema/prefs_keys_v1.json）──
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2     # 7 个敏感键 + keychain + credential_extra（v1.3，B2/B3 裁定）
+
+  # ── 备份加密（对齐 contract/docs/backup_v1.md）──
+  # AES-256-GCM + PBKDF2-HMAC-SHA256, iter=100000, salt=16B, iv=12B, tag=16B
+  cryptography: ^2.7.0
+
+  # ── m3u8 TS 分片解密（G-02；AES-128-CBC，纯 Dart，对齐 iOS CommonCrypto）──
+  pointycastle: ^3.7.3
+
+  # ── 播放器内核（media_kit，底层 libmpv，Windows/macOS 唯一主内核）──
+  # 替代自研 mpv 渲染桥（OpenGL FBO + libswscale 软渲染）。无真 GPU 环境（云电脑）
+  # 由 HardwareGpuProbe 探测后切 CPU 渲染软解，避免 ANGLE/EGL 表面创建失败。
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7   # 预编译 libmpv + 解码器（windows/macos/linux）
+
+  # ── 网络 ──
+  http: ^1.2.2
+  url_launcher: ^6.3.2               # 网页兜底：拉起系统浏览器打开官方登录页（F-02）
+  # ── 内嵌 WebView（Web-R1：网页登录自动回收 HttpOnly Cookie / Web-R3 滑块 / 百度 C3 回退）──
+  # 选 flutter_inappwebview 而非 webview_flutter：后者 CookieManager 只支持 set、
+  # 不能读 HttpOnly Cookie；平台可用性在 InAppWebViewBridge.isAvailable 内收敛。
+  # 6.2.0-beta.3 而非 6.1.5：AGP 9.1 已移除 proguard-android.txt，
+  # 而 6.1.5 带的 flutter_inappwebview_android 1.1.3 仍引用它（配置期直接失败）；
+  # 1.2.0-beta.3 已改用 proguard-android-optimize.txt，并同步升级 windows 侧 WebView2/WIL。
+  flutter_inappwebview: ^6.2.0-beta.3
+  html: ^0.15.4                     # HTML5 解析（B-11 站源原生搜索，配 core/html/xpath_engine.dart）
+  connectivity_plus: ^6.1.0          # 网络可达性（A2；仅平台层使用，核心层走 NetworkInfo 抽象）
+  wakelock_plus: ^1.2.8              # UI-D2 屏幕常亮：播放中禁用 idle timer（对齐 iOS isIdleTimerDisabled）
+  enough_convert: ^1.6.0             # GBK/GB2312/Big5/Latin 编解码（B-09 HTTP 桥 5 级编码链，MPL-2.0）
+
+  # ── 二维码渲染（F-04/C-盘3：PG 阿里云盘返回授权链接 → 本地编码二维码）──
+  qr_flutter: ^4.1.0
+
+  # ── 文件与路径 ──
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # ── 脚本运行时（Phase 2+，先占位）──
+  # quickjs_dart 通过 FFI 绑定 vboxapp/quickjs
+  ffi: ^2.1.3
+
+  # ── 分享与选图（Wave E：M-账2 分享 vbox / M-账3 头像更换）──
+  share_plus: ^12.0.2                # 系统分享面板（Android/TV/Windows/macOS）
+  image_picker: ^1.2.3               # 头像选图（各端相册 / 文件选择）
+  file_picker: ^10.3.3               # 备份还原选 .vboxbak（iOS = UIDocumentPicker，对齐 iOS）
+
+  # ── 工具 ──
+  crypto: ^3.0.5                     # SHA-256 等
+  intl: ^0.19.0
+  saver_gallery: ^5.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    # 品牌启动页素材（与 iOS Assets.xcassets 同源）：4 张字母 PNG + swoosh。
+    - assets/splash/
+    # M-账3：默认头像用的软件图标（与各端 Launcher 图标同源，对齐 iOS AppIcon）
+    - assets/brand/app_icon.png
+    # ND-01：Node 常驻系统内置运行时（首次启动复制到 <appData>/noderuntime）。
+    # 含 main.js / polyfill / lx-bridge.js / db.json / default.db.json / wexfnwconfig.json
+    # + bundles/kstore_index.js（6.5MB）—— 对齐 iOS `Resources/noderuntime` folder reference：
+    # **随包内置**（离线可用），远端 manifest 可选下发新版做增量刷新（下次启动生效）。
+    - assets/noderuntime/
+    - assets/noderuntime/lx/
+    - assets/noderuntime/bundles/
+    # ND-02-desktop：桌面端内置 CPython 的纯 py 依赖（运行时经 PYTHONPATH 注入）。
+    # 含 base/（base.spider 兼容层）+ requests 栈（requests/urllib3/idna/certifi/
+    # charset_normalizer）+ pyaes + Crypto/（AES 兼容层）；桥接脚本已内嵌 Dart，不含 pythonbridge。
+    # 注意：Flutter assets 目录条目**不递归**，每个含文件的子目录都需单列一行。
+    - assets/python-stdlib/
+    - assets/python-stdlib/base/
+    - assets/python-stdlib/Crypto/
+    - assets/python-stdlib/Crypto/Cipher/
+    - assets/python-stdlib/Crypto/PublicKey/
+    - assets/python-stdlib/Crypto/Util/
+    - assets/python-stdlib/certifi/
+    - assets/python-stdlib/charset_normalizer/
+    - assets/python-stdlib/charset_normalizer/cli/
+    - assets/python-stdlib/idna/
+    - assets/python-stdlib/pyaes/
+    - assets/python-stdlib/requests/
+    - assets/python-stdlib/urllib3/
+    - assets/python-stdlib/urllib3/contrib/
+    - assets/python-stdlib/urllib3/contrib/emscripten/
+    - assets/python-stdlib/urllib3/http2/
+    - assets/python-stdlib/urllib3/util/
+  fonts:
+    # 品牌字体（A-13）：启动页字母图 + 品牌字标用；正文走系统字体（令牌口径「字体族不强制」）。
+    - family: VboxBrand
+      fonts:
+        - asset: assets/fonts/VboxBrand-Bold.otf
+    # Hero 大标题兜底字体（D-11）：与 iOS `MaShanZheng-Regular.ttf` 同源，
+    # 对齐 iOS `HeroTitleView.fallbackTitle` 的 `.font(.custom("Ma Shan Zheng", size: 48))`。
+    - family: MaShanZheng
+      fonts:
+        - asset: assets/fonts/MaShanZheng-Regular.ttf

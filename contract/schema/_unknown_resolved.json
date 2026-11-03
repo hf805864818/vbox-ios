@@ -1,0 +1,262 @@
+{
+  "a1b2c3d4e5f60708": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "padding"
+    ]
+  },
+  "abcdefghijklmnopqrstuvwxyz0123456789": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "chars"
+    ]
+  },
+  "app": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "repoName"
+    ]
+  },
+  "app_dev_log_enabled": {
+    "type": "bool",
+    "evidence": "AppSettings.swift:166",
+    "vars": [
+      "devLogEnabledKey"
+    ]
+  },
+  "app_dev_log_level": {
+    "type": "int",
+    "evidence": "AppSettings.swift:167",
+    "vars": [
+      "devLogLevelKey"
+    ]
+  },
+  "app_enable_tmdb": {
+    "type": "bool",
+    "evidence": "AppSettings.swift:159",
+    "vars": [
+      "enableTMDBKey"
+    ]
+  },
+  "app_last_launch_version": {
+    "type": "string",
+    "evidence": "AppSettings.swift:175",
+    "vars": [
+      "lastAppVersionKey"
+    ]
+  },
+  "app_log_crash_marker": {
+    "type": "bool",
+    "evidence": "AppLogStore.swift:259",
+    "vars": [
+      "crashMarkerKey"
+    ]
+  },
+  "app_log_enabled": {
+    "type": "bool",
+    "evidence": "AppLogStore.swift:254",
+    "vars": [
+      "enabledKey"
+    ]
+  },
+  "app_log_min_level": {
+    "type": "int",
+    "evidence": "AppLogStore.swift:255",
+    "vars": [
+      "minLevelKey"
+    ]
+  },
+  "app_skin_follows_system": {
+    "type": "bool",
+    "evidence": "AppSettings.swift:158",
+    "vars": [
+      "skinFollowsSystemKey"
+    ]
+  },
+  "app_skin_mode": {
+    "type": "string",
+    "evidence": "AppSettings.swift:156",
+    "vars": [
+      "skinModeKey"
+    ]
+  },
+  "app_welfare_enabled": {
+    "type": "bool",
+    "evidence": "AppSettings.swift:165",
+    "vars": [
+      "welfareEnabledKey"
+    ]
+  },
+  "app_welfare_password": {
+    "type": "string",
+    "evidence": "AppSettings.swift:164",
+    "vars": [
+      "welfarePasswordKey"
+    ]
+  },
+  "app_welfare_unlocked": {
+    "type": "bool",
+    "evidence": "AppSettings.swift:163",
+    "vars": [
+      "welfareUnlockedKey"
+    ]
+  },
+  "bundle_sources_enabled": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "bundleSourcesEnabled"
+    ]
+  },
+  "drpy_js_腾云驾雾": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "siteKey"
+    ]
+  },
+  "feedback": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "repoName"
+    ]
+  },
+  "fuli_remote_source_enabled": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "switchEnabled"
+    ]
+  },
+  "fuli_remote_source_last_config_version": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "lastConfigVersion"
+    ]
+  },
+  "fuli_remote_source_last_success_time": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "lastSuccessTime"
+    ]
+  },
+  "l3srvtd7p42l0d0x1u8d7yc8ye9kki4d": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "signKey",
+      "ucTVSignKey"
+    ]
+  },
+  "pg_source": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "pgSourceKey"
+    ]
+  },
+  "qr_scan": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "pgSourceValue"
+    ]
+  },
+  "remote_default_last_config_version": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "lastConfigVersion"
+    ]
+  },
+  "remote_default_last_sync_app_version": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "lastSyncAppVersion"
+    ]
+  },
+  "remote_default_last_sync_error": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "lastSyncError"
+    ]
+  },
+  "remote_default_last_sync_time": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "lastSyncTime"
+    ]
+  },
+  "remote_default_manifest_url": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "defaultManifestURL"
+    ]
+  },
+  "remote_default_source_enabled": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "remoteDefaultSourceEnabled"
+    ]
+  },
+  "remote_node_bundle_url": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "nodeBundleURL"
+    ]
+  },
+  "remote_node_bundle_ver": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "nodeBundleVer"
+    ]
+  },
+  "samsung": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "brand"
+    ]
+  },
+  "saved_drive_tokens_v1": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "tokenAccount"
+    ]
+  },
+  "today": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "selectedDay"
+    ]
+  },
+  "user_parsers": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "userParsersKey"
+    ]
+  },
+  "wy": {
+    "type": "unknown",
+    "evidence": "",
+    "vars": [
+      "remarks"
+    ]
+  }
+}

@@ -1,0 +1,274 @@
+# Flutter 编译验证 + 契约校验（解锁 G-05/G-07/G-08）
+#
+# 背景：本机 iSH aarch64 无法运行 Flutter（官方 Linux 包仅 x86-64），
+# 所有 Dart 代码未经编译验证。本 workflow 在 GitHub Actions 上补齐验证闭环：
+#   1. contract-checks   11 个纯 Python 校验脚本（10 项契约一致性 + check_ui_tokens 表现层令牌守卫；
+#                        不含需 lcov 的 check_coverage）+ conformance runner（ubuntu）
+#   2. visual-regression 视觉回归比对（SSIM）：Flutter golden ↔ iOS 基准图逐页配对，
+#                        「基线 − 容差」相对门禁（C1；绝对 0.95 留待 J.3 终检，见脚本头注释）
+#   3. flutter-analyze   flutter analyze + flutter test --coverage + 覆盖率门槛（ubuntu-latest，见 job 注释）
+#   4~6. 三端编译（build-android/macos/windows）—— 仅 PR 触发（合并前编译验证）。
+#        push 到 main 的编译改由 build-release-assets 直接产出 release 安装包，
+#        此处不再 debug+release 重复编译（避免每次推送三端各编两遍）。
+#
+# 对应主文档：docs/VBOX_PLAN_v6.35.md P.7（环境约束）/ P.10（未决事项 #5）
+name: Flutter Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'contract/**'
+      - 'conformance/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - 'android/**'
+      - 'macos/**'
+      - 'windows/**'
+      - '.github/workflows/flutter-check.yml'
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'contract/**'
+      - 'conformance/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - 'android/**'
+      - 'macos/**'
+      - 'windows/**'
+      - '.github/workflows/flutter-check.yml'
+
+# 并发控制：同一分支同一工作流仅保留最新一次运行（旧运行自动取消），
+# 避免连续推送时多个 analyze / test / 契约校验任务并行抢占机时。
+concurrency:
+  group: flutter-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 契约与一致性校验（纯 Python，不需要 Flutter）──────────────
+  contract-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install crypto deps
+        run: pip install cryptography
+
+      - name: Run 12 contract checks (check_coverage runs in flutter-analyze)
+        run: |
+          set -e
+          for s in check_contract_sync \
+                   check_contract_completeness \
+                   check_migration_chain \
+                   check_models_roundtrip \
+                   check_prefs_manager \
+                   check_backup_contract \
+                   check_spider_domain \
+                   check_domain_remote_player \
+                   check_docs_consistency \
+                   check_dart_imports \
+                   check_ui_tokens \
+                   check_platform_wiring; do
+            echo "===== $s ====="
+            python3 scripts/$s.py
+          done
+
+      - name: Run conformance runner
+        run: python3 conformance/runner/run_conformance.py
+
+  # ── 视觉回归比对（SSIM · C1）：Flutter golden ↔ iOS 基准图逐页配对 ──────────
+  # 门禁口径：相对基线（baseline − tolerance）——分数跌破已登记基线即红（防回归）。
+  # 计划 §3.6 的绝对 SSIM ≥ 0.95 属跨设备不可达（iOS 真机截图 vs Flutter 测试渲染，
+  # 分辨率/字体/内容三重差异下实测 0.25~0.45），留待 J.3 终检重定口径。
+  # 配对清单：docs/ui_baseline/visual_pairs.json（新增页面：追加一条 → --update-baseline 登记）。
+  # opencv/numpy 与本地生成基线时同版本固定，保证 SSIM 可复现。
+  visual-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install vision deps (pinned for reproducible SSIM)
+        run: pip install opencv-python-headless==4.13.0.92 numpy==2.2.6
+
+      - name: Run visual regression gate (SSIM vs iOS baseline pairs)
+        run: python3 scripts/visual_regression.py --pairs docs/ui_baseline/visual_pairs.json --gate
+
+  # ── QuickJS FFI wrapper 原生编译（G-03-B-1：wrapper.c 可编译，纯 C）──────
+  build-native-quickjs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build QuickJS wrapper (shared lib)
+        run: bash scripts/build_quickjs_wrapper.sh "$RUNNER_TEMP/vbox_quickjs"
+
+      - name: Verify artifact
+        run: |
+          ls -la "$RUNNER_TEMP/vbox_quickjs"
+          test -f "$RUNNER_TEMP/vbox_quickjs/libvbox_quickjs.so" && echo "✅ libvbox_quickjs.so built"
+
+  # ── Flutter 编译验证（对全部 Dart 文件（当前 74 个）做编译器级静态检查）─────
+  # runner 选 ubuntu-latest（x86-64 Linux）：golden 基线（test/golden/goldens/*.png，
+  # A-12 像素锁）在 Linux x64 环境生成，Skia 光栅化随平台/CPU 架构存在亚像素差异，
+  # macOS/ARM 校验必产生 0.07%–0.81% 伪 diff；基线生成与 CI 校验必须同环境。
+  flutter-analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5" # 与本地已验证可解析的发行版一致
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Pub get
+        run: flutter pub get
+
+      # 关键步骤：首次对全部 Dart 代码做编译器级静态检查
+      - name: Analyze
+        run: flutter analyze
+
+      # 单测 + 覆盖率：当前 28 文件 / 365 用例（v6.7）
+      # 覆盖率门槛由 check_coverage.py 按「全 lib 行数」口径硬校验 70%（堵 lcov 只算触达文件的口径陷阱，见 P.18）
+      - name: Test with coverage (when present)
+        run: |
+          if [ -d test ] && find test -name '*.dart' 2>/dev/null | grep -q .; then
+            flutter test --coverage
+          else
+            echo "test/ 无用例，跳过"
+          fi
+
+      - name: Coverage gate (all-lib lines >= 70%)
+        run: |
+          if [ -f coverage/lcov.info ]; then
+            python3 scripts/check_coverage.py
+          else
+            echo "无覆盖率数据，跳过（test/ 无用例）"
+          fi
+
+  # ── 三端编译（解锁 E.10b 门禁 ③/⑤「三端编译通过」）──────────────
+  build-android:
+    # 仅 PR 触发：push 到 main 的编译由 build-release-assets（release 产物）覆盖，避免双编译
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      # 版本号同步：与 iOS CI（build-ipa.yml）同口径，从 `.version` 派生
+      # Flutter 侧 pubspec.yaml / AppInfo，保证编译验证与产物版本一致。
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
+
+      - run: flutter pub get
+
+      # 批次 Q · Q-02：就位四 ABI libjsc.so（externalNativeBuild 前置，缺失则 cmake FATAL_ERROR）
+      - name: Fetch Android JSC prebuilt libs (Q-02)
+        run: bash scripts/fetch-jsc-android.sh
+
+      # 批次 I · ND-01-native：就位 Node 引擎预编译库（对齐 iOS build-ipa.yml 下载 NodeMobile）
+      - name: Fetch Android Node engine prebuilt libs (ND-01)
+        run: bash scripts/fetch-nodejs-mobile-android.sh
+
+      - name: Build APK (debug)
+        run: flutter build apk --debug
+
+  build-macos:
+    # 仅 PR 触发（推送编译走 build-release-assets）
+    if: github.event_name == 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      - name: Sync version from .version
+        run: python3 scripts/sync_version.py
+
+      - run: flutter pub get
+
+      - name: Build macOS app (debug)
+        run: flutter build macos --debug
+
+      # 批次 Q · Q-04：JSC dylib 打入 debug App（编译→拷入 Frameworks→re-sign→dlopen 冒烟）
+      # —— Q-04 验收「可加载」的 CI 闭环（运行链 = MainFlutterWindow dlopen / Dart FFI 的前置）
+      - name: Bundle JSC dylib into app (Q-04)
+        run: bash scripts/bundle-jsc-macos.sh --config Debug
+
+      # Wave G · R-渲3：libmpv dylib 集合打入 debug App（D28 随包分发；运行链 =
+      # PlayerPlugin.swift dlopen("Contents/Frameworks/libmpv.dylib") 的前置）。
+      # 对齐 build-release-assets.yml macOS job；缺失资产时该步骤失败即暴露分发缺口。
+      - name: Bundle libmpv dylib set into app (R-渲3)
+        run: bash scripts/bundle-libmpv-macos.sh --config Debug
+
+  build-windows:
+    # 仅 PR 触发（推送编译走 build-release-assets）
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.5"
+
+      - name: Sync version from .version
+        run: python scripts/sync_version.py
+
+      - run: flutter pub get
+
+      - name: Build Windows app (debug)
+        run: flutter build windows --debug
+
+      # 批次 Q · Q-03：JSC 引擎随 debug 目录分发（fetch + MSVC 构建 + 拷贝 + 冒烟）
+      # —— 运行链 = main.cpp LoadLibraryW 预加载 / Dart FFI open("vbox_jsc.dll") 的前置
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Bundle JSC dll (Q-03)
+        shell: pwsh
+        run: .\scripts\bundle-jsc-windows.ps1 -Config Debug
+
+      # 批次 C · C-11：libmpv 运行时随 debug 目录分发（fetch + sha256 校验 +
+      # 改名 mpv-2.dll + 拷贝）——运行链 = player_plugin.cpp LoadLibraryW("mpv-2.dll")
+      # 的前置（D28 随包分发；加载失败上报 E_BACKEND_UNAVAILABLE 由 Dart 侧处理）
+      - name: Bundle libmpv dll (C-11)
+        shell: pwsh
+        run: .\scripts\bundle-libmpv-windows.ps1 -Config Debug

@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/q2787244398/vboxapp/contract/schema/manifest_v1.json",
+  "title": "vbox 远程源 manifest",
+  "description": "契约层 schema v1.0 · 来源：vbox-Ai/api sources/manifest.json 实测 + RemoteSourceConfigManager.swift 逆向",
+  "type": "object",
+  "required": ["schemaVersion", "configVersion", "files"],
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "description": "自描述元信息（标准 JSON 不支持注释，故用 _meta）",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "const": "manifest" },
+        "description": { "type": "string" }
+      }
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "description": "manifest 结构版本，当前为 1",
+      "const": 1
+    },
+    "configVersion": {
+      "type": "string",
+      "description": "配置版本号，格式 YYYY.MM.DD.N（同日递增）",
+      "pattern": "^\\d{4}\\.\\d{2}\\.\\d{2}\\.\\d+$",
+      "examples": ["2026.09.29.3"]
+    },
+    "minAppVersion": {
+      "type": "string",
+      "description": "客户端最低版本要求（兼容门控）",
+      "examples": ["1.0.0"]
+    },
+    "updatedAt": {
+      "type": "string",
+      "description": "更新时间（ISO 8601 UTC）",
+      "format": "date-time"
+    },
+    "ttlSeconds": {
+      "type": "integer",
+      "description": "缓存有效期（秒），实测为 21600（6 小时）",
+      "default": 21600
+    },
+    "forceRefresh": {
+      "type": "boolean",
+      "description": "是否强制全量刷新",
+      "default": true
+    },
+    "disabledKeys": {
+      "type": "array",
+      "description": "全局禁用的源 key 列表",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "files": {
+      "type": "object",
+      "description": "各配置文件的地址（10 个键，实测）",
+      "required": ["allSources"],
+      "properties": {
+        "allSources": {
+          "type": "string",
+          "format": "uri",
+          "description": "6 合 1 聚合文件（apiSources + cloudSources + spiderSources + domainOverrides + parsers + disabledSources）"
+        },
+        "apiSources": { "type": "string", "format": "uri" },
+        "cloudSources": { "type": "string", "format": "uri" },
+        "spiderSources": { "type": "string", "format": "uri" },
+        "domainOverrides": { "type": "string", "format": "uri" },
+        "parsers": { "type": "string", "format": "uri" },
+        "disabledSources": { "type": "string", "format": "uri" },
+        "welfarePlatforms": { "type": "string", "format": "uri" },
+        "nodeRuntimeBundle": {
+          "type": "string",
+          "format": "uri",
+          "description": "Node 运行时 bundle（kstore_index.js，约 6.4 MB）"
+        },
+        "nodeRuntimeBundleVer": {
+          "type": "string",
+          "format": "uri",
+          "description": "bundle 版本标记文件"
+        }
+      }
+    }
+  },
+  "additionalProperties": true,
+
+  "$defs": {
+    "allSources": {
+      "type": "object",
+      "description": "all_sources.json 的顶层结构（实测 7 个键）",
+      "properties": {
+        "apiSources": {
+          "type": "object",
+          "properties": {
+            "spider": { "type": "string" },
+            "sites": { "type": "array", "items": { "$ref": "#/$defs/site" } },
+            "parses": { "type": "array" }
+          }
+        },
+        "cloudSources": {
+          "type": "object",
+          "properties": {
+            "dyname": { "type": "string" },
+            "dyzuozhe": { "type": "string" },
+            "cloudSites": { "type": "array", "items": { "$ref": "#/$defs/cloudSite" } }
+          }
+        },
+        "spiderSources": {
+          "type": "object",
+          "properties": {
+            "sites": { "type": "array", "items": { "$ref": "#/$defs/site" } },
+            "siteCount": { "type": "integer" }
+          }
+        },
+        "domainOverrides": {
+          "type": "object",
+          "properties": {
+            "overrides": { "type": "array" }
+          }
+        },
+        "parsers": {
+          "type": "object",
+          "properties": {
+            "parses": { "type": "array" }
+          }
+        },
+        "disabledSources": {
+          "type": "object",
+          "properties": {
+            "disabledKeys": { "type": "array", "items": { "type": "string" } },
+            "disabledHosts": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "welfarePlatforms": { "$ref": "welfare_v1.json" }
+      }
+    },
+
+    "site": {
+      "type": "object",
+      "description": "站点配置（对应 Swift SiteConfig）",
+      "required": ["key", "name", "type"],
+      "properties": {
+        "key": { "type": "string", "description": "站点唯一键（含前缀判定：js_/y_/Music_/nodejs_/csp_）" },
+        "name": { "type": "string" },
+        "type": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3],
+          "description": "0/1=API 模式, 2=站源模式, 3=蜘蛛模式"
+        },
+        "api": { "type": "string", "description": "脚本路径或 API 地址" },
+        "searchable": { "type": "integer" },
+        "quickSearch": { "type": "integer" },
+        "filterable": { "type": "integer" },
+        "ext": { "type": "string" },
+        "playerType": { "type": "integer" },
+        "jar": { "type": "string" },
+        "changeable": { "type": "integer" },
+        "playStrategy": { "type": "string" },
+        "playMode": { "type": "string", "enum": ["normal", "pan", "hybrid"] },
+        "panHosts": { "type": "array", "items": { "type": "string" }, "examples": [["quark", "ali"]] },
+        "group": { "type": "string", "enum": ["video", "music", "node", "cloud", "api", "builtin_fallback"] },
+        "engineType": { "type": "string", "description": "lxMusic / node / 空" },
+        "pluginPath": { "type": "string", "examples": ["sources/lx/daxe.js"] },
+        "version": { "type": "string" },
+        "md5": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "priority": { "type": "integer" }
+      }
+    },
+
+    "cloudSite": {
+      "type": "object",
+      "description": "网盘站点（实测无 key/api 字段，用 name+type 区分）",
+      "properties": {
+        "name": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["cms", "binhd", "forum", "dedecms", "spa"],
+          "description": "实测 5 种类型"
+        }
+      }
+    }
+  }
+}

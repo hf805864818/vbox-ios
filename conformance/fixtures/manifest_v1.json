@@ -1,0 +1,91 @@
+{
+  "$comment": "一致性测试样本 · 远程源 manifest v1.0 · 三端比对本文件输出",
+  "schemaVersion": 1,
+  "configVersionPattern": "^\\d{4}\\.\\d{2}\\.\\d{2}\\.\\d+$",
+  "defaultTtlSeconds": 21600,
+  "requiredFiles": ["allSources"],
+  "knownFileKeys": [
+    "allSources",
+    "apiSources",
+    "cloudSources",
+    "spiderSources",
+    "domainOverrides",
+    "parsers",
+    "disabledSources",
+    "welfarePlatforms",
+    "nodeRuntimeBundle",
+    "nodeRuntimeBundleVer"
+  ],
+
+  "cases": [
+    {
+      "name": "validFull",
+      "input": {
+        "schemaVersion": 1,
+        "configVersion": "2026.10.02.1",
+        "minAppVersion": "1.0.0",
+        "updatedAt": "2026-10-02T00:00:00Z",
+        "ttlSeconds": 21600,
+        "forceRefresh": false,
+        "disabledKeys": ["k1"],
+        "files": { "allSources": "https://cdn.example.com/all_sources.json" }
+      },
+      "valid": true,
+      "expected": {
+        "schemaVersion": 1,
+        "configVersion": "2026.10.02.1",
+        "hasValidConfigVersion": true,
+        "hasAllSources": true,
+        "ttlSeconds": 21600,
+        "forceRefresh": false,
+        "disabledKeys": ["k1"]
+      }
+    },
+    {
+      "name": "missingAllSources",
+      "input": {
+        "configVersion": "2026.10.02.1",
+        "files": { "apiSources": "https://cdn.example.com/apiSources.json" }
+      },
+      "valid": false,
+      "expected": { "hasAllSources": false }
+    },
+    {
+      "name": "badConfigVersion",
+      "input": {
+        "configVersion": "2026.13.99",
+        "files": { "allSources": "https://cdn.example.com/all_sources.json" }
+      },
+      "valid": false,
+      "expected": { "hasValidConfigVersion": false }
+    },
+    {
+      "name": "defaultsApplied",
+      "input": {
+        "configVersion": "2026.10.02.2",
+        "files": { "allSources": "https://cdn.example.com/all_sources.json" }
+      },
+      "valid": true,
+      "expected": {
+        "schemaVersion": 1,
+        "ttlSeconds": 21600,
+        "forceRefresh": true,
+        "disabledKeys": []
+      }
+    },
+    {
+      "name": "minAppVersionOptional",
+      "input": {
+        "configVersion": "2026.10.02.3",
+        "files": { "allSources": "https://cdn.example.com/all_sources.json" },
+        "minAppVersion": null
+      },
+      "valid": true,
+      "expected": {
+        "minAppVersion": null,
+        "hasValidConfigVersion": true,
+        "hasAllSources": true
+      }
+    }
+  ]
+}

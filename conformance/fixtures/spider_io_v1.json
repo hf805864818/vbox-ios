@@ -1,0 +1,179 @@
+{
+  "$comment": "一致性测试样本 · Spider ABI v1.0 · 三端比对本文件输出",
+  "schemaVersion": "1.0",
+
+  "homeContent": {
+    "request": { "op": "homeContent", "params": {} },
+    "expectedResponse": {
+      "ok": true,
+      "data": {
+        "class": [
+          { "type_id": "1", "type_name": "电影" },
+          { "type_id": "2", "type_name": "电视剧" },
+          { "type_id": "3", "type_name": "综艺" }
+        ],
+        "list": [
+          {
+            "vod_id": "1001",
+            "vod_name": "示例影片",
+            "vod_pic": "https://cdn.example.com/1001.jpg",
+            "vod_remarks": "更新至12集",
+            "vod_year": "2024",
+            "vod_area": "中国",
+            "vod_play_from": "线路1",
+            "vod_play_url": "第1集$https://cdn.example.com/ep1.m3u8#第2集$https://cdn.example.com/ep2.m3u8"
+          }
+        ]
+      }
+    }
+  },
+
+  "searchContent": {
+    "request": { "op": "searchContent", "params": { "keyword": "测试", "pg": 1 } },
+    "expectedResponse": {
+      "ok": true,
+      "data": {
+        "page": 1,
+        "pagecount": 5,
+        "list": [
+          { "vod_id": "2001", "vod_name": "测试影片", "vod_pic": "https://cdn.example.com/2001.jpg" }
+        ]
+      }
+    }
+  },
+
+  "categoryContent": {
+    "request": { "op": "categoryContent", "params": { "tid": "1", "pg": 1, "extend": "" } },
+    "expectedResponse": {
+      "ok": true,
+      "data": { "page": 1, "pagecount": 10, "limit": 20, "total": 200, "list": [] }
+    }
+  },
+
+  "detailContent": {
+    "request": { "op": "detailContent", "params": { "ids": "1001" } },
+    "expectedResponse": {
+      "ok": true,
+      "data": {
+        "list": [
+          {
+            "vod_id": "1001",
+            "vod_name": "示例影片",
+            "vod_pic": "https://cdn.example.com/1001.jpg",
+            "vod_content": "剧情简介...",
+            "vod_play_from": "线路1$$$线路2",
+            "vod_play_url": "第1集$url1#第2集$url2$$$第1集$url3"
+          }
+        ]
+      }
+    }
+  },
+
+  "playerContent": {
+    "request": { "op": "playerContent", "params": { "vodId": "1001", "flag": "线路1", "url": "https://cdn.example.com/ep1.m3u8" } },
+    "expectedResponse": {
+      "ok": true,
+      "data": {
+        "parse": 0,
+        "url": "https://cdn.example.com/ep1.m3u8",
+        "urls": ["https://cdn.example.com/ep1.m3u8"],
+        "header": { "User-Agent": "Mozilla/5.0", "Referer": "https://example.com/" }
+      }
+    }
+  },
+
+  "$comment_tolerance": {
+    "desc": "容错解码测试用例 — 三端必须产生相同结果",
+    "typeIdAsInt": {
+      "input": { "class": [{ "type_id": 1, "type_name": "电影" }] },
+      "expected": { "class": [{ "type_id": "1", "type_name": "电影" }] },
+      "rule": "type_id 为 Int 时转 String"
+    },
+    "vodIdAsInt": {
+      "input": { "list": [{ "vod_id": 1001, "vod_name": 123, "vod_pic": 456 }] },
+      "expected": { "list": [{ "vod_id": "1001", "vod_name": "123", "vod_pic": "456" }] },
+      "rule": "vod_id/vod_name/vod_pic 支持 String/Int/Double"
+    },
+    "urlsBackfill": {
+      "input": { "parse": 0, "url": "https://x.com/a.m3u8" },
+      "expected": { "urls": ["https://x.com/a.m3u8"] },
+      "rule": "urls 缺省且 url 非空 → urls = [url]"
+    },
+    "urlsBackfillEmpty": {
+      "input": { "parse": 0, "url": "" },
+      "expected": { "urls": null },
+      "rule": "url 为空 → urls 保持 null"
+    },
+    "urlAsArray": {
+      "input": { "parse": 0, "url": ["https://x.com/l1.m3u8", "https://x.com/l2.m3u8"] },
+      "expected": { "url": "https://x.com/l1.m3u8", "urls": ["https://x.com/l1.m3u8", "https://x.com/l2.m3u8"] },
+      "rule": "url 数组形态（多线路/多音质蜘蛛）→ urls=全列表、url=首元素"
+    },
+    "urlAsArrayBeatsUrlsKey": {
+      "input": { "url": ["https://x.com/l1"], "urls": ["https://x.com/stale"] },
+      "expected": { "url": "https://x.com/l1", "urls": ["https://x.com/l1"] },
+      "rule": "url 数组形态下 urls 键不再参与（iOS init(from:) 优先级）"
+    },
+    "urlAsArrayEmpty": {
+      "input": { "parse": 0, "url": [] },
+      "expected": { "url": null, "urls": [] },
+      "rule": "url 空数组 → urls=[]（非 null）、url=null"
+    },
+    "availQualitiesDefault": {
+      "input": { "list": [{ "vod_id": "1", "vod_name": "x", "vod_pic": "y" }] },
+      "expected": { "list": [{ "availQualities": [] }] },
+      "rule": "availQualities 缺省为 []"
+    },
+    "missingOptional": {
+      "input": { "list": [{ "vod_id": "1" }] },
+      "expected": { "list": [{ "vod_name": "", "vod_pic": "", "engineKey": null, "metaDuration": null }] },
+      "rule": "可选字段缺失不报错"
+    }
+  },
+
+  "$comment_errors": {
+    "registerFailed": {
+      "input": "typeof globalThis.__JS_SPIDER__ === 'undefined'",
+      "expected": { "ok": false, "error": { "code": "E_REGISTER" } }
+    },
+    "scriptError": {
+      "input": "evaluateJS 返回 \"SyntaxError: unexpected token\"",
+      "expected": { "ok": false, "error": { "code": "E_SCRIPT_LOAD" } },
+      "rule": "前缀匹配 Error/TypeError/ReferenceError/SyntaxError"
+    }
+  },
+
+  "$comment_encoding": {
+    "desc": "HTTP 响应编码解码链测试",
+    "cases": [
+      { "name": "utf8", "charset": "utf-8", "expectedDecode": "UTF-8" },
+      { "name": "gbk", "charset": "gbk", "expectedDecode": "GBK" },
+      { "name": "gb2312", "charset": "gb2312", "expectedDecode": "GBK" },
+      { "name": "gb18030", "charset": "gb18030", "expectedDecode": "GBK" },
+      { "name": "big5", "charset": "big5", "expectedDecode": "Big5" },
+      { "name": "latin1", "charset": "iso-8859-1", "expectedDecode": "ISO Latin1" },
+      { "name": "fallback_all_fail", "charset": "unknown-xyz", "expectedDecode": "base64" }
+    ]
+  },
+
+  "$comment_siteMode": {
+    "desc": "站点模式判定（契约 §1.1 resolveSiteMode）—— 三端须判定一致",
+    "cases": [
+      { "name": "groupNode", "site": { "key": "a", "type": 3, "group": "node" }, "mode": "node", "isNodeHosted": true },
+      { "name": "keyNodejs", "site": { "key": "nodejs_x", "type": 3 }, "mode": "node", "isNodeHosted": true },
+      { "name": "keyCspType3", "site": { "key": "csp_abc", "type": 3 }, "mode": "node", "isNodeHosted": true },
+      { "name": "apiLoopbackSpider", "site": { "key": "a", "type": 3, "api": "http://127.0.0.1:58080/spider/x" }, "mode": "node", "isNodeHosted": true },
+      { "name": "type0", "site": { "key": "a", "type": 0, "api": "http://api/x" }, "mode": "apiEndpoint", "isNodeHosted": false },
+      { "name": "type1", "site": { "key": "a", "type": 1, "api": "http://api/x" }, "mode": "apiEndpoint", "isNodeHosted": false },
+      { "name": "type2Zhanyuan", "site": { "key": "a", "type": 2, "api": "http://site" }, "mode": "zhanyuan", "isNodeHosted": false },
+      { "name": "relativeJs", "site": { "key": "a", "type": 3, "api": "./local.js" }, "mode": "jsSpider", "isNodeHosted": false },
+      { "name": "httpJs", "site": { "key": "a", "type": 3, "api": "http://cdn/x.js" }, "mode": "jsSpider", "isNodeHosted": false },
+      { "name": "httpApi", "site": { "key": "a", "type": 3, "api": "http://api/vod" }, "mode": "apiEndpoint", "isNodeHosted": false },
+      { "name": "cspPyPriority", "site": { "key": "a", "type": 3, "api": "csp_js_x.py" }, "mode": "node", "isNodeHosted": true },
+      { "name": "pythonSpider", "site": { "key": "a", "type": 3, "api": "./spider.py" }, "mode": "pythonSpider", "isNodeHosted": false },
+      { "name": "jarUnsupported", "site": { "key": "a", "type": 3, "api": "http://x/a.jar" }, "mode": "unsupported", "isNodeHosted": false },
+      { "name": "classNameUnsupported", "site": { "key": "a", "type": 3, "api": "com.example.Spider" }, "mode": "unsupported", "isNodeHosted": false },
+      { "name": "unknownType", "site": { "key": "a", "type": 9 }, "mode": "unsupported", "isNodeHosted": false }
+    ]
+  }
+}

@@ -1,0 +1,135 @@
+# 阶段遗漏检查报告模板（D13 / E.10b）
+# 契约层文件 · contract/docs/stage_check_template.yaml
+# 用途：每阶段完成后由 AI 输出，人工确认后放行下一阶段
+# 命名规范：stage_check_report_stage<N>.yaml
+
+stage: 0                          # 阶段编号
+stage_name: "契约冻结"              # 阶段名称
+timestamp: ""                      # 完成时间
+completed_at_iteration: ""         # 所属迭代轮次
+
+# ────────────────────────────────────────────────────────────
+# 六类扫描（E.10b.2）
+# status 取值：pass | fail | partial | na
+# ────────────────────────────────────────────────────────────
+checks:
+
+  # ① 契约一致性
+  contract_alignment:
+    status: ""                     # pass | fail | partial | na
+    details: ""
+    items:
+      - { name: "代码对齐 contract/",        status: "" }
+      - { name: "无契约外新增字段/行为",      status: "" }
+      - { name: "契约本身无需修订",          status: "" }
+      - { name: "conformance 100% 通过",     status: "" }
+
+  # ② 数据与状态
+  data_and_state:
+    status: ""
+    details: ""
+    items:
+      - { name: "SQLite 迁移链 v1→v4 完整",  status: "" }
+      - { name: "旧数据可读写（fixtures）",   status: "" }
+      - { name: "备份双向互通",              status: "" }
+      - { name: "Prefs 键名全覆盖无拼错",     status: "" }
+      - { name: "敏感键按约定处理",          status: "" }
+
+  # ③ 平台差异
+  platform_parity:
+    status: ""
+    details: ""
+    items:
+      - { name: "三端功能对齐",              status: "" }
+      - { name: "TV 焦点全程可见",           status: "" }
+      - { name: "iOS 参照实现未破坏",        status: "" }
+      - { name: "minSdk 24 依赖可用",        status: "" }
+      - { name: "侧载链路验证",              status: "" }
+
+  # ④ 功能完整性
+  feature_complete:
+    status: ""
+    details: ""
+    items:
+      - { name: "阶段承诺功能全交付",        status: "" }
+      - { name: "无 TODO/写死值遗留",        status: "" }
+      - { name: "5 个 Spider 引擎跑通",      status: "" }
+      - { name: "播放器后端均有回退",         status: "" }
+      - { name: "福利/音乐隔离生效",          status: "" }
+
+  # ⑤ 质量基线
+  quality_gate:
+    status: ""
+    details: ""
+    items:
+      - { name: "单测覆盖率 ≥ 70%",          status: "" }
+      - { name: "静态分析无 error",          status: "" }
+      - { name: "无 blocker/critical Bug",   status: "" }
+      - { name: "三端编译通过",              status: "" }
+      - { name: "本阶段 Bug 已闭环",          status: "" }
+
+  # ⑥ 交付物与文档
+  deliverables:
+    status: ""
+    details: ""
+    items:
+      - { name: "应产出文件齐全",            status: "" }
+      - { name: "决策记录已追加",            status: "" }
+      - { name: "风险清单已更新",            status: "" }
+      - { name: "已知限制已记录",            status: "" }
+      - { name: "下阶段输入就绪",            status: "" }
+
+# ────────────────────────────────────────────────────────────
+# 阻断项（未解决的 fail/partial）
+# ────────────────────────────────────────────────────────────
+blockers:
+  - id: ""                         # 关联 BUG-xxx 或检查项名
+    desc: ""
+    severity: ""                   # critical | high | medium | low
+    plan: ""                       # 处理计划
+
+# ────────────────────────────────────────────────────────────
+# 结论
+# ────────────────────────────────────────────────────────────
+verdict: ""                        # pass | blocked
+block_reason: ""                   # verdict=blocked 时必填
+next_action: ""                    # 下一步动作
+
+# ────────────────────────────────────────────────────────────
+# 签核
+# ────────────────────────────────────────────────────────────
+ai_signoff:
+  agent: ""
+  timestamp: ""
+human_review:
+  reviewer: ""
+  timestamp: ""
+  approved: false                  # 人工确认通过后置 true
+
+# ────────────────────────────────────────────────────────────
+# 使用规则（E.10b.3）
+# ────────────────────────────────────────────────────────────
+# 1. AI 必须主动输出本报告，不能只说"已完成"
+# 2. 报告必须逐项列出，不能只写"全部通过"
+# 3. 人工有权否决，并可要求补充检查项
+# 4. 不通过不得进入下一阶段（硬门禁）
+# 5. 报告留档，作为阶段验收凭据
+# ────────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────
+# 示例（verdict=blocked）
+# ────────────────────────────────────────────────────────────
+# stage: 2
+# stage_name: "功能补全"
+# checks:
+#   contract_alignment: { status: pass, details: "全部对齐 contract-v1.0" }
+#   data_and_state:      { status: pass, details: "v1→v4 实测通过，fixtures 32/32" }
+#   platform_parity:     { status: partial, details: "TV 焦点第3行末尾丢失1处" }
+#   feature_complete:    { status: pass, details: "本阶段 24 项功能全交付" }
+#   quality_gate:        { status: fail, details: "单测覆盖率 68%（目标 70%）" }
+#   deliverables:        { status: pass, details: "文档与构建物齐全" }
+# blockers:
+#   - { id: BUG-018, desc: "TV 焦点在第三行末尾丢失", severity: medium, plan: "下阶段修复" }
+# verdict: blocked
+# block_reason: "单测覆盖率未达标（68% < 70%）"
+# next_action: "补测至 70% 后重跑本检查"

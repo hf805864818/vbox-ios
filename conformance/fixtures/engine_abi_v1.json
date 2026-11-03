@@ -1,0 +1,42 @@
+{
+  "$comment": "一致性测试样本 · 双引擎 ABI v1.0（JSC 主 / QuickJS 降级）· 三端比对本文件输出",
+  "schemaVersion": "1.0",
+
+  "engines": [
+    { "type": "javaScriptCore", "rawValue": "JavaScriptCore" },
+    { "type": "quickJS", "rawValue": "QuickJS" },
+    { "type": "node", "rawValue": "Node" },
+    { "type": "nodeLX", "rawValue": "NodeLX" },
+    { "type": "python", "rawValue": "python" }
+  ],
+
+  "bridgeMethods": [
+    "isAvailable",
+    "createRuntime",
+    "createContext",
+    "freeContext",
+    "freeRuntime",
+    "eval"
+  ],
+
+  "cSymbols": {
+    "prefixes": { "quickjs": "vq", "jsCore": "vj" },
+    "suffixes": [
+      "create_runtime",
+      "create_context",
+      "free_runtime",
+      "free_context",
+      "eval",
+      "free_string"
+    ],
+    "freeStringArgs": 2
+  },
+
+  "fallback": {
+    "markers": [
+      "JSC 引擎不可用",
+      "自动降级 QuickJS",
+      "已降级为 QuickJS 引擎"
+    ]
+  }
+}

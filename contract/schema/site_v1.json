@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/q2787244398/vboxapp/contract/schema/site_v1.json",
+  "title": "vbox 站点配置 SiteConfig",
+  "description": "契约层 schema v1.0 · 来源：vbox/Models/SpiderModels.swift struct SiteConfig 逆向提取",
+  "type": "object",
+  "required": ["key", "name", "type"],
+  "properties": {
+    "key": {
+      "type": "string",
+      "description": "站点唯一键。前缀决定引擎选择：js_=JS / y_=Python / Music_=csp_类名 / nodejs_=Node"
+    },
+    "name": { "type": "string" },
+    "type": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3],
+      "description": "0/1=API 模式, 2=站源模式(HTML 解析), 3=蜘蛛模式"
+    },
+    "api": { "type": "string" },
+    "searchable": { "type": "integer" },
+    "quickSearch": { "type": "integer" },
+    "filterable": { "type": "integer" },
+    "ext": { "type": "string" },
+    "playerType": { "type": "integer" },
+    "jar": { "type": "string" },
+    "changeable": { "type": "integer" },
+    "playStrategy": { "type": "string" },
+    "playMode": {
+      "type": "string",
+      "enum": ["normal", "pan", "hybrid"],
+      "description": "议题 15 定稿；Node 源随 manifest 下发"
+    },
+    "panHosts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "网盘宿主列表（playMode=pan 时用于播放分发）"
+    },
+    "group": {
+      "type": "string",
+      "description": "group == \"node\" 表示 Node 常驻系统托管源"
+    },
+    "engineType": {
+      "type": "string",
+      "description": "lxMusic（走 LXBridgeEngine）/ node / 空（普通 JS/Python）"
+    },
+    "pluginPath": {
+      "type": "string",
+      "description": "lx 插件脚本相对仓库路径，如 sources/lx/daxe.js"
+    },
+    "version": { "type": "string", "description": "插件版本（与插件 @version 对齐）" },
+    "md5": { "type": "string", "description": "插件脚本 MD5（完整性校验）" }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "siteMode": {
+      "description": "resolveSiteMode 判定结果（非 JSON 字段，供实现参考）",
+      "enum": ["jsSpider", "pythonSpider", "apiEndpoint", "zhanyuan", "node", "unsupported"]
+    },
+    "engineType": {
+      "enum": ["JavaScriptCore", "QuickJS", "Node", "NodeLX", "python"]
+    }
+  }
+}

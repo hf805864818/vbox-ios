@@ -1,0 +1,16 @@
+# 静态分析配置。
+#
+# 启用 Flutter 官方推荐规则集（flutter_lints），为全项目提供统一的 lint 门禁。
+# 契约：`pubspec.yaml` 的 `flutter_lints` 版本须与此处 include 匹配。
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  # 排除生成物与平台壳（平台壳由 flutter create 生成，风格与 Dart 侧无关）。
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - macos/**
+    - windows/**
+    - linux/**
+    - web/**

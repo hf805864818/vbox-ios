@@ -1,0 +1,172 @@
+name: Build JSC (macOS dylib + Android 4-ABI + smoke)
+
+# 批次 Q 原生构建管线：
+#   · build-macos  （Q-04）：jsc/wrapper.c 链接系统 JavaScriptCore.framework
+#                  → libvbox_jsc.dylib（Dart 侧 jsc_ffi.dart 加载）
+#   · build-android（Q-02）：NDK 交叉编译 wrapper + 预编译 libjsc.so（RN 生态
+#                  jsc-android r250231，scripts/fetch-jsc-android.sh 就位）
+#                  → libvbox_jsc.so 四 ABI + 符号级 smoke（DT_NEEDED / vj_* 导出）
+#   · Q-03（Windows MSVC + WinCairo）：见 docs/评估_JSC_Windows可行性.md 方案 A，
+#     待对应任务启动。
+# 运行时加载链（Android）：MainActivity System.loadLibrary("vbox_jsc") →
+# linker 按 SONAME 解析 APK lib/<abi>/ 内 libjsc.so → Dart FFI 命中已加载实例。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'jsc/**'
+      - 'scripts/fetch-jsc-android.sh'
+      - 'scripts/fetch-jsc-windows.ps1'
+      - 'scripts/build-jsc-windows.ps1'
+      - 'scripts/bundle-jsc-windows.ps1'
+      - 'android/app/src/main/jni/**'
+      - 'windows/runner/**'
+      - '.github/workflows/build-jsc.yml'
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🏗️ Build libvbox_jsc.dylib（系统 JavaScriptCore.framework，@rpath id）
+        run: |
+          bash scripts/build-jsc-macos.sh
+          DYLIB="build/vbox-jsc/macos/libvbox_jsc.dylib"
+          ls -lh "$DYLIB"
+          file "$DYLIB"
+          otool -L "$DYLIB"
+
+      - name: 🧪 Smoke：vj_* ABI 语义（eval / 异常前缀 / 生命周期）
+        run: |
+          clang -O2 jsc/smoke_test.c jsc/wrapper.c \
+            -framework JavaScriptCore -o /tmp/jsc_smoke
+          /tmp/jsc_smoke
+
+      - name: 🧪 Smoke：dylib 动态加载（等价 Dart FFI 路径）
+        run: |
+          cat > /tmp/dylib_check.c <<'EOF'
+          #include <dlfcn.h>
+          #include <stdio.h>
+          int main(void) {
+              void *h = dlopen("build/vbox-jsc/macos/libvbox_jsc.dylib", RTLD_NOW);
+              if (!h) { printf("❌ dlopen: %s\n", dlerror()); return 1; }
+              void *(*create_ctx)(void *) = dlsym(h, "vj_create_context");
+              const char *(*eval)(void *, const char *) = dlsym(h, "vj_eval");
+              if (!create_ctx || !eval) { printf("❌ dlsym\n"); return 1; }
+              void *ctx = create_ctx(0);
+              const char *r = eval(ctx, "21*2");
+              int ok = r && r[0] == '4' && r[1] == '2' && r[2] == '\0';
+              printf("%s dylib eval 21*2 → %s\n", ok ? "✅" : "❌", r ? r : "(null)");
+              return ok ? 0 : 1;
+          }
+          EOF
+          clang -O2 /tmp/dylib_check.c -o /tmp/dylib_check
+          /tmp/dylib_check
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-jsc-macos
+          path: build/vbox-jsc/macos/libvbox_jsc.dylib
+
+  # ── Q-02：Android 四 ABI（NDK 交叉编译 + 预编译 libjsc.so） ──────────────
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 🥥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 📥 Fetch 四 ABI libjsc.so（RN 生态 jsc-android r250231）
+        run: bash scripts/fetch-jsc-android.sh
+
+      - name: 🏗️ NDK 交叉编译 libvbox_jsc.so（四 ABI）
+        run: |
+          set -euo pipefail
+          NDK="$(ls -d "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"/ndk/* | sort -V | tail -1)"
+          echo "NDK: $NDK"
+          for ABI in armeabi-v7a arm64-v8a x86 x86_64; do
+            BUILD="build/vbox-jsc/$ABI"
+            cmake -G Ninja -S android/app/src/main/jni -B "$BUILD" \
+              -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$ABI" \
+              -DANDROID_PLATFORM=android-24 \
+              -DVBOX_NODE_BRIDGE=OFF \
+              -DCMAKE_BUILD_TYPE=MinSizeRel
+            cmake --build "$BUILD"
+            cp "$BUILD/libvbox_jsc.so" "libvbox_jsc-$ABI.so"
+            ls -lh "libvbox_jsc-$ABI.so"
+          done
+
+      - name: 🧪 Smoke：四 ABI 符号级验证（NDK llvm 工具链）
+        run: |
+          set -euo pipefail
+          NDK="$(ls -d "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"/ndk/* | sort -V | tail -1)"
+          LLVM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for ABI in armeabi-v7a arm64-v8a x86 x86_64; do
+            SO="libvbox_jsc-$ABI.so"
+            echo "── $ABI ──"
+            file "$SO"
+            # 1) 依赖完整性：DT_NEEDED 须含 libjsc.so（SONAME 解析前提）
+            "$LLVM/llvm-readelf" -d "$SO" | grep -q 'NEEDED.*\[libjsc.so\]' \
+              || { echo "❌ $ABI 缺 DT_NEEDED libjsc.so"; exit 1; }
+            # 2) ABI 形状：vj_* 六符号须全部 default 导出（与 vq_* 对齐）
+            MISSING=0
+            for SYM in vj_create_runtime vj_create_context vj_free_runtime \
+                        vj_free_context vj_eval vj_free_string; do
+              "$LLVM/llvm-nm" -D --defined-only "$SO" | grep -q " T $SYM\$" \
+                || { echo "❌ $ABI 缺导出符号 $SYM"; MISSING=1; }
+            done
+            [ $MISSING -eq 0 ] || exit 1
+            # 3) 无符号泄漏：除 vj_* 外不得有其他 default 导出
+            EXTRA="$("$LLVM/llvm-nm" -D --defined-only "$SO" | grep ' T ' | grep -v ' T vj_' || true)"
+            [ -z "$EXTRA" ] || { echo "❌ $ABI 泄漏非 vj_* 符号: $EXTRA"; exit 1; }
+            echo "✅ ${ABI}：NEEDED/libjsc.so ✓ vj_* 六符号 ✓ 无泄漏"
+          done
+          echo "✅ 四 ABI 符号级 smoke 全部通过（真机加载由 APK 构建产物验证，"
+          echo "   运行时失败走 D6 降级 QuickJS 兜底）"
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-jsc-android
+          path: libvbox_jsc-*.so
+          retention-days: 14
+
+  # ── Q-03：Windows JSC（Playwright WebKit JSC DLL + MSVC 编译 wrapper） ──────
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup MSVC (cl/lib/dumpbin on PATH)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: 🏗️ Fetch + build + smoke vbox_jsc.dll (Q-03)
+        shell: pwsh
+        run: .\scripts\build-jsc-windows.ps1
+
+      - name: 📊 Verify artifacts
+        shell: pwsh
+        run: |
+          Get-Item build/vbox-jsc/windows/vbox_jsc.dll | Select-Object Name, Length
+          Get-ChildItem build/vbox-jsc/windows/vendor -Filter *.dll |
+            Measure-Object -Property Length -Sum |
+            Select-Object Count, @{N="TotalMB";E={[math]::Round($_.Sum/1MB,1)}}
+
+      - name: 📤 Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libvbox-jsc-windows
+          path: |
+            build/vbox-jsc/windows/vbox_jsc.dll
+            build/vbox-jsc/windows/vendor/*.dll
+          retention-days: 14

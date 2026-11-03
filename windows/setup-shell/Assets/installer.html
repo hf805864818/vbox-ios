@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>vbox 安装程序</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════
+     vbox 安装向导 · 方案 C（现代浅色 + 启动页 Logo 动效）
+     本文件由 docs/preview/安装向导动效预览_v2_方案C_启动页Logo.html 派生：
+       ① 去掉演示用的页面壳 / 标签页 / 假进度按钮 / 说明块；
+       ② 「浏览…」「安装」改为向宿主（.NET 壳）发送 WebMessage；
+       ③ 进度由宿主轮询 core 的进度文件后回推的真实数据驱动。
+     视觉与动画参数与定稿预览 1:1 一致（动画时序取自 vbox_splash_view.dart）。
+     ══════════════════════════════════════════════════════════════════ */
+  :root{
+    --rose:#E11D48;
+    --rose-deep:#BE123C;
+    --rose-soft:#FB7185;
+    --paper:#F7F7FA;
+    --paper2:#E6E6ED;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#FDFDFF;color:#2d3240;overflow:hidden;
+    /* 无边框窗口：整页就是「安装窗口」本体 */
+  }
+
+  /* ───────── 安装窗口壳（方案 C 浅色） ───────── */
+  .win{width:100%;height:100vh;display:flex;flex-direction:column;background:#FDFDFF}
+  .win-title{
+    height:38px;flex:0 0 38px;display:flex;align-items:center;gap:10px;padding:0 8px 0 12px;
+    font-size:12.5px;font-weight:600;letter-spacing:.3px;
+    background:linear-gradient(180deg,#fff,var(--paper));
+    color:#5a606e;border-bottom:1px solid rgba(0,0,0,.07);
+    -webkit-app-region:drag;              /* 标题栏整体可拖拽移动窗口 */
+  }
+  .win-title .app-icon{width:17px;height:17px;border-radius:4px;display:block;
+    box-shadow:0 1px 4px rgba(0,0,0,.22)}
+  .win-title .sp{flex:1}
+  .winctl{display:flex;gap:0;color:rgba(0,0,0,.5);font-size:12px;-webkit-app-region:no-drag}
+  .winctl button{
+    appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;
+    width:38px;height:38px;font-size:12px;line-height:1;border-radius:0;transition:.15s;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .winctl button:hover{background:rgba(0,0,0,.07)}
+  .winctl button.close:hover{background:#e81123;color:#fff}
+  .win-body{flex:1;padding:16px 30px 28px;overflow:hidden;display:flex;flex-direction:column}
+
+  .stage{display:none;flex:1;flex-direction:column}
+  .stage.active{display:flex}
+
+  /* ═══════════════════════════════════════════════════════════
+     启动页 Logo 动效（1:1 复刻 VboxSplashView）
+     四字母四角飞入聚拢 → swoosh 扫入 → 发光 → 呼吸/浮动循环
+     ═══════════════════════════════════════════════════════════ */
+  .logo-wrap-box{position:relative;display:flex;align-items:center;justify-content:center;
+    margin:12px auto 2px;height:150px;flex:0 0 auto}
+
+  /* 注：原「玫瑰色光晕」(.logo-glow 径向渐晕) 已按需求移除。 */
+
+  .tilt{position:relative;z-index:1;transform:rotate(-8deg)}
+  /* 呼吸 / 浮动幅度：在 1:1 复刻版基础上加大，让 1.00s 起的循环动效更明显。
+     缩放 1 → 1.08（原 1.045）、浮动 ±13px（原 ±6px）；周期与延时保持不变。 */
+  .floatw{animation:floaty 3.0s ease-in-out 1s infinite alternate both}
+  @keyframes floaty{from{transform:translateY(-13px)}to{transform:translateY(13px)}}
+  .breath{animation:breathe 2.4s ease-in-out 1s infinite alternate both}
+  @keyframes breathe{from{transform:scale(1)}to{transform:scale(1.08)}}
+
+  .canvas{position:relative;width:182.2px;height:100px;transform:scale(1.0);overflow:visible}
+
+  .ltr{position:absolute;display:block}
+  .ltr-v{left:0;      top:0;      width:81px;  height:100px; --dx:-500px; --dy:-350px; --rot:-30deg; --d:0s}
+  .ltr-b{left:50.5px; top:12.7px; width:43.6px;height:85px;  --dx:-500px; --dy:350px;  --rot:25deg;  --d:.08s}
+  .ltr-o{left:89.1px; top:12.7px; width:37.8px;height:85px;  --dx:500px;  --dy:-350px; --rot:30deg;  --d:.14s}
+  .ltr-x{left:115.9px;top:12.7px; width:66.3px;height:85px;  --dx:500px;  --dy:350px;  --rot:-25deg; --d:.20s}
+
+  .canvas .ltr{
+    animation:enter .9s cubic-bezier(.34,1.56,.64,1) var(--d) both,
+              fadeIn .42s ease-out var(--d) both;
+  }
+  @keyframes enter{
+    from{transform:translate(var(--dx),var(--dy)) rotate(var(--rot))}
+    to  {transform:translate(0,0) rotate(0deg)}
+  }
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+  .swoosh{
+    position:absolute;left:0;top:72.3px;width:182.2px;height:34.9px;display:block;
+    animation:swooshMove .62s cubic-bezier(.16,1,.3,1) .30s both,
+              swooshFade .34s linear .30s both;
+  }
+  @keyframes swooshMove{from{transform:translateX(-160px) rotate(4deg)}to{transform:translateX(0) rotate(4deg)}}
+  @keyframes swooshFade{from{opacity:0}to{opacity:.96}}
+
+  .glow-layer{position:absolute;inset:0;filter:blur(14px);opacity:0;
+    animation:glowIn .45s ease-out .70s both}
+  @keyframes glowIn{from{opacity:0}to{opacity:.5}}
+  .glow-layer .ltr{animation:none;opacity:1}
+
+  /* 静态（非动画）Logo：目录页页头用，直接呈现聚合终态 */
+  .canvas.static{transform:scale(.86)}
+  .canvas.static .ltr{animation:none!important;opacity:1;transform:none}
+  .canvas.static .swoosh{animation:none!important;opacity:.96;transform:rotate(4deg)}
+  .canvas.static .glow-layer{animation:none!important;opacity:.5}
+
+  /* 图片加载失败兜底 */
+  .fallback-wordmark{display:none;font-weight:800;font-size:52px;letter-spacing:-1px;
+    transform:rotate(-8deg);color:var(--rose);text-shadow:0 8px 22px rgba(225,29,72,.28)}
+  .logo-wrap-box.fallback .tilt{display:none}
+  .logo-wrap-box.fallback .fallback-wordmark{display:block}
+
+  /* ───────── 进度条 + 步骤 ───────── */
+  .prog{margin:14px 0 6px;flex:0 0 auto}
+  .prog-head{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:9px}
+  .prog-head .label{color:#6a7080;opacity:.95}
+  .prog-head .pct{font-variant-numeric:tabular-nums;font-weight:700;color:var(--rose)}
+  .bar{height:9px;border-radius:6px;overflow:hidden;position:relative;background:var(--paper2)}
+  .bar .fill{
+    position:absolute;left:0;top:0;bottom:0;width:0;border-radius:6px;overflow:hidden;
+    background:linear-gradient(90deg,var(--rose),var(--rose-deep));
+    box-shadow:0 3px 12px rgba(225,29,72,.4);
+    transition:width .45s cubic-bezier(.22,.61,.36,1);
+  }
+  .bar .fill::after{
+    content:"";position:absolute;inset:0;
+    background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.75) 50%,transparent 65%);
+    animation:sweep2 1.6s linear infinite;
+  }
+  @keyframes sweep2{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+  .steps{display:flex;gap:8px;margin-top:18px;flex:0 0 auto}
+  .step{
+    flex:1;background:#fff;border:1px solid rgba(0,0,0,.07);color:#4a5060;
+    box-shadow:0 2px 8px rgba(20,20,40,.05);
+    border-radius:10px;padding:10px 11px;font-size:11.5px;line-height:1.35;
+    display:flex;flex-direction:column;gap:7px;transition:.35s;
+  }
+  .step .ico{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:800;background:#eef0f5;color:#9aa0ad;transition:.35s}
+  .step .nm{opacity:.6;transition:.3s}
+  .step.done .nm{opacity:1}
+  .step.active{transform:translateY(-2px);border-color:var(--rose);box-shadow:0 10px 24px rgba(225,29,72,.18)}
+  .step.active .ico{background:var(--rose);color:#fff}
+  .step.done .ico{background:rgba(225,29,72,.12);color:var(--rose)}
+  .step .check{display:none}
+  .step.done .check{display:block}
+  .step.done .spin{display:none}
+  .step.active .spin{display:block}
+  .spin{display:none;width:11px;height:11px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:rot .7s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+
+  .foot{margin-top:auto;padding-top:16px;display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:#9aa0ad}
+  .foot .glyph{opacity:.7;color:#b6bcc7}
+  .err-banner{display:none;margin-top:12px;font-size:11.5px;color:#b91c1c;background:#fef2f2;
+    border:1px solid #fecaca;border-radius:9px;padding:9px 12px;line-height:1.6;white-space:pre-wrap}
+  .err-banner.show{display:block}
+
+  /* ───────── 选择安装位置页（同一套视觉） ───────── */
+  .dir-title{font-size:16px;font-weight:700;color:#2d3240;text-align:center;margin:4px 0 4px}
+  .dir-desc{font-size:12.5px;color:#6a7080;text-align:center;line-height:1.7;margin:0 0 18px}
+  .field-row{display:flex;gap:10px;align-items:center}
+  .path-input{
+    flex:1;height:38px;border-radius:9px;border:1px solid rgba(0,0,0,.13);background:#fff;
+    padding:0 12px;font-size:12.5px;color:#3d4350;display:flex;align-items:center;
+    box-shadow:inset 0 1px 2px rgba(20,20,40,.04);overflow:hidden;white-space:nowrap;
+  }
+  .path-input .txt{overflow:hidden;text-overflow:ellipsis}
+  .path-input .caret{width:1.5px;height:15px;background:var(--rose);margin-left:1px;animation:blink 1s step-end infinite;flex:0 0 auto}
+  @keyframes blink{50%{opacity:0}}
+  .btn-s{
+    height:38px;padding:0 16px;border-radius:9px;border:1px solid rgba(0,0,0,.13);
+    background:#fff;color:#3d4350;font-size:12.5px;font-weight:600;cursor:pointer;transition:.2s;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .btn-s:hover{border-color:var(--rose);color:var(--rose)}
+  .disk-line{margin-top:12px;font-size:11.5px;color:#8b92a0;display:flex;align-items:center;gap:7px}
+  .disk-line .ic{width:6px;height:6px;border-radius:50%;background:#22c55e}
+  .dir-warn{margin-top:14px;font-size:11.5px;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;
+    border-radius:9px;padding:9px 12px;line-height:1.6}
+  .dir-actions{margin-top:22px;display:flex;justify-content:flex-end;gap:10px}
+  .btn-p{
+    height:40px;padding:0 22px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:.2s;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .btn-p.ghost{background:#fff;border:1px solid rgba(0,0,0,.13);color:#4a5060}
+  .btn-p.ghost:hover{border-color:#aab}
+  .btn-p.solid{background:linear-gradient(135deg,var(--rose),var(--rose-deep));border:0;color:#fff;
+    box-shadow:0 8px 20px rgba(225,29,72,.35)}
+  .step-dots{display:flex;gap:6px;justify-content:center;margin-top:22px}
+  .step-dots i{width:26px;height:4px;border-radius:3px;background:var(--paper2);display:block}
+  .step-dots i.on{background:var(--rose)}
+  .dir-foot{padding-top:16px;font-size:11.5px;color:#9aa0ad}
+</style>
+</head>
+<body>
+
+<div class="win">
+  <div class="win-title">
+    <img class="app-icon" src="brand/app_icon.png" alt="vbox">
+    vbox 安装程序<span class="sp"></span>
+    <span class="winctl">
+      <button id="btnMin" title="最小化">&#8212;</button>
+      <button id="btnClose" class="close" title="关闭">&times;</button>
+    </span>
+  </div>
+
+  <div class="win-body">
+
+    <!-- ═══════════ ① 选择安装位置页（首屏） ═══════════ -->
+    <section class="stage active" id="pg-dir">
+      <!-- 页头 Logo（静态终态，同一套视觉） -->
+      <div class="logo-wrap-box" style="height:132px;margin-top:2px">
+        <span class="fallback-wordmark" style="font-size:44px">vbox</span>
+        <div class="tilt">
+          <div class="breath" style="animation:none">
+            <div class="canvas static">
+              <!-- swoosh 托底：置于字母之下（对齐启动页 Stack 顺序） -->
+              <img class="swoosh" src="splash/splash_swoosh.png" alt="">
+              <div class="glow-layer">
+                <img class="ltr ltr-v" src="splash/splash_letter_V.png" alt="">
+                <img class="ltr ltr-b" src="splash/splash_letter_b.png" alt="">
+                <img class="ltr ltr-o" src="splash/splash_letter_o.png" alt="">
+                <img class="ltr ltr-x" src="splash/splash_letter_x.png" alt="">
+              </div>
+              <img class="ltr ltr-v" src="splash/splash_letter_V.png" alt="">
+              <img class="ltr ltr-b" src="splash/splash_letter_b.png" alt="">
+              <img class="ltr ltr-o" src="splash/splash_letter_o.png" alt="">
+              <img class="ltr ltr-x" src="splash/splash_letter_x.png" alt="">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="dir-title">选择安装位置</h2>
+      <p class="dir-desc">vbox 将安装到下面的文件夹。要安装到其他文件夹，请点击「浏览」。</p>
+
+      <div class="field-row">
+        <div class="path-input"><span class="txt" id="dirText">正在获取默认安装位置…</span><span class="caret"></span></div>
+        <button class="btn-s" id="btnBrowse">浏览…</button>
+      </div>
+
+      <div class="disk-line"><span class="ic"></span>目标磁盘至少需要 320 MB 可用空间（安装到 C 盘以外的盘符可减少系统盘占用）</div>
+
+      <div class="dir-warn">提示：若已安装旧版本，安装程序会先结束正在运行的 vbox / Node 常驻进程，再覆盖安装。</div>
+
+      <div class="dir-actions">
+        <button class="btn-p ghost" id="btnCancel">取消</button>
+        <button class="btn-p solid" id="btnInstall">安装</button>
+      </div>
+
+      <div class="step-dots">
+        <i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i>
+      </div>
+      <div class="dir-foot">
+        <span class="glyph" id="verDir">vbox</span>
+      </div>
+    </section>
+
+    <!-- ═══════════ ② 安装中（进度页） ═══════════ -->
+    <section class="stage" id="pg-install">
+      <div class="logo-wrap-box" id="logoStage">
+        <span class="fallback-wordmark">vbox</span>
+        <div class="tilt">
+          <div class="floatw">
+            <div class="breath">
+              <div class="canvas">
+                <img class="swoosh" src="splash/splash_swoosh.png" alt="">
+                <div class="glow-layer">
+                  <img class="ltr ltr-v" src="splash/splash_letter_V.png" alt="">
+                  <img class="ltr ltr-b" src="splash/splash_letter_b.png" alt="">
+                  <img class="ltr ltr-o" src="splash/splash_letter_o.png" alt="">
+                  <img class="ltr ltr-x" src="splash/splash_letter_x.png" alt="">
+                </div>
+                <img class="ltr ltr-v" src="splash/splash_letter_V.png" alt="">
+                <img class="ltr ltr-b" src="splash/splash_letter_b.png" alt="">
+                <img class="ltr ltr-o" src="splash/splash_letter_o.png" alt="">
+                <img class="ltr ltr-x" src="splash/splash_letter_x.png" alt="">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="prog">
+        <div class="prog-head"><span class="label" id="statusText">正在准备安装…</span><span class="pct" id="pctText">0%</span></div>
+        <div class="bar"><div class="fill" id="barFill"></div></div>
+      </div>
+
+      <div class="steps" id="stepRow">
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>1</div><div class="nm">准备安装</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>2</div><div class="nm">解压程序文件</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>3</div><div class="nm">部署 Node 引擎</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>4</div><div class="nm">创建快捷方式</div></div>
+        <div class="step"><div class="ico"><span class="spin"></span><span class="check">✓</span>5</div><div class="nm">安装完成</div></div>
+      </div>
+
+      <div class="err-banner" id="errBanner"></div>
+
+      <div class="foot"><span id="footDir">安装位置：—</span><span class="glyph" id="footVer">vbox</span></div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   宿主通信：本页在 .NET 壳（WebView2）中运行。
+   出站消息（页面 → 宿主）：postMessage({cmd:...})
+     · {cmd:'ready'}                 页面就绪，请下发默认目录/版本
+     · {cmd:'browseDir'}             请求原生「选择文件夹」对话框
+     · {cmd:'install', dir:'…'}      开始安装（dir = 用户选定目录）
+     · {cmd:'close'} / {cmd:'minimize'}
+   入站消息（宿主 → 页面）：window.chrome.webview message
+     · {type:'init', dir, version}   初始值
+     · {type:'dir',  path}           浏览后回填的目录
+     · {type:'progress', stage, cur, max}   core 上报的阶段 / 真实字节进度
+     · {type:'done'}                  安装成功
+     · {type:'error', message}        安装失败
+   ═══════════════════════════════════════════════════════════════════ */
+(function () {
+  const host = (window.chrome && window.chrome.webview) ? window.chrome.webview : null;
+  const send = (obj) => { if (host) host.postMessage(obj); };
+
+  // ── 无宿主（直接用浏览器打开调试）时的兜底标记 ──
+  const hasHost = !!host;
+
+  // ── 页面切换 ──
+  const showStage = (id) => {
+    document.querySelectorAll('.stage').forEach(s => s.classList.toggle('active', s.id === id));
+  };
+
+  // ── 图片兜底 ──
+  function bindImgFallback(){
+    document.querySelectorAll('.logo-wrap-box').forEach(box => {
+      box.querySelectorAll('img.ltr').forEach(im => {
+        im.addEventListener('error', () => box.classList.add('fallback'));
+      });
+    });
+  }
+
+  // ── 重播 Logo（安装进度页） ──
+  function replayLogo(){
+    const st = document.getElementById('logoStage');
+    if (!st) return;
+    const clone = st.cloneNode(true);
+    st.parentNode.replaceChild(clone, st);
+    bindImgFallback();
+  }
+
+  // ═══════════ 进度模型 ═══════════
+  // 与 core 上报的阶段一一对应；base/span 为该阶段在总进度上的占位。
+  // 「解压程序文件」内含「部署 Node 引擎」（node.exe 随 release 目录复制），
+  // 故用该阶段内的真实字节进度在 70% 处切到第 3 张卡片。
+  //
+  // 键必须是纯 ASCII：core 用 Inno 的 SaveStringToFile（AnsiString 参数）写出，
+  // 中文会按系统 ANSI 代码页（GBK）落盘，而 .NET 壳按 UTF-8 读取 → 乱码 →
+  // 匹配失败 → 进度被压进「准备安装」区间封顶 8%。ASCII 键无编码歧义，
+  // 中文显示文案由 STATUS_TEXT 映射。
+  const STAGE_DEF = {
+    prepare:  { step: 0, base: 0,   span: 8  },
+    extract:  { step: 1, base: 8,   span: 54, nodeSplit: 0.70 },
+    shortcut: { step: 3, base: 86,  span: 12 },
+    done:     { step: 4, base: 100, span: 0  }
+  };
+  const STATUS_TEXT = {
+    prepare:  '正在准备安装…',
+    extract:  '正在写入 vbox.exe 及依赖…',
+    shortcut: '正在创建桌面快捷方式…',
+    done:     '安装完成，正在启动 vbox…'
+  };
+  const STEP_NAMES = ['准备安装', '解压程序文件', '部署 Node 引擎', '创建快捷方式', '安装完成'];
+
+  let curStage = 'prepare';
+  let lastPercent = 0;
+  let finished = false;
+
+  const stepsEls = () => document.querySelectorAll('#stepRow .step');
+  const fillEl = () => document.getElementById('barFill');
+  const pctEl = () => document.getElementById('pctText');
+  const statusEl = () => document.getElementById('statusText');
+
+  function paintProgress(percent, stepIndex) {
+    lastPercent = Math.max(lastPercent, Math.min(100, percent));
+    const f = fillEl(); if (f) f.style.width = lastPercent + '%';
+    const p = pctEl(); if (p) p.textContent = Math.round(lastPercent) + '%';
+    const els = stepsEls();
+    const idx = finished ? els.length : Math.max(0, Math.min(els.length - 1, stepIndex));
+    els.forEach((el, i) => {
+      el.classList.toggle('done', finished || i < idx);
+      el.classList.toggle('active', !finished && i === idx);
+    });
+  }
+
+  function applyStage(stage) {
+    if (!(stage in STAGE_DEF)) return;
+    curStage = stage;
+    const def = STAGE_DEF[stage];
+    const s = statusEl(); if (s) s.textContent = STATUS_TEXT[stage] || stage;
+    paintProgress(def.base, def.step);
+  }
+
+  function applyProgress(cur, max) {
+    const def = STAGE_DEF[curStage] || STAGE_DEF['prepare'];
+    let local = (max > 0) ? (cur / max) : 0;
+    local = Math.max(0, Math.min(1, local));
+    let step = def.step;
+    if (def.nodeSplit && local >= def.nodeSplit) step = def.step + 1; // 切到「部署 Node 引擎」
+    paintProgress(def.base + local * def.span, step);
+  }
+
+  function resetProgress() {
+    finished = false; curStage = 'prepare'; lastPercent = 0;
+    const f = fillEl();
+    if (f) { f.style.transition = 'none'; f.style.width = '0%'; void document.body.offsetWidth; f.style.transition = ''; }
+    const p = pctEl(); if (p) p.textContent = '0%';
+    const s = statusEl(); if (s) s.textContent = '正在准备安装…';
+    document.getElementById('errBanner').classList.remove('show');
+    stepsEls().forEach(el => el.classList.remove('active', 'done'));
+  }
+
+  // ═══════════ 交互 ═══════════
+  const dirText = () => document.getElementById('dirText');
+  let chosenDir = '';
+
+  function setDir(path) {
+    chosenDir = path || '';
+    const t = dirText(); if (t) t.textContent = chosenDir || '正在获取默认安装位置…';
+    const f = document.getElementById('footDir'); if (f) f.textContent = '安装位置：' + (chosenDir || '—');
+  }
+
+  document.getElementById('btnBrowse').addEventListener('click', () => {
+    if (hasHost) send({ cmd: 'browseDir' });
+    else setDir('D:\\Programs\\vbox'); // 预览模式：给一个示意路径
+  });
+  document.getElementById('btnCancel').addEventListener('click', () => send({ cmd: 'close' }));
+  document.getElementById('btnMin').addEventListener('click', () => send({ cmd: 'minimize' }));
+  document.getElementById('btnClose').addEventListener('click', () => send({ cmd: 'close' }));
+
+  document.getElementById('btnInstall').addEventListener('click', () => {
+    if (!chosenDir) return;
+    resetProgress(); replayLogo(); showStage('pg-install');
+    if (hasHost) send({ cmd: 'install', dir: chosenDir });
+    else runDemoInstall();
+  });
+
+  // ── 预览模式（无宿主，直接用浏览器打开）：按真实阶段表跑一遍示意动画 ──
+  // 仅用于设计走查，与宿主驱动使用同一套 applyStage/applyProgress，视觉一致。
+  const DEMO_PLAN = [
+    { name: 'prepare',  from: 0.00, to: 0.06 },
+    { name: 'extract',  from: 0.06, to: 0.90 },
+    { name: 'shortcut', from: 0.90, to: 0.97 },
+    { name: 'done',     from: 0.97, to: 1.00 },
+  ];
+  let demoRaf = 0;
+  function runDemoInstall() {
+    cancelAnimationFrame(demoRaf);
+    const t0 = performance.now(), dur = 4200;
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / dur);
+      let seg = DEMO_PLAN[0];
+      for (const s of DEMO_PLAN) if (p >= s.from) seg = s;
+      if (seg.name !== curStage) applyStage(seg.name);
+      const local = (p - seg.from) / Math.max(1e-6, seg.to - seg.from);
+      applyProgress(local * 1000, 1000);
+      if (p < 1) { demoRaf = requestAnimationFrame(tick); return; }
+      finished = true;
+      paintProgress(100, STEP_NAMES.length - 1);
+      const s = statusEl(); if (s) s.textContent = '安装完成（预览模式）';
+    };
+    demoRaf = requestAnimationFrame(tick);
+  }
+
+  // ═══════════ 入站消息 ═══════════
+  if (host) {
+    host.addEventListener('message', (e) => {
+      let msg = e.data;
+      if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (_) { return; } }
+      if (!msg || typeof msg !== 'object') return;
+      switch (msg.type) {
+        case 'init':
+          if (msg.dir) setDir(msg.dir);
+          if (msg.version) {
+            const v1 = document.getElementById('verDir'); if (v1) v1.textContent = 'vbox ' + msg.version;
+            const v2 = document.getElementById('footVer'); if (v2) v2.textContent = msg.version;
+          }
+          break;
+        case 'dir':
+          setDir(msg.path); break;
+        case 'progress':
+          if (msg.stage) applyStage(msg.stage);
+          if (typeof msg.cur === 'number' && typeof msg.max === 'number' && msg.max > 0)
+            applyProgress(msg.cur, msg.max);
+          break;
+        case 'done':
+          finished = true;
+          paintProgress(100, STEP_NAMES.length - 1);
+          { const s = statusEl(); if (s) s.textContent = '安装完成，正在启动 vbox…'; }
+          break;
+        case 'error':
+          finished = false;
+          { const s = statusEl(); if (s) s.textContent = '安装失败'; }
+          {
+            const b = document.getElementById('errBanner');
+            b.textContent = msg.message || '安装过程中发生未知错误。';
+            b.classList.add('show');
+          }
+          break;
+      }
+    });
+    send({ cmd: 'ready' });
+  } else {
+    // 预览模式（直接用浏览器打开 installer.html）：给静态初值 + 标注，
+    // 点「安装」会跑一遍与宿主同源的示意动画，供设计走查。
+    setDir('C:\\Program Files\\vbox');
+    const v1 = document.getElementById('verDir'); if (v1) v1.textContent = 'vbox · 预览模式';
+  }
+
+  window.addEventListener('load', bindImgFallback);
+})();
+</script>
+</body>
+</html>

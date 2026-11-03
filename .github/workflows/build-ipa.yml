@@ -3,18 +3,35 @@ name: Build IPA (巨魔安装版)
 on:
   push:
     branches: [ "main" ]
+    # 文档 / Markdown / 工作流配置变更不触发 iOS 原生构建（无安装包需要更新）。
+    # 仍触发：vbox/** · scripts/** · Podfile · vbox.xcodeproj · lib/** · pubspec.yaml 等。
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/**'
   workflow_dispatch:
     inputs:
       mobile_vlc_url:
         description: 'MobileVLCKit 备用下载地址（videolan.org 不可达时使用，可填 https 镜像或仓库内 file:// 路径）'
         required: false
 
+# 并发控制：同一分支仅保留最新一次 iOS 构建，新推送自动取消仍在跑/排队的旧构建。
+# 避免「一次代码改动带动好几个编译任务」同时占用 macos-15 机时（旧运行被顶替）。
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: macos-15
+    # 使用 Intel 池（macos-15-intel）。macos-15 是 arm64 池，2026-10-20 起持续
+    # 出现「not acquired by Runner of type hosted」排队 15 分钟即被取消，连续 3 次
+    # 重跑均无法拿到机器。Intel 池容量独立，且本工作流的 host 侧工具链（Go
+    # darwin-amd64、python-*-macos11.pkg）与全部 iOS 产物均为交叉编译，不依赖
+    # arm64 宿主；该镜像自带 Xcode 16.4（默认），与下方 Select Xcode 匹配。
+    runs-on: macos-15-intel
     outputs:
       MARKETING_VERSION: ${{ steps.get_version.outputs.MARKETING_VERSION }}
       BUILD_NUM: ${{ steps.get_version.outputs.BUILD_NUM }}
@@ -440,10 +457,15 @@ jobs:
           echo "MAJOR_VERSION=$MAJOR" > .version
           echo "BASE_BUILD=$NEW_BUILD" >> .version
 
+          # 同步 Flutter 侧版本号（pubspec + AppInfo），使设置页 / 启动页
+          # 版本号自适应跟随仓库版本（真相源 .version）
+          python3 scripts/sync_version.py
+
           # 提交版本号更新
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add vbox/Info.plist vbox.xcodeproj/project.pbxproj .version
+          git add vbox/Info.plist vbox.xcodeproj/project.pbxproj .version \
+            pubspec.yaml lib/core/constants/app_constants.dart
           git commit -m "ci: auto bump version to $NEW_VERSION (build $NEW_BUILD)" || true
           git push origin main || true
 

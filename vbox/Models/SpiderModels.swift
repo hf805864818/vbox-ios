@@ -180,16 +180,21 @@ struct VodCategory: Codable, Identifiable, Equatable {
     var id: String { typeId }
     let typeId: String
     let typeName: String
+    /// 二级分类（可选）。仅支持二级分类的福利 Spider 返回 `sub_categories` 键；
+    /// 普通资源源不返回该键，恒为 nil，行为与改动前完全一致。
+    let subCategories: [VodCategory]?
     enum CodingKeys: String, CodingKey {
         case typeId = "type_id"
         case typeName = "type_name"
+        case subCategories = "sub_categories"
     }
 
     // 显式 memberwise init：一旦自定义 init(from:)，编译器就不再自动合成该构造器，
     // 而全项目有多处 VodCategory(typeId:typeName:) 调用，必须显式补上。
-    init(typeId: String, typeName: String) {
+    init(typeId: String, typeName: String, subCategories: [VodCategory]? = nil) {
         self.typeId = typeId
         self.typeName = typeName
+        self.subCategories = subCategories
     }
 
     // 容错解码：部分 API 源（TY影视/360资源等）的 type_id 为数字（Int），
@@ -198,6 +203,8 @@ struct VodCategory: Codable, Identifiable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         typeId = Self.stringOrNumber(c, .typeId) ?? ""
         typeName = Self.stringOrNumber(c, .typeName) ?? ""
+        // 二级分类：缺失/非法时容错为 nil，不影响普通源
+        subCategories = try c.decodeIfPresent([VodCategory].self, forKey: .subCategories)
     }
 
     private static func stringOrNumber(
@@ -207,6 +214,12 @@ struct VodCategory: Codable, Identifiable, Equatable {
         if let n = try? c.decodeIfPresent(Int.self, forKey: k) { return String(n) }
         if let d = try? c.decodeIfPresent(Double.self, forKey: k) { return String(d) }
         return nil
+    }
+
+    // 对齐 Flutter 端：判等只比较 typeId + typeName，不纳入 subCategories，
+    // 避免二级分类差异影响现有去重 / 判等逻辑。
+    static func == (lhs: VodCategory, rhs: VodCategory) -> Bool {
+        lhs.typeId == rhs.typeId && lhs.typeName == rhs.typeName
     }
 }
 

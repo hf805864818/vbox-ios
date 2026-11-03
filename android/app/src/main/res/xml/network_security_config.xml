@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    明文网络放行配置（对齐 iOS ATS `NSAllowsArbitraryLoads`：vbox/Info.plist）。
+
+    背景：大量影视源站 / 网盘直链为 http://，而 targetSdk ≥ 28 时 Android 默认
+    禁止明文请求，ExoPlayer 拉流会直接失败（ERROR_CODE_IO_NETWORK_CONNECTION_FAILED）。
+    iOS 侧以 ATS 任意加载放行，Android 侧以本文件 + `usesCleartextTraffic="true"`
+    等价放行，保证同一源在两端表现一致。
+-->
+<network-security-config>
+    <!-- 全局允许明文（等价 iOS NSAllowsArbitraryLoads） -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <!-- 本地回环豁免：RemuxProxy / GoProxy 本地 http 转发依赖（对齐 iOS 本地代理） -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
