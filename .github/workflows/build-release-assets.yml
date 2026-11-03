@@ -40,8 +40,10 @@ on:
         type: string
 
 # 建 Release / 上传资产需要写权限
+# 发布资产改为推到分发仓库 vbox-Ai/app（经 secrets.B_REPO_TOKEN），
+# 本仓库不再写任何 Release/commit，故只需读权限。
 permissions:
-  contents: write
+  contents: read
 
 # 按分支串行：同一分支只保留最新一次打包，新触发取消仍在跑的旧构建。
 # 连续推送时旧代码产出的安装包会被顶掉，避免「旧代码编译失败/缺最新内容」仍占机时或误出残包。
@@ -415,7 +417,9 @@ jobs:
       - name: Resolve release tag
         id: tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.B_REPO_TOKEN }}
+          B_REPO_OWNER: ${{ secrets.B_REPO_OWNER }}
+          B_REPO_NAME: ${{ secrets.B_REPO_NAME }}
           INPUT_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
@@ -427,7 +431,7 @@ jobs:
           fi
           # ② 自动模式：取最近一个「含 .ipa 资产」的 Release —— 即 build-ipa 刚创建的版本，
           #    保证三端安装包与 iOS IPA 落在同一 Release / 同一版本号
-          TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=20" \
+          TAG="$(gh api "repos/${B_REPO_OWNER}/${B_REPO_NAME}/releases?per_page=20" \
             --jq '[.[] | select(any(.assets[]; .name | endswith(".ipa")))] | .[0].tag_name' 2>/dev/null || true)"
           # ③ 兜底：无 IPA Release 时，改按 iOS Info.plist 版本号推导（与 build-ipa 同源）
           if [ -z "${TAG:-}" ] || [ "${TAG}" = "null" ]; then
@@ -439,7 +443,9 @@ jobs:
 
       - name: Upload assets to Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.B_REPO_TOKEN }}
+          B_REPO_OWNER: ${{ secrets.B_REPO_OWNER }}
+          B_REPO_NAME: ${{ secrets.B_REPO_NAME }}
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
@@ -449,13 +455,13 @@ jobs:
           for f in "${FILES[@]}"; do
             test -f "$f" || { echo "❌ 缺少资产 $f"; exit 1; }
           done
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$B_REPO_OWNER/$B_REPO_NAME" >/dev/null 2>&1; then
             echo "✅ Release $TAG 已存在，追加资产（与 vbox.ipa 同 Release）"
-            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release upload "$TAG" "${FILES[@]}" --repo "$B_REPO_OWNER/$B_REPO_NAME" --clobber
           else
             echo "Release $TAG 不存在，创建并上传资产"
-            gh release create "$TAG" "${FILES[@]}" --title "$TAG" \
+            gh release create "$TAG" "${FILES[@]}" --repo "$B_REPO_OWNER/$B_REPO_NAME" --title "$TAG" \
               --notes "vbox 平台安装包（Android APK / Windows EXE / macOS DMG），由 build-release-assets 工作流产出"
           fi
           echo "=== Release $TAG 当前资产 ==="
-          gh release view "$TAG" --json assets -q '.assets[].name'
+          gh release view "$TAG" --repo "$B_REPO_OWNER/$B_REPO_NAME" --json assets -q '.assets[].name'
