@@ -8,6 +8,8 @@ Flutter 侧对齐实现 Android / macOS / Windows 三端。核心能力：站源
 含本机 Node 常驻链）、libmpv / ExoPlayer / AVPlayer 多内核播放、下载、
 投屏、福利区等。
 
+> 仓库：`hf805864818/vbox-ios`（唯一开发仓库，**D17**，2026-11-04 由 `q2787244398/vboxapp` 迁回）；安装包统一发布到分发仓库 `vbox-Ai/app`，本仓库不产出 App Release。
+
 ## 关键目录结构
 
 ```
