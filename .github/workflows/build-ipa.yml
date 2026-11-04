@@ -974,8 +974,12 @@ jobs:
           for attempt in 1 2 3 4 5; do
             echo "第 ${attempt}/5 次尝试创建 Release"
             gh release delete "$VERSION" --yes --repo "$B_REPO_OWNER/$B_REPO_NAME" 2>/dev/null || true
+            # 先建「草稿」Release 上传 ipa：草稿对公众页面与 releases API 均不可见，
+            # 客户端在 Flutter 三端产物齐备、由 build-release-assets 显式发布
+            # （gh release edit --draft=false）之前查不到本版本。
             if gh release create "$VERSION" \
               --repo "$B_REPO_OWNER/$B_REPO_NAME" \
+              --draft \
               --title "$VERSION" \
               --notes-file release_notes.txt \
               vbox.ipa; then

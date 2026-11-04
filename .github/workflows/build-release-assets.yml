@@ -429,14 +429,22 @@ jobs:
             echo "使用手动指定 tag: ${INPUT_TAG}"
             exit 0
           fi
-          # ② 自动模式：取最近一个「含 .ipa 资产」的 Release —— 即 build-ipa 刚创建的版本，
-          #    保证三端安装包与 iOS IPA 落在同一 Release / 同一版本号
-          TAG="$(gh api "repos/${B_REPO_OWNER}/${B_REPO_NAME}/releases?per_page=20" \
-            --jq '[.[] | select(any(.assets[]; .name | endswith(".ipa")))] | .[0].tag_name' 2>/dev/null || true)"
-          # ③ 兜底：无 IPA Release 时，改按 iOS Info.plist 版本号推导（与 build-ipa 同源）
-          if [ -z "${TAG:-}" ] || [ "${TAG}" = "null" ]; then
-            VER="$(python3 -c "import re;t=open('vbox/Info.plist').read();m=re.search(r'<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>',t);print(m.group(1) if m else '')")"
+          # ② 主路径：按 iOS Info.plist 版本号推导（与 build-ipa 的 version bump 同源）。
+          #    build-ipa 现在建的是「草稿」Release —— 草稿不出现在 releases 列表 API 里，
+          #    所以不能再靠"找含 .ipa 的最新 Release"，必须以版本号为主。
+          TAG=""
+          VER="$(python3 -c "import re;t=open('vbox/Info.plist').read();m=re.search(r'<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>',t);print(m.group(1) if m else '')")"
+          if [ -n "${VER:-}" ]; then
             TAG="v${VER}"
+          fi
+          # ③ 兜底：Info.plist 读不到时，退回"最近一个含 .ipa 资产的已发布 Release"
+          if [ -z "${TAG:-}" ]; then
+            TAG="$(gh api "repos/${B_REPO_OWNER}/${B_REPO_NAME}/releases?per_page=20" \
+              --jq '[.[] | select(any(.assets[]; .name | endswith(".ipa")))] | .[0].tag_name' 2>/dev/null || true)"
+          fi
+          if [ -z "${TAG:-}" ] || [ "${TAG}" = "null" ]; then
+            echo "❌ 无法确定 Release tag（Info.plist 与 Release 列表均未命中）" >&2
+            exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "解析到 Release tag: ${TAG}"
@@ -465,3 +473,19 @@ jobs:
           fi
           echo "=== Release $TAG 当前资产 ==="
           gh release view "$TAG" --repo "$B_REPO_OWNER/$B_REPO_NAME" --json assets -q '.assets[].name'
+
+          # 发布前校验：草稿里必须已齐备 5 个资产（ipa + apk×2 + exe + dmg）。
+          # 不齐就保持草稿不发布（fail-closed）——宁可这一版不发，也不让用户下到半套。
+          COUNT="$(gh release view "$TAG" --repo "$B_REPO_OWNER/$B_REPO_NAME" --json assets -q '.assets|length')"
+          echo "草稿资产数：${COUNT}/5"
+          if [ "${COUNT}" != "5" ]; then
+            echo "❌ 草稿资产不完整（${COUNT}/5），保持草稿不发布；修好后可手动 workflow_dispatch 并指定 release_tag=${TAG}" >&2
+            exit 1
+          fi
+
+          # 草稿期间客户端（releases?per_page=1）看不到本版本，
+          # 因此这里是「五端同时出现」的唯一开关：执行前对用户完全不可见。
+          echo "🚀 五端齐备，发布 Release（草稿 → 正式）"
+          gh release edit "$TAG" --repo "$B_REPO_OWNER/$B_REPO_NAME" --draft=false
+          gh release view "$TAG" --repo "$B_REPO_OWNER/$B_REPO_NAME" --json tagName,isDraft,assets \
+            -q '"✅ 已发布 tag=\(.tagName) draft=\(.isDraft) assets=\(.assets|length)"'
