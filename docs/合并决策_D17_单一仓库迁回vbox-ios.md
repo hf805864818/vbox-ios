@@ -115,3 +115,40 @@
 3. **`build-ipa.yml` 内仍有两处往本仓库建 Release**（`LXML_TAG` / `PYTHON_TAG`，是构建用 lxml/python 依赖产物，非 App 发布包）→ 是否一并收口到分发仓库待定。
 4. `docs/ui_baseline/` 约 74.3 MB 参考截图 → 建议转 Git LFS 或压 webp。
 5. 待办（需对应账号操作）：删除 `vbox-Ai/app-1`（`vbox-Ai` 账号）、归档 `q2787244398/vboxapp`、归档 `q2787244398/app`（`q2787244398` 账号）。
+
+---
+
+## 9. 执行结果（2026-11-04 实际落地记录）
+
+| 项 | 实际值 |
+|---|---|
+| 合并推送 | `main`: `909c1c66` → `e7e65a51`（751 个提交；含 C1~C4、清垃圾、D17 文档、吞掉抢跑提交） |
+| 触发的工作流 | 5 个：Build IPA / Build JSC / Build QuickJS / Flutter Check / 自动更新日志 |
+| 结果 | JSC ✅ / QuickJS ✅ / changelog ✅ / Flutter Check ✅（重跑后）/ Build IPA ✅ / Build Release Assets ✅ |
+| 首个合并版 | **v3.1615**，分发仓库 5 资产：`vbox.ipa` 87.6 MB、`vbox-arm64.apk` 163.4 MB、`vbox-v7a.apk` 148.2 MB、`vbox-setup.exe` 260.3 MB、`vbox.dmg` 159.9 MB |
+| 开发库 Release | **未新增**（最新仍是抢跑产生的 `v3.1614`）→ P1 目标达成 |
+| 版本自增 | `.version` `BASE_BUILD=1615`（由 CI 自动提交 `5c4c736c`） |
+
+### 9.1 执行期发现的三件事
+
+1. **强推改写历史触发了旧版 CI 抢跑**：rewrite 后旧 `build-ipa.yml` 在 `main` 上自动跑了
+   一轮，产出 `v3.1614`（pre-merge 代码）并回推 `ci: auto bump version to 3.1614`。
+   该提交已合并进 `e7e65a51`；版本号因此从 1614 继续（首个合并版 = 1615，单调递增）。
+   副产物：**证明 8 月配置的 `B_REPO_TOKEN` 仍然有效**。
+2. **Flutter Check 首跑 1/2862 失败是 flaky**：`backup_manager_test.dart` 的「随机性」用例
+   明文用 `'x'`（1 字节）→ GCM 密文仅 1 字节 → 只有 256 种取值，两次加密撞同一密文的概率
+   ≈1/256。重跑即绿。已改用多字节明文（提交 `e4d193af`），三条断言语义不变。
+3. **Android APK 回退 debug 签名**：`build-release-assets.yml` 在缺 keystore secret 时按设计
+   回退 debug 签名。**对外发布前必须补齐 4 个 `ANDROID_*` 并用 `release_tag=v3.1615`
+   重跑覆盖**，否则已装 debug 签名包的用户之后无法升级（签名变更需卸载重装）。
+
+### 9.2 pbxproj 注入污染的根因与修复
+
+- 根因：`scripts/configure_quarkproxy_link.rb` 用 `bridge_group.new_file(File.expand_path(...))`
+  传入**绝对路径**，而查找条件写死 `f.path == 'Bridge/GoProxyManager.swift'` → 永远匹配不上
+  → 每次 CI 构建都重新 add 一遍。到 v3.1615 时累计 460 条 `PBXFileReference` + 460 条
+  `PBXBuildFile`（Sources 阶段同一文件 460 次）。
+- 修复：改为按文件名后缀匹配；命中多条时清理多余引用并把保留的那条归一为
+  `path='GoProxyManager.swift'` + `source_tree='<group>'`；新增也用相对路径；
+  整段包在 `begin/rescue` 内，异常只告警不阻断构建。
+- 预期：下一次构建时脚本自愈，把 460 条收敛为 1 条，并随版本号提交回仓库。
