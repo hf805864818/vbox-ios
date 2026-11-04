@@ -11,7 +11,7 @@ void main() {
       expect(DanmakuSettings.defaults.enabled, isTrue);
       expect(DanmakuSettings.defaults.opacity, 0.8);
       expect(DanmakuSettings.defaults.fontSize, 16);
-      expect(DanmakuSettings.defaults.area, 1.0);
+      expect(DanmakuSettings.defaults.area, 0.25);
       // 颜色模式默认 7（随机）、速度默认 1.0x，对齐 iOS
       // `PlayerState.danmakuColorMode = 7 / danmakuSpeed = 1.0`。
       expect(DanmakuSettings.defaults.colorMode, 7);
@@ -48,7 +48,7 @@ void main() {
       expect(s.opacity, 0.5);
       expect(s.enabled, isFalse);
       expect(s.fontSize, 16); // 未改
-      expect(s.area, 1.0);
+      expect(s.area, 0.25);
       expect(s.colorMode, 7); // 未改
       expect(s.speed, 2.0);
     });

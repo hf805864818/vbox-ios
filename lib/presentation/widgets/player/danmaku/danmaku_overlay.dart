@@ -19,7 +19,7 @@ class DanmakuOverlay extends StatelessWidget {
     super.key,
     required this.states,
     this.opacity = 0.8,
-    this.area = 1.0,
+    this.area = 0.25,
     this.fontSize,
     this.colorMode = 7,
     this.ignorePointer = true,

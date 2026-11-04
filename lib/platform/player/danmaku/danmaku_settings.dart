@@ -2,7 +2,7 @@
 ///
 /// - 会话级显示参数（开 / 透明度 / 字号 / 显示区域 / 颜色模式 / 滚动速度）：
 ///   契约 99 键已冻结，不持久化，由弹幕设置面板在播放会话内调整
-///   （默认 开 / 0.8 / 16px / 1.0 / 随机色 / 1.0x）。
+///   （默认 开 / 0.8 / 16px / 0.25（顶部 25%）/ 随机色 / 1.0x）。
 /// - 自定义弹幕源（开关 + 地址）：走契约键 `custom_danmaku_source_enabled` /
 ///   `custom_danmaku_source_url`，经 [PlaybackSettings.loadWithDanmaku] 读取。
 library;
@@ -23,7 +23,7 @@ class DanmakuSettings {
     required this.customSourceUrl,
   });
 
-  /// 默认值（开 / 0.8 / 16px / 1.0 / 颜色随机 / 1.0x；自定义源关 + 空地址）。
+  /// 默认值（开 / 0.8 / 16px / **0.25**（顶部 25% 区域）/ 颜色随机 / 1.0x；自定义源关 + 空地址）。
   ///
   /// 颜色模式默认 7（随机）、速度默认 1.0x，对齐 iOS
   /// `PlayerState.danmakuColorMode = 7 / danmakuSpeed = 1.0`。
@@ -31,7 +31,9 @@ class DanmakuSettings {
     enabled: true,
     opacity: 0.8,
     fontSize: 16,
-    area: 1.0,
+    // 显示区域默认 25%（顶部 1/4），对齐 iOS `PlayerState.danmakuArea = 0.25`
+    // （vbox/Views/PlayerViewsV2.swift L930）；面板可选 25/50/75/100%。
+    area: 0.25,
     colorMode: 7,
     speed: 1.0,
     customSourceEnabled: false,
@@ -123,7 +125,7 @@ class DanmakuSettings {
         enabled: true,
         opacity: 0.8,
         fontSize: 16,
-        area: 1.0,
+        area: 0.25,
         colorMode: 7,
         speed: 1.0,
         customSourceEnabled: p.customDanmakuSourceEnabled,

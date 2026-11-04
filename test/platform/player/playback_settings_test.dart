@@ -59,7 +59,7 @@ void main() {
       expect(s.danmakuEnabled, isTrue);
       expect(s.danmakuOpacity, 0.8);
       expect(s.danmakuFontSize, 16);
-      expect(s.danmakuArea, 1.0);
+      expect(s.danmakuArea, 0.25);
     });
 
     test('开启自定义弹幕源 → 读取 URL', () async {

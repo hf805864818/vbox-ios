@@ -25,7 +25,7 @@ class PlaybackSettings {
     this.danmakuEnabled = true,
     this.danmakuOpacity = 0.8,
     this.danmakuFontSize = 16,
-    this.danmakuArea = 1.0,
+    this.danmakuArea = 0.25,
     this.customDanmakuSourceEnabled = false,
     this.customDanmakuSourceUrl = '',
   });
@@ -51,7 +51,8 @@ class PlaybackSettings {
   /// 弹幕字号（px，默认 16）。
   final double danmakuFontSize;
 
-  /// 弹幕显示区域（0.25 ~ 1.0，默认 1.0）。
+  /// 弹幕显示区域（0.25 ~ 1.0，默认 0.25 = 顶部 25%；对齐 iOS
+  /// `PlayerState.danmakuArea = 0.25`）。
   final double danmakuArea;
 
   /// 自定义弹幕源开关（契约默认 false）。
