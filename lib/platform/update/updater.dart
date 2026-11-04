@@ -78,6 +78,13 @@ class Updater extends ChangeNotifier {
   /// 非强制检查的最小间隔（对齐 iOS `checkInterval = 300s`）。
   static const Duration checkInterval = Duration(minutes: 5);
 
+  /// 慢速源阈值：低于该速率即视为「该源不可用」（对齐 iOS
+  /// `UpdateManager.DownloadDelegate.minSpeed = 5120` B/s）。
+  static const double minSpeedBps = 5120;
+
+  /// 慢速持续多久判定该源不可用（对齐 iOS `slowTolerance = 8` 秒）。
+  static const Duration slowTolerance = Duration(seconds: 8);
+
   final http.Client _client;
   final UpdateInstallBridge _bridge;
 
@@ -334,6 +341,15 @@ class Updater extends ChangeNotifier {
     final int total = (res.contentLength ?? 0) + (appending ? resumeFrom : 0);
     final IOSink sink = part.openWrite(mode: appending ? FileMode.append : FileMode.write);
     int received = appending ? resumeFrom : 0;
+
+    // 慢速源守卫（对齐 iOS `DownloadDelegate.didWriteData` 的速率检测）：
+    //   每 ≥1s 采样整体速率；低于 [minSpeedBps] 且持续 [slowTolerance] 就把当前源
+    //   判失败并抛错，由调用侧的三级代理链切到下一个候选。iOS 语义是
+    //   「速度过慢 → 取消当前 session → onComplete(.failure) → 外层切源」，此处等价。
+    int lastSampleBytes = received;
+    DateTime lastSampleAt = DateTime.now();
+    DateTime? slowSince;
+
     try {
       await for (final List<int> chunk in res.stream) {
         if (token != _downloadToken) {
@@ -344,6 +360,28 @@ class Updater extends ChangeNotifier {
         if (total > 0) {
           _downloadProgress = received / total;
           _emit();
+        }
+
+        final DateTime now = DateTime.now();
+        final Duration gap = now.difference(lastSampleAt);
+        if (gap >= const Duration(seconds: 1)) {
+          final double speedBps =
+              (received - lastSampleBytes) * 1000 / gap.inMilliseconds;
+          lastSampleBytes = received;
+          lastSampleAt = now;
+          if (speedBps < minSpeedBps && received > 0) {
+            slowSince ??= now;
+            if (now.difference(slowSince) >= slowTolerance) {
+              AppLog.warn(
+                logTag,
+                '下载速度过慢（${(speedBps / 1024).round()}KB/s 持续 '
+                '${slowTolerance.inSeconds}s），切换源：$uri',
+              );
+              throw StateError('下载速度过慢，切换源');
+            }
+          } else {
+            slowSince = null;
+          }
         }
       }
       await sink.flush();

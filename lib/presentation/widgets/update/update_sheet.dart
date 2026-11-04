@@ -318,6 +318,10 @@ class UpdateSheet extends StatelessWidget {
       borderRadius: VboxRadii.card,
       child: InkWell(
         borderRadius: VboxRadii.card,
+        // 遥控（Android TV）可达性：弹窗打开即聚焦主按钮，D-pad 确定键直接触发
+        // 「马上升级 / 取消下载 / 安装更新」。触屏与鼠标无感（autofocus 只影响
+        // 初始焦点），版式与 iOS 弹窗一致、不改布局。
+        autofocus: true,
         onTap: () => _handleAction(context),
         child: Padding(
           padding: VboxSpacing.symmetric(vertical: VboxSpacing.rowVertical),

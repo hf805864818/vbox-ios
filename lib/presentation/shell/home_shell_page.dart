@@ -16,6 +16,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../platform/update/update.dart';
 import '../pages/pages.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/vbox_skin_controller.dart';
@@ -26,6 +27,7 @@ import '../widgets/download/download_overlay_widgets.dart';
 import '../widgets/input/input.dart';
 import '../widgets/music/mini_player.dart';
 import '../widgets/remote_source/remote_source_status_bar.dart';
+import '../widgets/update/update_sheet.dart';
 import 'app_tab.dart';
 
 /// 首页外壳：单一页树，全端统一底部悬浮胶囊 TabBar。
@@ -40,6 +42,31 @@ class HomeShellPage extends StatefulWidget {
 class _HomeShellPageState extends State<HomeShellPage> {
   /// 当前选中 Tab（**枚举**驱动，非下标）。
   AppTab _tab = AppTab.home;
+
+  /// 启动自动检查更新（对齐 iOS `ContentView.onAppear` L157-L166：
+  /// `Task { await UpdateManager.shared.checkForUpdate();
+  ///         if hasUpdate { showUpdateSheet = true } }`）。
+  ///
+  /// 对齐口径：
+  ///   · **非 force** —— 复用 [Updater.checkInterval]（5 分钟内存缓存），
+  ///     对齐 iOS `checkInterval = 300`；
+  ///   · **首帧之后再跑** —— 不阻塞启动与首屏渲染，对应 iOS「更新检测与
+  ///     爬虫初始化并行执行，避免弹窗延迟」；
+  ///   · **失败静默** —— iOS 也只在 `hasUpdate` 时弹窗，错误仅落 `updateError`。
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoCheckUpdate());
+  }
+
+  /// 自动检查并（有新版时）弹更新弹窗。
+  Future<void> _autoCheckUpdate() async {
+    final Updater updater = Updater.instance;
+    if (updater.isChecking || updater.hasUpdate) return;
+    await updater.check();
+    if (!mounted || !updater.hasUpdate) return;
+    await showUpdateSheet(context);
+  }
 
   /// 内容区：由 [AppTab] 枚举派生（福利 Tab 增删不影响映射）。
   Widget _contentFor(AppTab tab) => switch (tab) {
