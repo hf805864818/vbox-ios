@@ -50,12 +50,18 @@ else
   puts "✅ Quarkproxy.xcframework 已添加到 Frameworks (Embed & Sign)"
 end
 
-# 添加 GoProxyManager.swift 到编译源
+# 添加 GoProxyManager.swift 到编译源（幂等 + 自愈去重）
+#
+# 历史坑：旧实现用 `bridge_group.new_file(File.expand_path(swift_file))` 传绝对路径，
+# xcodeproj 会把 f.path 记成绝对路径，而查找条件写死 'Bridge/GoProxyManager.swift'，
+# 永远匹配不上 → 每次 CI 构建都重新 add 一遍。累计到 v3.1615 时 pbxproj 里已有
+# 460 条重复 PBXFileReference / 460 条 PBXBuildFile（Sources 阶段同一文件 460 次）。
+# 现改为：按文件名后缀匹配；命中多条时清理多余引用、保留 1 条；新增时用组内相对路径。
+# 去重段整体包在 begin/rescue 里：即使 xcodeproj 行为异常也不会让构建失败。
 swift_file = 'vbox/Bridge/GoProxyManager.swift'
 if File.exist?(swift_file)
-  file_ref = project.files.find { |f| f.path == 'Bridge/GoProxyManager.swift' }
-  unless file_ref
-    # 找到或创建 Bridge group
+  matches = project.files.select { |f| f.path.to_s.end_with?('GoProxyManager.swift') }
+  if matches.empty?
     bridge_group = project.groups.find { |g| g.display_name == 'Bridge' }
     unless bridge_group
       vbox_group = project.groups.find { |g| g.display_name == 'vbox' }
@@ -66,13 +72,42 @@ if File.exist?(swift_file)
       end
     end
 
-    file_ref = bridge_group.new_file(File.expand_path(swift_file))
+    file_ref = bridge_group.new_file('GoProxyManager.swift')
     target.add_file_references([file_ref])
-    puts "✅ GoProxyManager.swift 已添加到编译源"
+    puts "OK GoProxyManager.swift 已添加到编译源（相对路径，后续幂等）"
   else
-    puts "✅ GoProxyManager.swift 已存在"
+    begin
+      keeper = matches.first
+
+      # 统一为「组内相对路径」：历史上这些引用是用绝对路径创建的（CI runner 上能用，
+      # 本地 Xcode 会显示为失效文件）。这里把保留下来的那一条改回相对路径 + <group>。
+      if keeper.respond_to?(:path=) && keeper.path.to_s != 'GoProxyManager.swift'
+        keeper.path = 'GoProxyManager.swift'
+        keeper.source_tree = '<group>'
+      end
+
+      removed_refs = 0
+      (matches - [keeper]).each do |extra_ref|
+        extra_ref.remove_from_project
+        removed_refs += 1
+      end
+
+      removed_build_files = 0
+      bfs = target.source_build_phase.files.select { |bf| bf.file_ref == keeper }
+      (bfs - [bfs.first]).each do |extra_bf|
+        extra_bf.remove_from_project
+        removed_build_files += 1
+      end
+
+      if removed_refs > 0 || removed_build_files > 0
+        puts "DEDUP GoProxyManager.swift: file reference -#{removed_refs}, build file -#{removed_build_files} (keep 1)"
+      else
+        puts "OK GoProxyManager.swift 已存在（无重复）"
+      end
+    rescue StandardError => e
+      puts "WARN GoProxyManager.swift 去重跳过（不阻断构建）: #{e.message}"
+    end
   end
 end
-
 project.save
 puts "✅ 项目配置完成"
