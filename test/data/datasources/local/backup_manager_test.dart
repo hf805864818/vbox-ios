@@ -103,14 +103,18 @@ void main() {
     });
 
     test('同一明文两次加密产生不同 salt/iv/密文（随机性）', () async {
+      // 注意：明文必须是多字节。旧版用 'x'（1 字节）时密文只有 256 种可能，
+      // 「两次密文不同」这条断言有 ~1/256 的概率撞车（实测 CI 曾红一次）；
+      // 换成长明文后 payload 比对才具备实际随机性语义。
+      const String plain = '{"k":"randomness-check-payload-0123456789"}';
       final BackupEnvelope a = await mgr.encrypt(
-          plaintextJson: 'x', meta: _meta(), password: 'p');
+          plaintextJson: plain, meta: _meta(), password: 'p');
       final BackupEnvelope b = await mgr.encrypt(
-          plaintextJson: 'x', meta: _meta(), password: 'p');
+          plaintextJson: plain, meta: _meta(), password: 'p');
       expect(a.salt, isNot(b.salt));
       expect(a.iv, isNot(b.iv));
       expect(a.payload, isNot(b.payload));
-      expect(await mgr.decrypt(envelope: b, password: 'p'), 'x');
+      expect(await mgr.decrypt(envelope: b, password: 'p'), plain);
     });
 
     test('UTF-8 多字节口令（按字节而非字符处理）', () async {
