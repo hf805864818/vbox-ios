@@ -445,6 +445,11 @@ jobs:
 
           echo "新版本: $NEW_VERSION (build $NEW_BUILD)"
 
+          # 导出「上一版」版本号：Release Notes 用它算锚点，只列本版变更
+          # （CURRENT_* 是自增前的值，即上一次构建产出的版本）
+          echo "PREV_VERSION=$CURRENT_VERSION" >> "$GITHUB_ENV"
+          echo "PREV_BUILD=$CURRENT_BUILD" >> "$GITHUB_ENV"
+
           # 更新 Info.plist
           plutil -replace CFBundleShortVersionString -string "$NEW_VERSION" vbox/Info.plist
           plutil -replace CFBundleVersion -string "$NEW_BUILD" vbox/Info.plist
@@ -889,7 +894,30 @@ jobs:
           VERSION="${{ steps.get_version.outputs.MARKETING_VERSION }}"
           BUILD="${{ steps.get_version.outputs.BUILD_NUM }}"
 
-          PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
+          # 锚点解析（按可靠性降级）——目标：每次只列「本版」变更。
+          #   ① 上一版的版本 tag（若存在）
+          #   ② 上一版的版本号提交 `ci: auto bump ... (build N)`（始终存在，最稳）
+          #   ③ 回退：最新 tag
+          # 旧实现直接取 `git tag --sort=-creatordate | head -1`。D17 之后 Release 建在
+          # 分发库 vbox-Ai/app，tag 也落在那边，开发库 tag 停在 v3.1614 → 区间覆盖数百个
+          # 历史提交（v3.1615~v3.1618 的 Release Notes 因此各含 376~378 条）。
+          PREVIOUS_TAG=""
+          if [ -n "${PREV_VERSION:-}" ] && git rev-parse -q --verify "refs/tags/v${PREV_VERSION}" >/dev/null 2>&1; then
+            PREVIOUS_TAG="v${PREV_VERSION}"
+            echo "锚点①：上一版 tag $PREVIOUS_TAG"
+          elif [ -n "${PREV_BUILD:-}" ]; then
+            # 严格匹配完整提交标题：ci: auto bump version to 3.<build> (build <build>)
+            # 合并进来的是两条并行版本线，宽松匹配 "build N" 会命中另一条的旧提交。
+            BUMP_MSG="auto bump version to 3.${PREV_BUILD} (build ${PREV_BUILD})"
+            PREVIOUS_TAG=$(git log --fixed-strings --grep="$BUMP_MSG" -1 --format=%H 2>/dev/null || true)
+            if [ -n "${PREVIOUS_TAG:-}" ]; then
+              echo "锚点②：上一版版本号提交 ${PREVIOUS_TAG}（build ${PREV_BUILD}）"
+            fi
+          fi
+          if [ -z "${PREVIOUS_TAG:-}" ]; then
+            PREVIOUS_TAG=$(git tag --sort=-creatordate | head -1)
+            echo "锚点③：回退到最新 tag ${PREVIOUS_TAG:-（无）}"
+          fi
 
           NOTES=""
 
@@ -906,8 +934,9 @@ jobs:
           fi
 
           if [ -n "$RAW_COMMITS" ]; then
-            FEAT_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^feat" | sed -E 's/^[[:space:]]*(feat|feature)[[:space:]]*:[[:space:]]*//I' || true)
-            FIX_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^fix" | sed -E 's/^[[:space:]]*fix[[:space:]]*:[[:space:]]*//I' || true)
+            # 每条目上限 40：即使锚点异常（例如期间大量合并）也不会把几百条塞进弹窗
+            FEAT_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^feat" | sed -E 's/^[[:space:]]*(feat|feature)[[:space:]]*:[[:space:]]*//I' | head -40 || true)
+            FIX_ITEMS=$(echo "$RAW_COMMITS" | grep -iE "^fix" | sed -E 's/^[[:space:]]*fix[[:space:]]*:[[:space:]]*//I' | head -40 || true)
             OTHER_ITEMS=$(echo "$RAW_COMMITS" | grep -viE "^(feat|feature|fix)" | head -20 || true)
 
             NOTES="## 修复\n\n"
@@ -984,6 +1013,14 @@ jobs:
               --notes-file release_notes.txt \
               vbox.ipa; then
               echo "✅ A 仓库 Release 创建成功"
+              # 给开发库打同名 tag：下一版 Release Notes 的锚点①（v<上一版>）从此有据可查，
+              # 不再依赖"消息 grep"或"最新 tag"兜底（D17 后 tag 只落在分发库，开发库曾停更）。
+              if git tag "$VERSION" 2>/dev/null; then
+                git push origin "$VERSION" 2>/dev/null || echo "⚠️ tag 推送失败（不影响本次发布）"
+                echo "🏷️ 已给开发库打 tag: $VERSION"
+              else
+                echo "ℹ️ tag $VERSION 已存在，跳过"
+              fi
               exit 0
             fi
             echo "⚠️ A 仓库 Release 创建失败，可能是 GitHub 临时 5xx 或上传接口异常"
