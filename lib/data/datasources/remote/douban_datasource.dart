@@ -233,6 +233,19 @@ class DoubanDatasource {
     );
   }
 
+  /// 豆瓣图片 URL 升级（对齐 iOS `upgradeDoubanImageURL`）。
+  ///
+  /// qnmob 域名的移动端接口把图压到 `w/600`；把 `imageView2` 里的宽度提到
+  /// `w/2000`、质量 `q/80`→`q/85` 才能拿到接近原图的版本。不做这步时，
+  /// 详情页背景/横幅用豆瓣兜底会明显发虚（iOS 一直有这步，Flutter 侧此前漏了）。
+  /// 无 `imageView2` 的域名（如 img9）本身返回大图，原样保留。
+  static String upgradeDoubanImageUrl(String rawUrl) {
+    if (!rawUrl.contains('imageView2')) return rawUrl;
+    final String upgraded =
+        rawUrl.replaceFirst(RegExp(r'/w/\d+/'), '/w/2000/');
+    return upgraded.replaceAll('/q/80/', '/q/85/');
+  }
+
   /// 拉取竖版大封面（对齐 iOS `fetchWallpaperURL`：
   /// `GET /movie/{id}/photos?type=R&count=30`，取首张竖版 `large.url`）。
   ///
@@ -253,7 +266,7 @@ class DoubanDatasource {
       final int? h = JsonUtils.asInt(large['height']);
       if (raw == null || raw.isEmpty) continue;
       if (w == null || h == null || h <= w) continue;
-      return raw;
+      return upgradeDoubanImageUrl(raw);
     }
     return null;
   }

@@ -282,4 +282,37 @@ void main() {
       expect(filled.needsTvCoverFetch, isFalse);
     });
   });
+
+  group('DoubanDatasource.upgradeDoubanImageUrl（对齐 iOS upgradeDoubanImageURL）', () {
+    test('imageView2：w/600 → w/2000、q/80 → q/85', () {
+      expect(
+        DoubanDatasource.upgradeDoubanImageUrl(
+          'https://qnmob3.doubanio.com/view/photo/l/public/p1.jpg'
+          '?imageView2/2/q/80/w/600/h/3000/format/jpg',
+        ),
+        'https://qnmob3.doubanio.com/view/photo/l/public/p1.jpg'
+        '?imageView2/2/q/85/w/2000/h/3000/format/jpg',
+      );
+    });
+
+    test('带尾斜杠的压缩宽度都能提到 2000（w/300/、w/1080/）', () {
+      expect(
+        DoubanDatasource.upgradeDoubanImageUrl(
+          'https://qnmob3.doubanio.com/x.jpg?imageView2/2/w/300/',
+        ),
+        'https://qnmob3.doubanio.com/x.jpg?imageView2/2/w/2000/',
+      );
+      expect(
+        DoubanDatasource.upgradeDoubanImageUrl(
+          'https://qnmob3.doubanio.com/x.jpg?imageView2/2/w/1080/h/3000/',
+        ),
+        'https://qnmob3.doubanio.com/x.jpg?imageView2/2/w/2000/h/3000/',
+      );
+    });
+
+    test('无 imageView2 的域名（img9 等）原样返回', () {
+      const String raw = 'https://img9.doubanio.com/view/photo/l/public/p2.jpg';
+      expect(DoubanDatasource.upgradeDoubanImageUrl(raw), raw);
+    });
+  });
 }

@@ -211,6 +211,10 @@ docs/             方案与对齐文档
     不可达」，读取 15s 给大图）——原先连接与读取共用 4s，慢网下 2–3 MB 的 `original`
     会被中途放弃并级联到豆瓣/站点小图，背景看起来发虚。背景、剧照轨道、全屏两层均按
     此口径（全屏原图读取 30s）。
+  - 豆瓣兜底清晰度（补齐 iOS 既有逻辑）：`DoubanDatasource.upgradeDoubanImageUrl` 把
+    qnmob `imageView2` 的 `w/600` 提到 `w/2000`、`q/80`→`q/85`（对齐 iOS
+    `upgradeDoubanImageURL`）。此前 Flutter 直接用移动端的 600px 压缩版当背景，
+    所以「没 TMDB 命中 → 豆瓣兜底」在 Flutter 上明显比 iOS 糊。
 
 ## 日志事件契约（跨端）
 
