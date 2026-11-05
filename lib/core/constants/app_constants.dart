@@ -15,10 +15,10 @@ abstract final class AppInfo {
   static const String packageName = 'vbox';
 
   /// 语义版本（与 `pubspec.yaml` 的 `version` 前缀一致，由守卫规则 8 强制）。
-  static const String version = '3.1619.0';
+  static const String version = '3.1620.0';
 
   /// 构建号（与 `pubspec.yaml` 的 `version` 的 `+build` 段一致）。
-  static const int buildNumber = 1619;
+  static const int buildNumber = 1620;
 }
 
 /// 数据库常量（与 iOS `vbox/Services/DatabaseManager.swift` 对齐）。
