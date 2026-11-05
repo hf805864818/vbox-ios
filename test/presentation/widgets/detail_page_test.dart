@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:vbox/core/errors/failures.dart';
@@ -19,12 +20,14 @@ import 'package:vbox/domain/entities/player/player.dart';
 import 'package:vbox/domain/entities/playback/playback.dart';
 import 'package:vbox/domain/entities/remote_source/remote_source.dart';
 import 'package:vbox/domain/entities/spider/spider.dart';
+import 'package:vbox/domain/entities/tmdb/tmdb_models.dart';
 import 'package:vbox/domain/usecases/usecases.dart';
 import 'package:vbox/platform/download/download.dart';
 import 'package:vbox/platform/player/playback_route.dart';
 import 'package:vbox/platform/player/player_channel_bridge.dart';
 import 'package:vbox/platform/player/player_controller.dart';
 import 'package:vbox/presentation/pages/player/player_page.dart';
+import 'package:vbox/presentation/widgets/cascading_image.dart';
 import 'package:vbox/presentation/widgets/detail_page.dart';
 import 'package:vbox/presentation/widgets/platform_async_image.dart';
 
@@ -212,11 +215,13 @@ Widget _app(
   int initialIndex = 0,
   DownloadManager? manager,
   DoubanUseCases? douban,
+  TmdbUseCases? tmdb,
 }) =>
     MultiProvider(
       providers: [
         Provider<DetailPlaybackUseCases>.value(value: uc),
         if (douban != null) Provider<DoubanUseCases>.value(value: douban),
+        if (tmdb != null) Provider<TmdbUseCases>.value(value: tmdb),
         if (manager != null)
           ChangeNotifierProvider<DownloadManager>.value(value: manager),
       ],
@@ -229,6 +234,20 @@ Widget _app(
         ),
       ),
     );
+
+/// 假 TMDB 用例：直接返回固定增强结果（不发网络）。
+class _FakeTmdbUseCases extends TmdbUseCases {
+  _FakeTmdbUseCases(this.enrichment);
+
+  final TmdbEnrichment? enrichment;
+
+  @override
+  Future<Result<TmdbEnrichment?>> enrich({
+    required String name,
+    String? year,
+  }) async =>
+      Success<TmdbEnrichment?>(enrichment);
+}
 
 void main() {
   late _FakePlayerController player;
@@ -547,5 +566,103 @@ void main() {
     expect(find.text('全部'), findsNothing);
     expect(find.text('站点演员甲'), findsNothing);
     expect(find.byType(PlatformAsyncImage), findsNothing);
+  });
+
+  testWidgets('剧照：有数据时渲染在演职下方（横向 N 张）',
+      (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detail()),
+    );
+    await tester.pumpWidget(_app(
+      uc,
+      tmdb: _FakeTmdbUseCases(const TmdbEnrichment(
+        stillUrls: <String>[
+          'https://images.tmdb.org/t/p/w780/a.jpg',
+          'https://images.tmdb.org/t/p/w780/b.jpg',
+          'https://images.tmdb.org/t/p/w780/c.jpg',
+        ],
+        stillFallbackUrls: <String>[
+          'https://proxy.example.com/?url=a',
+          'https://proxy.example.com/?url=b',
+          'https://proxy.example.com/?url=c',
+        ],
+      )),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('剧照'), findsOneWidget);
+    // 背景层始终存在一个 CascadingImage（候选为空时显示占位）；
+    // 剧照卡按 w780 识别，应为 3 张。
+    final int stillCards = tester
+        .widgetList<CascadingImage>(find.byType(CascadingImage))
+        .where((CascadingImage w) =>
+            w.urls.any((String? u) => (u ?? '').contains('/w780/')))
+        .length;
+    expect(stillCards, 3);
+    // 「剧照」标题在「剧情简介」之前（演职下方）。
+    final double stillsY = tester.getTopLeft(find.text('剧照')).dy;
+    final double synopsisY = tester.getTopLeft(find.text('剧情简介')).dy;
+    expect(stillsY, lessThan(synopsisY));
+  });
+
+  testWidgets('剧照：无数据时整块不渲染', (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detail()),
+    );
+    await tester.pumpWidget(_app(
+      uc,
+      tmdb: _FakeTmdbUseCases(const TmdbEnrichment()),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('剧照'), findsNothing);
+    final int stillCards = tester
+        .widgetList<CascadingImage>(find.byType(CascadingImage))
+        .where((CascadingImage w) =>
+            w.urls.any((String? u) => (u ?? '').contains('/w780/')))
+        .length;
+    expect(stillCards, 0);
+  });
+
+  testWidgets('剧照：点击打开全屏浏览，左右键翻页、Esc 关闭', (WidgetTester tester) async {
+    final _FakeDetailUseCases uc = _FakeDetailUseCases(
+      detailResult: () async => Success<PlaybackDetail>(detail()),
+    );
+    await tester.pumpWidget(_app(
+      uc,
+      tmdb: _FakeTmdbUseCases(const TmdbEnrichment(
+        stillUrls: <String>[
+          'https://images.tmdb.org/t/p/w780/a.jpg',
+          'https://images.tmdb.org/t/p/w780/b.jpg',
+        ],
+        stillHdUrls: <String>[
+          'https://images.tmdb.org/t/p/original/a.jpg',
+          'https://images.tmdb.org/t/p/original/b.jpg',
+        ],
+      )),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('still-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 / 2'), findsOneWidget);
+
+    // 渐进清晰：全屏页同时存在 w780 底层与 original 上层（当前页各一张）。
+    final int hdLayers = tester
+        .widgetList<CascadingImage>(find.byType(CascadingImage))
+        .where((CascadingImage w) =>
+            w.urls.any((String? u) => (u ?? '').contains('/original/')))
+        .length;
+    expect(hdLayers, 1);
+
+    // 遥控 / 键盘：右键翻页。
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(find.text('2 / 2'), findsOneWidget);
+
+    // Esc 关闭。
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('2 / 2'), findsNothing);
   });
 }

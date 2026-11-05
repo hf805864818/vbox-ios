@@ -18,6 +18,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/errors/failures.dart';
@@ -46,7 +47,9 @@ import '../pages/player/player_page.dart';
 import '../theme/tokens/colors.dart';
 import '../theme/tokens/radii.dart';
 import '../theme/tokens/typography.dart';
+import 'cascading_image.dart';
 import 'download/download_overlay_widgets.dart';
+import 'input/focus_affordance.dart';
 import 'platform_async_image.dart';
 
 /// 详情页。
@@ -1112,9 +1115,9 @@ class _DetailPageState extends State<DetailPage> {
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
+          child: FocusableTap(
             onTap: () => Navigator.of(context).maybePop(),
+            borderRadius: BorderRadius.circular(20),
             child: Container(
               width: 40,
               height: 40,
@@ -1173,22 +1176,29 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   /// 背景层（对齐 iOS `backgroundLayer` + `bottomDimmingOverlay`）。
+  ///
+  /// 候选顺序（批次 B）：TMDB 海报直连 → 海报代理 → TMDB 背景直连 → 背景代理
+  /// → 豆瓣大图 → 站点图；任一失败自动落到下一张，全部失败才显示黑底。
   Widget _buildBackground(PlaybackDetail d, double height) {
-    final String cover = _tmdb?.posterUrl ??
-        _tmdb?.backdropUrl ??
-        _doubanBackdropUrl ??
-        d.vod.vodPic;
+    final List<String?> covers = <String?>[
+      _tmdb?.posterUrl,
+      _tmdb?.posterFallbackUrl,
+      _tmdb?.backdropUrl,
+      _tmdb?.backdropFallbackUrl,
+      _doubanBackdropUrl,
+      d.vod.vodPic,
+    ];
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
         const ColoredBox(color: Colors.black),
-        if (cover.trim().isNotEmpty)
-          PlatformAsyncImage(
-            url: cover,
-            fit: BoxFit.cover,
-            placeholderColor: Colors.black,
-            errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
-          ),
+        CascadingImage(
+          urls: covers,
+          fit: BoxFit.cover,
+          placeholderColor: Colors.black,
+          timeout: const Duration(seconds: 4),
+          errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
+        ),
         Align(
           alignment: Alignment.bottomCenter,
           child: Container(
@@ -1222,7 +1232,10 @@ class _DetailPageState extends State<DetailPage> {
               children: <Widget>[
                 _buildTitleBlock(d),
                 _buildPlayButton(),
-                _buildCast(d),
+                // 演职为空时整块不插入（避免 Column.spacing 为空 child 留出双倍间距）。
+                if (_hasCast(d)) _buildCast(d),
+                // 剧照：按用户确认放在演职下方（批次 B）。
+                if (_tmdb?.hasStills ?? false) _buildStills(),
                 _buildSynopsis(d),
                 // 云源（☁️）→ 网盘源区块；非云源 → 剧集列表（对齐 iOS
                 // `contentLayer`：`panSection` 后 `if !isCloudVideo { episodeSection }`）。
@@ -1253,10 +1266,11 @@ class _DetailPageState extends State<DetailPage> {
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 70),
           child: hasLogo
-              ? PlatformAsyncImage(
-                  url: logo,
+              ? CascadingImage(
+                  urls: <String?>[_tmdb?.logoUrl, _tmdb?.logoFallbackUrl],
                   fit: BoxFit.contain,
                   placeholderColor: Colors.transparent,
+                  timeout: const Duration(seconds: 4),
                   errorBuilder: (_, __, ___) => _heroFallbackTitle(vod.vodName),
                 )
               : _heroFallbackTitle(vod.vodName),
@@ -1357,6 +1371,7 @@ class _DetailPageState extends State<DetailPage> {
               color: VboxColors.detailPlayButton,
               borderRadius: BorderRadius.circular(VboxRadii.capsule),
               child: InkWell(
+                focusColor: Colors.white.withValues(alpha: 0.30),
                 onTap: enabled ? _play : null,
                 borderRadius: BorderRadius.circular(VboxRadii.capsule),
                 child: Padding(
@@ -1394,6 +1409,16 @@ class _DetailPageState extends State<DetailPage> {
         ),
       ),
     );
+  }
+
+  /// 是否有可展示的演职人员（决定演职区块是否插入，避免空 block 占双倍间距）。
+  bool _hasCast(PlaybackDetail d) {
+    final (
+      List<_CastMember> actors,
+      List<_CastMember> directors,
+      List<_CastMember> writers
+    ) = _castData(d);
+    return actors.isNotEmpty || directors.isNotEmpty || writers.isNotEmpty;
   }
 
   /// 演职人员（分类 tab + 小方头像卡横滑，对齐 iOS `castSection`）。
@@ -1464,8 +1489,11 @@ class _DetailPageState extends State<DetailPage> {
 
   Widget _castTabButton(String tab) {
     final bool selected = _castTab == tab;
-    return GestureDetector(
+    return FocusableTap(
       onTap: () => setState(() => _castTab = tab),
+      borderRadius: BorderRadius.circular(VboxRadii.r6),
+      semanticLabel: tab,
+      semanticSelected: selected,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
@@ -1539,6 +1567,71 @@ class _DetailPageState extends State<DetailPage> {
   _CastMember _doubanToCast(DoubanCelebrity p) =>
       _CastMember(name: p.name, coverUrl: p.coverUrl, role: p.roleText);
 
+  /// 剧照（TMDB `backdrops`，16:9 横向轨道；无数据时整块不插入）。
+  ///
+  /// 每张图走级联：直连 → 代理（[TmdbEnrichment.stillFallbackUrls] 与主表同序）。
+  Widget _buildStills() {
+    final TmdbEnrichment? tmdb = _tmdb;
+    final List<String> urls = tmdb?.stillUrls ?? const <String>[];
+    if (urls.isEmpty) return const SizedBox.shrink();
+    final List<String> fallbacks = tmdb?.stillFallbackUrls ?? const <String>[];
+    // 多端适配：小屏 0.55 屏宽，大窗口钳到 360，避免桌面上出现巨卡。
+    final double cardWidth =
+        (MediaQuery.sizeOf(context).width * 0.55).clamp(180.0, 360.0);
+    final double cardHeight = cardWidth * 9 / 16;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Text(
+          '剧照',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: cardHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: urls.length,
+            separatorBuilder: (BuildContext context, int index) =>
+                const SizedBox(width: 12),
+            itemBuilder: (BuildContext context, int index) => _StillCard(
+              key: ValueKey<String>('still-$index'),
+              urls: <String?>[
+                urls[index],
+                if (index < fallbacks.length) fallbacks[index],
+              ],
+              index: index,
+              width: cardWidth,
+              height: cardHeight,
+              onOpen: () => _openStillGallery(index),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 打开剧照全屏浏览。
+  void _openStillGallery(int index) {
+    final TmdbEnrichment? tmdb = _tmdb;
+    if (tmdb == null || tmdb.stillUrls.isEmpty) return;
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => _StillGalleryPage(
+          urls: tmdb.stillUrls,
+          fallbackUrls: tmdb.stillFallbackUrls,
+          hdUrls: tmdb.stillHdUrls,
+          hdFallbackUrls: tmdb.stillHdFallbackUrls,
+          initialIndex: index,
+        ),
+      ),
+    );
+  }
+
   /// 剧情简介 + 收藏心形（对齐 iOS `synopsisSection`）。
   Widget _buildSynopsis(PlaybackDetail d) {
     final String content = d.vod.vodContent?.trim() ?? '';
@@ -1557,9 +1650,9 @@ class _DetailPageState extends State<DetailPage> {
             ),
             const Spacer(),
             // E5-3 Semantics 补点：收藏切换（状态透传 selected）。
-            GestureDetector(
+            FocusableTap(
               onTap: _toggleFavorite,
-              behavior: HitTestBehavior.opaque,
+              borderRadius: BorderRadius.circular(20),
               child: Semantics(
                 button: true,
                 selected: _favorite,
@@ -1677,8 +1770,11 @@ class _DetailPageState extends State<DetailPage> {
             _DriveExpandKind.loading => '...',
             _ => '-',
           };
-          return GestureDetector(
+          return FocusableTap(
             onTap: () => setState(() => _selectedCloudDrive = drive),
+            borderRadius: BorderRadius.circular(VboxRadii.r8),
+            semanticLabel: drive,
+            semanticSelected: selected,
             child: Container(
               alignment: Alignment.center,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1809,6 +1905,7 @@ class _DetailPageState extends State<DetailPage> {
                 ),
                 const Spacer(),
                 IconButton(
+                  focusColor: Colors.white.withValues(alpha: 0.30),
                   onPressed: () =>
                       setState(() => _episodesReversed = !_episodesReversed),
                   icon: Icon(
@@ -1827,6 +1924,7 @@ class _DetailPageState extends State<DetailPage> {
                   ),
                 ),
                 IconButton(
+                  focusColor: Colors.white.withValues(alpha: 0.30),
                   onPressed: () => _showEpisodePopup(),
                   icon: Icon(
                     Icons.grid_view,
@@ -1892,6 +1990,7 @@ class _DetailPageState extends State<DetailPage> {
             const Spacer(),
             if (episodes.isNotEmpty)
               IconButton(
+                focusColor: Colors.white.withValues(alpha: 0.30),
                 onPressed: () =>
                     setState(() => _episodesReversed = !_episodesReversed),
                 icon: Icon(
@@ -1912,6 +2011,7 @@ class _DetailPageState extends State<DetailPage> {
             if (episodes.isNotEmpty)
               // E5-3 Semantics 补点：选集入口。
               IconButton(
+                focusColor: Colors.white.withValues(alpha: 0.30),
                 tooltip: '选集',
                 onPressed: () => _showEpisodePopup(),
                 icon: Icon(
@@ -1923,6 +2023,7 @@ class _DetailPageState extends State<DetailPage> {
             if (episodes.isNotEmpty)
               // E5-3 Semantics 补点：批量下载入口。
               IconButton(
+                focusColor: Colors.white.withValues(alpha: 0.30),
                 tooltip: '批量下载',
                 onPressed: () => _showEpisodePopup(downloadMode: true),
                 icon: Icon(
@@ -1999,8 +2100,11 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Widget _lineChip(String label, bool selected, VoidCallback onTap) {
-    return GestureDetector(
+    return FocusableTap(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(VboxRadii.r8),
+      semanticLabel: label,
+      semanticSelected: selected,
       child: Container(
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -2211,6 +2315,7 @@ class _EpisodeCell extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
+        focusColor: Colors.white.withValues(alpha: 0.30),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -2320,6 +2425,7 @@ class _EpisodeExpandDialogState extends State<_EpisodeExpandDialog> {
                     ),
                   ),
                   IconButton(
+                    focusColor: Colors.white.withValues(alpha: 0.30),
                     onPressed: () => setState(() {
                       _reversed = !_reversed;
                       _selected.clear();
@@ -2334,6 +2440,7 @@ class _EpisodeExpandDialogState extends State<_EpisodeExpandDialog> {
                     ),
                   ),
                   IconButton(
+                    focusColor: Colors.white.withValues(alpha: 0.30),
                     onPressed: () => setState(() {
                       if (_downloadMode && _selected.isNotEmpty) {
                         final List<PlaybackEpisode> picked = _selected
@@ -2360,6 +2467,7 @@ class _EpisodeExpandDialogState extends State<_EpisodeExpandDialog> {
                     ),
                   ),
                   IconButton(
+                    focusColor: Colors.white.withValues(alpha: 0.30),
                     onPressed: () => Navigator.of(context).pop(),
                     icon: Icon(
                       Icons.close,
@@ -2394,6 +2502,7 @@ class _EpisodeExpandDialogState extends State<_EpisodeExpandDialog> {
                       ),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
+                        focusColor: Colors.white.withValues(alpha: 0.30),
                         onTap: () {
                           if (_downloadMode) {
                             setState(() {
@@ -2479,6 +2588,248 @@ class _ErrorRetry extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 剧照卡（TV 可聚焦：D-pad 移动焦点、OK 打开全屏；触摸端仍为点击）。
+///
+/// 焦点态用描边 + 阴影表达（不改变布局尺寸），并自动把卡片滚到轨道中部，
+/// 避免遥控焦点走出可视区（对齐 `FocusRing` 的「只加反馈层」原则）。
+class _StillCard extends StatefulWidget {
+  const _StillCard({
+    super.key,
+    required this.urls,
+    required this.index,
+    required this.width,
+    required this.height,
+    required this.onOpen,
+  });
+
+  final List<String?> urls;
+  final int index;
+  final double width;
+  final double height;
+  final VoidCallback onOpen;
+
+  @override
+  State<_StillCard> createState() => _StillCardState();
+}
+
+class _StillCardState extends State<_StillCard> {
+  bool _focused = false;
+
+  void _onFocusChange(bool focused) {
+    if (_focused == focused) return;
+    setState(() => _focused = focused);
+    if (!focused) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '剧照 ${widget.index + 1}',
+      child: FocusableActionDetector(
+        onShowFocusHighlight: _onFocusChange,
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (ActivateIntent intent) {
+              widget.onOpen();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          onTap: widget.onOpen,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(VboxRadii.r12),
+              border: _focused
+                  ? Border.all(color: Colors.white, width: 2.5)
+                  : null,
+              boxShadow: _focused
+                  ? const <BoxShadow>[
+                      BoxShadow(
+                        color: Colors.black54,
+                        blurRadius: 12,
+                        offset: Offset(0, 4),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(VboxRadii.r12),
+              child: SizedBox(
+                width: widget.width,
+                height: widget.height,
+                child: CascadingImage(
+                  urls: widget.urls,
+                  fit: BoxFit.cover,
+                  placeholderColor: Colors.white10,
+                  timeout: const Duration(seconds: 5),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 剧照全屏浏览（左右翻页 + 双指缩放；主/兜底 URL 与轨道同序）。
+///
+/// 渐进清晰：底层先显示 `w780`（与轨道同图，秒开），上层再拉 `original`
+/// 叠在上面——大图到位前不遮底图，到位后无缝替换；原图失败则一直用 `w780`。
+class _StillGalleryPage extends StatefulWidget {
+  const _StillGalleryPage({
+    required this.urls,
+    required this.fallbackUrls,
+    this.hdUrls = const <String>[],
+    this.hdFallbackUrls = const <String>[],
+    required this.initialIndex,
+  });
+
+  final List<String> urls;
+  final List<String> fallbackUrls;
+
+  /// 高清（`original`）主 URL，与 [urls] 同序；为空则只显示 [urls]。
+  final List<String> hdUrls;
+
+  /// 高清兜底 URL（代理版）。
+  final List<String> hdFallbackUrls;
+
+  final int initialIndex;
+
+  @override
+  State<_StillGalleryPage> createState() => _StillGalleryPageState();
+}
+
+class _StillGalleryPageState extends State<_StillGalleryPage> {
+  late final PageController _controller =
+      PageController(initialPage: widget.initialIndex);
+  late int _index = widget.initialIndex;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// 遥控 / 键盘：左右翻页、返回键关闭（触摸端仍可滑动与点关闭）。
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final LogicalKeyboardKey key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _go(1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _go(-1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.browserBack) {
+      Navigator.of(context).maybePop();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _go(int delta) {
+    final int next = _index + delta;
+    if (next < 0 || next >= widget.urls.length) return;
+    _controller.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: _onKey,
+        child: Stack(
+          children: <Widget>[
+            PageView.builder(
+              controller: _controller,
+              itemCount: widget.urls.length,
+              onPageChanged: (int i) => setState(() => _index = i),
+              itemBuilder: (BuildContext context, int i) => InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    // 底层：w780（与轨道同图，秒开）
+                    CascadingImage(
+                      urls: <String?>[
+                        widget.urls[i],
+                        if (i < widget.fallbackUrls.length)
+                          widget.fallbackUrls[i],
+                      ],
+                      fit: BoxFit.contain,
+                      placeholderColor: Colors.black,
+                      timeout: const Duration(seconds: 6),
+                    ),
+                    // 上层：original 渐进替换（透明占位，未就绪时露出底层）
+                    if (i < widget.hdUrls.length)
+                      CascadingImage(
+                        urls: <String?>[
+                          widget.hdUrls[i],
+                          if (i < widget.hdFallbackUrls.length)
+                            widget.hdFallbackUrls[i],
+                        ],
+                        fit: BoxFit.contain,
+                        placeholder: const SizedBox.shrink(),
+                        timeout: const Duration(seconds: 20),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 8,
+              right: 8,
+              child: IconButton(
+                focusColor: Colors.white.withValues(alpha: 0.30),
+                icon: const Icon(Icons.close, color: Colors.white),
+                tooltip: '关闭',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 24,
+              child: Text(
+                '${_index + 1} / ${widget.urls.length}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ),
           ],
         ),
       ),

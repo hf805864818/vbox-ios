@@ -172,6 +172,39 @@ docs/             方案与对齐文档
     （固定版检测/COM/环境/控制器/种 Cookie/导航/脚本/成功回传）都有留痕，
     满足「有错误就打印错误日志」的排查诉求。
 
+- `lib/data/datasources/remote/tmdb_image_route.dart`（新增）+ `tmdb_datasource.dart` +
+  `tmdb_usecases.dart` + `lib/presentation/widgets/cascading_image.dart`（新增）+
+  `detail_page.dart` + `platform_async_image.dart` + `vbox/Services/TMDBService.swift` +
+  `vbox/Views/PlayerViews.swift`：**TMDB 图片直连兜底（B 方案）+ 详情页剧照**。
+  - 线路判定：会话级探一次 `images.tmdb.org`（TMDB 自己的 BunnyCDN 拉流域；`w92` 小图、
+    3s 超时、30 分钟 TTL）。直连可用 → 主 URL 直连、兜底为用户配置代理；探测失败 →
+    主 URL 即代理（= 旧行为）。探测与 `fetchImages`/`fetchCredits` 并发，不增加首屏等待；
+    改代理 / 切网后 `invalidate()` 重探。回滚：`TmdbImageRouteResolver.enabled = false`。
+  - 图片级兜底（Flutter）：新增 `CascadingImage`（主 → 兜底 → 豆瓣 → 站点），
+    `PlatformAsyncImage` 增 `timeout`（非空强制走字节拉取，秒级判失败），并让字节拉取
+    失败也交给 `errorBuilder`（原先只回占位，级联无法切换）。
+  - 剧照：`TmdbImages.stills()`（TMDB `backdrops`，`aspect_ratio ≥ 1.3`、票数降序、
+    同 `filePath` 去重、最多 10 张），展示在**演职下方**，点击全屏浏览；演职为空时用
+    条件插入，避免 `Column.spacing` 为空 child 留出双倍间距。
+  - iOS 对齐：`TMDBService.resolveImageRoute/imageURL/imageFallbackURL/stills`、`TMDBCredits`
+    头像也走线路；`VideoDetailView` 增 `tmdbStillURLs` / `stillsSection` / `StillGalleryView`，
+    背景与剧照经 `TMDBCascadingImage` 做「主 → 兜底」级联（与 Flutter `CascadingImage` 同口径）。
+  - 网络切换：`ConnectivityNetworkInfo.onConnectivityChanged` → `TmdbImageRouteResolver.invalidate()`
+    （`app.dart` 订阅、`dispose()` 取消）；改代理 / 改开关时由 `TmdbConfigStore` 直接失效。
+  - 设置文案同步为「加载 TMDB 封面、剧照与演职人员」（两端一致）。
+  - TV（Android TV，`InputModality.remote`）：剧照卡可聚焦（`FocusableActionDetector`
+    + 描边/阴影 + `Scrollable.ensureVisible` 自动滚入视野），OK 打开全屏；全屏页
+    ←/→ 翻页、Esc / 返回键关闭。iOS 侧本仓无 tvOS 目标（`TARGETED_DEVICE_FAMILY`
+    仅 1,2），剧照覆盖 iPhone / iPad。
+  - 详情页 TV 可达性补全（新增 `lib/presentation/widgets/input/focus_affordance.dart`）：
+    `FocusableTap` 接管原 `GestureDetector` 点击区（返回热区 / 线路 chip / 演职 tab /
+    收藏 / 网盘 tab / 剧照卡），补焦点 + 描边 + OK·Enter；`InkWell` 与 `IconButton`
+    （播放按钮、选集宫格、倒序/选集/批量下载图标、弹窗内集数格）统一加 `focusColor`
+    可见反馈——不改结构、保留涟漪与语义。焦点环画在 `foregroundDecoration`，不占布局。
+  - 剧照全屏清晰度（A 方案·渐进）：轨道卡片用 `w780`（秒开、省流量），全屏页在底层
+    `w780` 之上叠 `original` 原图——上层用透明占位，未就绪时不遮底图，到位后无缝替换；
+    原图失败则一直用 `w780`（两端同口径，Flutter `stillHdUrls` / iOS `tmdbStillHdURLs`）。
+
 ## 日志事件契约（跨端）
 
 `EventChannel com.vbox.player/player/events` 支持 `log` 类型：

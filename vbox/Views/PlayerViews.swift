@@ -83,6 +83,17 @@ struct VideoDetailView: View {
     @State private var tmdbBackdropURL: String? = nil
     @State private var tmdbPosterURL: String? = nil
     @State private var tmdbLogoURL: String? = nil
+    /// 直连线路下的代理兜底（nil = 无兜底；对齐 Flutter `*FallbackUrl`）
+    @State private var tmdbPosterFallbackURL: String? = nil
+    @State private var tmdbBackdropFallbackURL: String? = nil
+    /// 剧照（TMDB backdrops，展示在演职下方；对齐 Flutter `_buildStills`）
+    @State private var tmdbStillURLs: [String] = []
+    @State private var tmdbStillFallbackURLs: [String] = []
+    /// 全屏浏览用的原图（渐进替换：轨道 w780 秒开，全屏叠 original）
+    @State private var tmdbStillHdURLs: [String] = []
+    @State private var tmdbStillHdFallbackURLs: [String] = []
+    /// 剧照全屏浏览的当前索引（nil = 未打开）
+    @State private var stillPreviewIndex: Int? = nil
     @State private var tmdbMediaType: String = "movie"
     @State private var isLoadingTMDB = false
 
@@ -322,22 +333,44 @@ struct VideoDetailView: View {
 
             async let imagesTask = TMDBService.shared.fetchImages(id: id, mediaType: mediaType)
             async let creditsTask = TMDBService.shared.fetchCredits(id: id, mediaType: mediaType)
+            // 图片线路探测与图片/演职并发（不增加首屏等待；对齐 Flutter enrich）
+            async let routeTask = TMDBService.shared.resolveImageRoute(
+                posterPath: searchResult.posterPath ?? searchResult.backdropPath
+            )
 
             let images = await imagesTask
             let credits = await creditsTask
+            _ = await routeTask
 
             await MainActor.run {
-                // logo 优先 w500 走代理
-                if let logoPath = images?.bestLogo?.w500URL {
-                    tmdbLogoURL = TMDBService.shared.proxiedImageURL(logoPath, size: "w500")
+                // logo 优先 w500（按线路：直连 Bunny / 走代理）
+                if let logo = images?.bestLogo {
+                    tmdbLogoURL = TMDBService.shared.imageURL(path: logo.filePath, size: "w500")
                 }
-                // 背景 poster 用 original 走代理
-                if let posterPath = images?.bestPoster?.originalURL {
-                    tmdbPosterURL = TMDBService.shared.proxiedImageURL(posterPath, size: "original")
+                // 背景 poster 用 original
+                if let poster = images?.bestPoster {
+                    tmdbPosterURL = TMDBService.shared.imageURL(path: poster.filePath, size: "original")
+                    tmdbPosterFallbackURL = TMDBService.shared.imageFallbackURL(path: poster.filePath, size: "original")
                 }
                 // backdrop 备用
-                if let backdropPath = images?.bestBackdrop?.originalURL {
-                    tmdbBackdropURL = TMDBService.shared.proxiedImageURL(backdropPath, size: "original")
+                if let backdrop = images?.bestBackdrop {
+                    tmdbBackdropURL = TMDBService.shared.imageURL(path: backdrop.filePath, size: "original")
+                    tmdbBackdropFallbackURL = TMDBService.shared.imageFallbackURL(path: backdrop.filePath, size: "original")
+                }
+                // 剧照（展示在演职下方，最多 10 张；主/兜底同序）
+                let stills = images?.stills(limit: 10) ?? []
+                tmdbStillURLs = stills.map {
+                    TMDBService.shared.imageURL(path: $0.filePath, size: "w780")
+                }
+                tmdbStillFallbackURLs = stills.compactMap {
+                    TMDBService.shared.imageFallbackURL(path: $0.filePath, size: "w780")
+                }
+                // 全屏原图（与 w780 同序；原图失败时全屏页继续用 w780）
+                tmdbStillHdURLs = stills.map {
+                    TMDBService.shared.imageURL(path: $0.filePath, size: "original")
+                }
+                tmdbStillHdFallbackURLs = stills.compactMap {
+                    TMDBService.shared.imageFallbackURL(path: $0.filePath, size: "original")
                 }
 
                 // 演职人员：TMDB 有则替换豆瓣
@@ -1099,6 +1132,19 @@ struct VideoDetailView: View {
             VideoPlayerViewV2(video: data.video, preParsedEpisodes: data.episodes)
         }
         .fullScreenCover(item: $selectedPanVideo) { panVideo in VideoPlayerViewV2(video: panVideo) }
+        // 剧照全屏浏览（对齐 Flutter `_StillGalleryPage`）
+        .fullScreenCover(isPresented: Binding(
+            get: { stillPreviewIndex != nil },
+            set: { if !$0 { stillPreviewIndex = nil } }
+        )) {
+            StillGalleryView(
+                urls: tmdbStillURLs,
+                fallbackUrls: tmdbStillFallbackURLs,
+                hdUrls: tmdbStillHdURLs,
+                hdFallbackUrls: tmdbStillHdFallbackURLs,
+                initialIndex: stillPreviewIndex ?? 0
+            )
+        }
         // 选集弹窗（半屏）
         .sheet(isPresented: $showEpisodeSheet) {
             EpisodeSheetView(
@@ -1148,27 +1194,32 @@ struct VideoDetailView: View {
 
     // MARK: - 背景层
     private func backgroundLayer(geometry: GeometryProxy) -> some View {
-        Group {
-            if let poster = tmdbPosterURL ?? tmdbBackdropURL ?? doubanBackdropURL,
-               let url = DoubanImageProxyServer.shared.resolvedURL(for: poster) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                            .clipped()
-                            .overlay(bottomDimmingOverlay(height: geometry.size.height * 0.55))
-                    default:
-                        fallbackBackground
-                    }
-                }
-            } else {
+        // 候选顺序（对齐 Flutter `_buildBackground`）：TMDB 海报直连 → 海报代理 →
+        // 背景直连 → 背景代理 → 豆瓣大图 → 站点图；任一失败自动用下一张。
+        let candidates: [String] = [
+            tmdbPosterURL,
+            tmdbPosterFallbackURL,
+            tmdbBackdropURL,
+            tmdbBackdropFallbackURL,
+            doubanBackdropURL,
+            displayVideo.vodPic
+        ]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+        .map { DoubanImageProxyServer.shared.resolvedURL(for: $0)?.absoluteString ?? $0 }
+
+        return Group {
+            if candidates.isEmpty {
                 fallbackBackground
+            } else {
+                TMDBCascadingImage(urls: candidates, contentMode: .fill)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .overlay(bottomDimmingOverlay(height: geometry.size.height * 0.55))
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
+        .clipped()
         .ignoresSafeArea()
     }
 
@@ -1228,6 +1279,7 @@ struct VideoDetailView: View {
 
                     playButton
                     castSection
+                    stillsSection
                     synopsisSection
                     panSection
                     if !isCloudVideo {
@@ -1315,6 +1367,48 @@ struct VideoDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 剧照（演职下方；对齐 Flutter `_buildStills`）
+    @ViewBuilder
+    private var stillsSection: some View {
+        if !tmdbStillURLs.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("剧照")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(Array(tmdbStillURLs.enumerated()), id: \.offset) { offset, urlString in
+                            Button {
+                                stillPreviewIndex = offset
+                            } label: {
+                                TMDBCascadingImage(
+                                    urls: [
+                                        urlString,
+                                        offset < tmdbStillFallbackURLs.count
+                                            ? tmdbStillFallbackURLs[offset]
+                                            : ""
+                                    ].filter { !$0.isEmpty },
+                                    contentMode: .fill
+                                )
+                                .frame(width: stillCardWidth, height: stillCardWidth * 9 / 16)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("剧照 \(offset + 1)")
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// 剧照卡宽（小屏 0.55 屏宽，大屏钳到 360；对齐 Flutter clamp）。
+    private var stillCardWidth: CGFloat {
+        min(max(UIScreen.main.bounds.width * 0.55, 180), 360)
     }
 
     // MARK: - 剧情简介
@@ -2147,6 +2241,145 @@ struct EpisodeGridView: View {
                     }.buttonStyle(PlainButtonStyle())
                 }
             }
+        }
+    }
+}
+
+// MARK: - 剧照全屏浏览（对齐 Flutter `_StillGalleryPage`）
+/// 渐进清晰：底层 `w780` 秒开，上层叠 `original`；原图失败则一直用 `w780`。
+struct StillGalleryView: View {
+    let urls: [String]
+    /// 直连线路下的代理兜底（与 [urls] 同序；可为空）
+    let fallbackUrls: [String]
+    /// 原图（`original`）主 URL，与 [urls] 同序；为空则只显示 [urls]
+    let hdUrls: [String]
+    /// 原图兜底 URL（代理版）
+    let hdFallbackUrls: [String]
+    let initialIndex: Int
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var index: Int
+
+    init(
+        urls: [String],
+        fallbackUrls: [String] = [],
+        hdUrls: [String] = [],
+        hdFallbackUrls: [String] = [],
+        initialIndex: Int
+    ) {
+        self.urls = urls
+        self.fallbackUrls = fallbackUrls
+        self.hdUrls = hdUrls
+        self.hdFallbackUrls = hdFallbackUrls
+        self.initialIndex = initialIndex
+        _index = State(initialValue: initialIndex)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            TabView(selection: $index) {
+                ForEach(Array(urls.enumerated()), id: \.offset) { offset, urlString in
+                    ZStack {
+                        TMDBCascadingImage(
+                            urls: [
+                                urlString,
+                                offset < fallbackUrls.count ? fallbackUrls[offset] : ""
+                            ].filter { !$0.isEmpty },
+                            contentMode: .fit,
+                            placeholderColor: .black,
+                            showsProgress: true
+                        )
+                        // 透明占位：原图未就绪时不遮挡底层 w780。
+                        if offset < hdUrls.count {
+                            TMDBCascadingImage(
+                                urls: [
+                                    hdUrls[offset],
+                                    offset < hdFallbackUrls.count
+                                        ? hdFallbackUrls[offset]
+                                        : ""
+                                ].filter { !$0.isEmpty },
+                                contentMode: .fit,
+                                placeholderColor: .clear
+                            )
+                        }
+                    }
+                    .tag(offset)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.black.opacity(0.45))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+                Text("\(index + 1) / \(urls.count)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.bottom, 24)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+    }
+}
+
+// MARK: - 多候选图片（对齐 Flutter `CascadingImage`）
+/// 按顺序尝试多个 URL，失败自动切下一张；全部失败停在占位。
+///
+/// 与 Flutter 的差异：Flutter 版失败时会继续切到「豆瓣 / 站点图」，
+/// iOS 侧由调用方把整条候选链传进来（背景层候选已含豆瓣与站点图）。
+struct TMDBCascadingImage: View {
+    let urls: [String]
+    var contentMode: ContentMode = .fill
+    var placeholderColor: Color = Color.white.opacity(0.06)
+    var showsProgress: Bool = false
+
+    @State private var index: Int = 0
+    /// 已排队切候选（防止同一失败态多次 onAppear 连跳两张）
+    @State private var advanceScheduled: Bool = false
+
+    private var currentURL: URL? {
+        guard index >= 0, index < urls.count else { return nil }
+        return URL(string: urls[index])
+    }
+
+    var body: some View {
+        AsyncImage(url: currentURL) { phase in
+            switch phase {
+            case .success(let image):
+                image.resizable().aspectRatio(contentMode: contentMode)
+            case .failure:
+                placeholderColor.onAppear(perform: advance)
+            default:
+                if showsProgress {
+                    ProgressView().tint(.white)
+                } else {
+                    placeholderColor
+                }
+            }
+        }
+    }
+
+    /// 帧后切下一候选（失败态处于渲染期，不在更新中直接改 State）。
+    private func advance() {
+        guard !advanceScheduled, index + 1 < urls.count else { return }
+        advanceScheduled = true
+        let next = index + 1
+        DispatchQueue.main.async {
+            if next < urls.count { index = next }
+            advanceScheduled = false
         }
     }
 }
