@@ -48,16 +48,4 @@ class ConnectivityNetworkInfo implements NetworkInfo {
       return true;
     }
   }
-
-  /// 连通性变化流（true = 有网；按「有网/无网」去重）。
-  ///
-  /// 用途：网络切换（Wi-Fi ↔ 蜂窝 / 断网恢复）后让 TMDB 图片线路重新探测。
-  /// 插件缺失 / 平台不支持时返回空流（fail-open，不影响主流程）。
-  Stream<bool> get onConnectivityChanged {
-    try {
-      return Connectivity().onConnectivityChanged.map(hasConnection).distinct();
-    } catch (_) {
-      return const Stream<bool>.empty();
-    }
-  }
 }

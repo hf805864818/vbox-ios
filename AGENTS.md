@@ -189,9 +189,12 @@ docs/             方案与对齐文档
   - iOS 对齐：`TMDBService.resolveImageRoute/imageURL/imageFallbackURL/stills`、`TMDBCredits`
     头像也走线路；`VideoDetailView` 增 `tmdbStillURLs` / `stillsSection` / `StillGalleryView`，
     背景与剧照经 `TMDBCascadingImage` 做「主 → 兜底」级联（与 Flutter `CascadingImage` 同口径）。
-  - 网络切换：`ConnectivityNetworkInfo.onConnectivityChanged` → `TmdbImageRouteResolver.invalidate()`
-    （`app.dart` 订阅、`dispose()` 取消）；改代理 / 改开关时由 `TmdbConfigStore` 直接失效。
-  - 设置文案同步为「加载 TMDB 封面、剧照与演职人员」（两端一致）。
+  - 网络切换：`app.dart` 的 `didChangeAppLifecycleState(resumed)` →
+    `TmdbImageRouteResolver.invalidate()`（不订阅 connectivity_plus 流：插件缺失时
+    EventChannel 激活会抛 `MissingPluginException`，测试/桌面端会判失败）；
+    改代理 / 改开关时由 `TmdbConfigStore` 直接失效。
+  - 设置文案保持原样（「加载 TMDB 封面与演职人员」）：`settings_portrait` golden 由
+    Linux 渲染锁定，改文案会让 CI 像素回归；功能与文案无关。
   - TV（Android TV，`InputModality.remote`）：剧照卡可聚焦（`FocusableActionDetector`
     + 描边/阴影 + `Scrollable.ensureVisible` 自动滚入视野），OK 打开全屏；全屏页
     ←/→ 翻页、Esc / 返回键关闭。iOS 侧本仓无 tvOS 目标（`TARGETED_DEVICE_FAMILY`

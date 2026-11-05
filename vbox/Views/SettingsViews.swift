@@ -226,7 +226,7 @@ struct SettingsView: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 16))
                         .foregroundColor(Color(hex: "3B82F6"))
-                    Text("加载 TMDB 封面、剧照与演职人员")
+                    Text("加载 TMDB 封面与演职人员")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(.primary)
                     Spacer()

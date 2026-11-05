@@ -3,7 +3,7 @@
 /// 唯一真相源：iOS `vbox/Views/SettingsViews.swift` `tmdbSettingsSection`
 /// （L222-L301）：
 ///   · 标题「TMDB 设置」；
-///   · 首行：图标 `photo.on.rectangle.angled`（`#3B82F6`）+「加载 TMDB 封面、剧照与演职人员」
+///   · 首行：图标 `photo.on.rectangle.angled`（`#3B82F6`）+「加载 TMDB 封面与演职人员」
 ///     + 开关 `settings.enableTMDB`；
 ///   · 启用后展开：「代理地址」标签 + 输入框（占位「请输入代理域名」）→
 ///     图标 `key.fill`（`#F59E0B`）+「代理需要 Token」+ 开关（`tmdbUseToken`）→
@@ -61,7 +61,7 @@ class _TmdbSettingsSectionState extends State<TmdbSettingsSection> {
       title: 'TMDB 设置',
       children: <Widget>[
         VboxSettingsRow.toggle(
-          title: '加载 TMDB 封面、剧照与演职人员',
+          title: '加载 TMDB 封面与演职人员',
           icon: Icons.photo_library_outlined,
           iconColor: VboxColors.tmdbAccent,
           value: store.enabled,
