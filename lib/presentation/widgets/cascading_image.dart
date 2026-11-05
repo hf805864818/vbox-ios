@@ -23,6 +23,7 @@ class CascadingImage extends StatefulWidget {
     this.placeholderColor,
     this.placeholder,
     this.timeout = const Duration(seconds: 5),
+    this.readTimeout,
     this.errorBuilder,
   });
 
@@ -40,6 +41,9 @@ class CascadingImage extends StatefulWidget {
 
   /// 单次请求超时（直连被阻断时尽快判失败，缺省 5 秒）。
   final Duration timeout;
+
+  /// 响应体读取超时（缺省沿用 [timeout]；大图给更宽松的上限）。
+  final Duration? readTimeout;
 
   /// 全部候选失败后的自定义失败态（缺省为占位盒）。
   final Widget Function(BuildContext context, Object error, StackTrace? stackTrace)?
@@ -106,6 +110,7 @@ class _CascadingImageState extends State<CascadingImage> {
       placeholderColor: widget.placeholderColor,
       placeholder: widget.placeholder,
       timeout: widget.timeout,
+      readTimeout: widget.readTimeout,
       errorBuilder: (BuildContext ctx, Object error, StackTrace? stackTrace) {
         _advance(error, stackTrace);
         return _placeholder(ctx);

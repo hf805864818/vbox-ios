@@ -89,6 +89,7 @@ class PlatformAsyncImage extends StatelessWidget {
     this.imageDecoder,
     this.gaplessPlayback = true,
     this.timeout,
+    this.readTimeout,
   });
 
   /// 图片地址（空 → 直接占位态，不发请求）。
@@ -129,7 +130,15 @@ class PlatformAsyncImage extends StatelessWidget {
   /// 显式连接 / 读取超时（非空则强制走字节拉取分支，确保失败能在秒级返回）。
   ///
   /// 用于级联图片：直连图床被阻断时必须尽快判失败，否则用户会长时间看占位。
+  /// 它同时是**连接与响应头**的等待上限。
   final Duration? timeout;
+
+  /// 响应体读取超时（缺省沿用 [timeout]）。
+  ///
+  /// 拆分理由：大图（TMDB `original` 2–3 MB）在「连得上但慢」的网络上，
+  /// 用连接级短超时会中途放弃 → 级联掉到豆瓣/站点小图 → 背景看起来发虚。
+  /// 固定 4s 只拦「连不上/无响应」，读取给足 15s。
+  final Duration? readTimeout;
 
   /// 平台封面分支：URL 归一。
   ///
@@ -301,6 +310,7 @@ class PlatformAsyncImage extends StatelessWidget {
         height: height,
         gaplessPlayback: gaplessPlayback,
         timeout: timeout ?? const Duration(seconds: 15),
+        readTimeout: readTimeout,
         errorBuilder: errorBuilder,
         fallback: fallback,
       );
@@ -387,6 +397,7 @@ class _ByteFetchImage extends StatefulWidget {
     this.width,
     this.height,
     this.timeout = const Duration(seconds: 15),
+    this.readTimeout,
     this.errorBuilder,
   });
 
@@ -406,6 +417,9 @@ class _ByteFetchImage extends StatefulWidget {
 
   /// 连接 / 单次读取超时（级联图片用它把「直连失败」压到秒级）。
   final Duration timeout;
+
+  /// 响应体读取超时（缺省沿用 [timeout]；大图给更宽松的上限）。
+  final Duration? readTimeout;
 
   @override
   State<_ByteFetchImage> createState() => _ByteFetchImageState();
@@ -491,8 +505,10 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
           await request.close().timeout(widget.timeout);
       if (response.statusCode != 200) return null;
       final BytesBuilder builder = BytesBuilder(copy: false);
-      // 读取同样受超时约束：直连图床被阻断时可能「连得上但无响应」。
-      await for (final List<int> chunk in response.timeout(widget.timeout)) {
+      // 读取用独立超时：连接/首包已经用 [widget.timeout] 卡住，这里放宽到
+      // [widget.readTimeout]，避免慢网下大图被中途放弃而级联到低清兜底。
+      final Duration readTimeout = widget.readTimeout ?? widget.timeout;
+      await for (final List<int> chunk in response.timeout(readTimeout)) {
         builder.add(chunk);
       }
       Uint8List bytes = builder.takeBytes();

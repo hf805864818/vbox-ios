@@ -1196,7 +1196,10 @@ class _DetailPageState extends State<DetailPage> {
           urls: covers,
           fit: BoxFit.cover,
           placeholderColor: Colors.black,
+          // 连接 4s 判定「图床被墙/无响应」，读取给 15s：否则大图（original
+          // 2–3 MB）在慢网下会被中途放弃，级联掉到豆瓣/站点小图 → 背景发虚。
           timeout: const Duration(seconds: 4),
+          readTimeout: const Duration(seconds: 15),
           errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black),
         ),
         Align(
@@ -1271,6 +1274,7 @@ class _DetailPageState extends State<DetailPage> {
                   fit: BoxFit.contain,
                   placeholderColor: Colors.transparent,
                   timeout: const Duration(seconds: 4),
+                  readTimeout: const Duration(seconds: 10),
                   errorBuilder: (_, __, ___) => _heroFallbackTitle(vod.vodName),
                 )
               : _heroFallbackTitle(vod.vodName),
@@ -2682,6 +2686,7 @@ class _StillCardState extends State<_StillCard> {
                   fit: BoxFit.cover,
                   placeholderColor: Colors.white10,
                   timeout: const Duration(seconds: 5),
+                  readTimeout: const Duration(seconds: 15),
                 ),
               ),
             ),
@@ -2793,6 +2798,7 @@ class _StillGalleryPageState extends State<_StillGalleryPage> {
                       fit: BoxFit.contain,
                       placeholderColor: Colors.black,
                       timeout: const Duration(seconds: 6),
+                      readTimeout: const Duration(seconds: 15),
                     ),
                     // 上层：original 渐进替换（透明占位，未就绪时露出底层）
                     if (i < widget.hdUrls.length)
@@ -2804,7 +2810,8 @@ class _StillGalleryPageState extends State<_StillGalleryPage> {
                         ],
                         fit: BoxFit.contain,
                         placeholder: const SizedBox.shrink(),
-                        timeout: const Duration(seconds: 20),
+                        timeout: const Duration(seconds: 6),
+                        readTimeout: const Duration(seconds: 30),
                       ),
                   ],
                 ),
