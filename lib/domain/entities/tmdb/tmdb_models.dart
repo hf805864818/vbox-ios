@@ -18,8 +18,14 @@ library;
 
 import '../../../core/utils/json_utils.dart';
 
-/// TMDB 图片基址（对齐 iOS `TMDBService.imageBaseURL`）。
+/// TMDB 图片基址（对齐 iOS `TMDBService.imageBaseURL`，官方 CloudFront）。
 const String kTmdbImageBaseUrl = 'https://image.tmdb.org/t/p';
+
+/// TMDB 备用图床基址（TMDB 自己的 BunnyCDN 拉流域 `tmdb-image-prod.b-cdn.net`）。
+///
+/// 与 [kTmdbImageBaseUrl] 同源同图，只是走另一条 CDN：官方 CloudFront 在部分
+/// 大陆网络被阻断，Bunny 通常可达（对齐 iOS `TMDBService.directImageBaseURL`）。
+const String kTmdbImageDirectBaseUrl = 'https://images.tmdb.org/t/p';
 
 /// 搜索候选条目（对齐 iOS `TMDBSearchResult`）。
 class TmdbSearchResult {
@@ -126,14 +132,20 @@ class TmdbImage {
         language: JsonUtils.pickString(j, 'iso_639_1'),
       );
 
+  /// 按指定基址与尺寸拼 URL。
+  ///
+  /// [base] 缺省官方 CloudFront；B 方案直连时传 [kTmdbImageDirectBaseUrl]。
+  String urlOn(String size, {String base = kTmdbImageBaseUrl}) =>
+      '$base/$size$filePath';
+
   /// 原图 URL（对齐 iOS `originalURL`）。
-  String get originalUrl => '$kTmdbImageBaseUrl/original$filePath';
+  String get originalUrl => urlOn('original');
 
   /// `w500` URL（对齐 iOS `w500URL`）。
-  String get w500Url => '$kTmdbImageBaseUrl/w500$filePath';
+  String get w500Url => urlOn('w500');
 
   /// `w1280` URL（对齐 iOS `w1280URL`）。
-  String get w1280Url => '$kTmdbImageBaseUrl/w1280$filePath';
+  String get w1280Url => urlOn('w1280');
 }
 
 /// 图片集（对齐 iOS `TMDBImages`）。
@@ -198,6 +210,26 @@ class TmdbImages {
     final List<TmdbImage> sorted = List<TmdbImage>.of(backdrops)
       ..sort((TmdbImage a, TmdbImage b) => b.voteAverage.compareTo(a.voteAverage));
     return sorted.first;
+  }
+
+  /// 剧照（对齐 iOS `TMDBImages.stills`）。
+  ///
+  /// TMDB 的 `/images` 没有独立 `stills` 字段：电影/剧集的「剧照」就是横版
+  /// `backdrops`（16:9 场景图）。这里按票数降序、`aspect_ratio >= 1.3` 过滤、
+  /// 同一 `file_path` 去重后取前 [limit] 张。
+  List<TmdbImage> stills({int limit = 10}) {
+    final List<TmdbImage> pool = backdrops
+        .where((TmdbImage i) => i.aspectRatio >= 1.3)
+        .toList()
+      ..sort((TmdbImage a, TmdbImage b) => b.voteAverage.compareTo(a.voteAverage));
+    final Set<String> seen = <String>{};
+    final List<TmdbImage> out = <TmdbImage>[];
+    for (final TmdbImage i in pool) {
+      if (!seen.add(i.filePath)) continue;
+      out.add(i);
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   /// 是否无任何图片。
@@ -366,25 +398,59 @@ class TmdbCredits {
 
 /// 详情页 TMDB 增强聚合结果（对齐 iOS `VideoDetailView` 的
 /// `tmdbLogoURL` / `tmdbPosterURL` / `tmdbBackdropURL` + 演职替换）。
+///
+/// 图片为「主 + 兜底」两级（B 方案）：探测直连可用时主 URL 走 TMDB 的
+/// BunnyCDN、兜底为用户配置代理；探测失败时主 URL 直接是代理版、兜底为 null。
 class TmdbEnrichment {
   /// 构造。
   const TmdbEnrichment({
     this.logoUrl,
+    this.logoFallbackUrl,
     this.posterUrl,
+    this.posterFallbackUrl,
     this.backdropUrl,
+    this.backdropFallbackUrl,
+    this.stillUrls = const <String>[],
+    this.stillFallbackUrls = const <String>[],
+    this.stillHdUrls = const <String>[],
+    this.stillHdFallbackUrls = const <String>[],
     this.actors = const <TmdbPerson>[],
     this.directors = const <TmdbPerson>[],
     this.writers = const <TmdbPerson>[],
   });
 
-  /// logo 代理 URL（`w500` 走代理）。
+  /// logo 主 URL（`w500`）。
   final String? logoUrl;
 
-  /// 海报代理 URL（`original` 走代理）。
+  /// logo 兜底 URL（代理版；主 URL 已是代理时为 null）。
+  final String? logoFallbackUrl;
+
+  /// 海报主 URL（`original`）。
   final String? posterUrl;
 
-  /// 背景代理 URL（`original` 走代理，备用）。
+  /// 海报兜底 URL（代理版）。
+  final String? posterFallbackUrl;
+
+  /// 背景主 URL（`original`，备用）。
   final String? backdropUrl;
+
+  /// 背景兜底 URL（代理版）。
+  final String? backdropFallbackUrl;
+
+  /// 剧照主 URL（`w780`，与 [stillFallbackUrls] 同序）。
+  final List<String> stillUrls;
+
+  /// 剧照兜底 URL（代理版，与 [stillUrls] 同序；未启用兜底时为空表）。
+  final List<String> stillFallbackUrls;
+
+  /// 剧照高清主 URL（`original`，仅供全屏浏览；与 [stillUrls] 同序）。
+  ///
+  /// 轨道卡片用 `w780`（秒开、省流量），全屏时再叠一张 `original` 渐进替换，
+  /// 避免 4K 电视上放大发虚。
+  final List<String> stillHdUrls;
+
+  /// 剧照高清兜底 URL（代理版，与 [stillHdUrls] 同序；未启用兜底时为空表）。
+  final List<String> stillHdFallbackUrls;
 
   /// 演员（TMDB 有则替换豆瓣）。
   final List<TmdbPerson> actors;
@@ -402,6 +468,9 @@ class TmdbEnrichment {
   bool get hasCredits =>
       actors.isNotEmpty || directors.isNotEmpty || writers.isNotEmpty;
 
+  /// 是否有剧照。
+  bool get hasStills => stillUrls.isNotEmpty;
+
   /// 是否存在任何增强内容。
-  bool get isEmpty => logoUrl == null && !hasBackdrop && !hasCredits;
+  bool get isEmpty => logoUrl == null && !hasBackdrop && !hasCredits && !hasStills;
 }

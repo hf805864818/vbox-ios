@@ -125,6 +125,9 @@ class _VBoxAppState extends State<VBoxApp> with WidgetsBindingObserver {
   /// Node 就绪订阅（ND-01：就绪后触发本机凭据自动推送，NC-清5）。
   StreamSubscription<NodeRuntimeStatus>? _nodeStatusSub;
 
+  /// 连通性变化订阅（网络切换后让 TMDB 图片线路重新探测）。
+  StreamSubscription<bool>? _connectivitySub;
+
   /// allSources 清单 URL（S-设1：脚本相对路径解析 base，对齐 iOS `subBaseURL`）。
   String? _allSourcesUrl;
 
@@ -352,6 +355,12 @@ class _VBoxAppState extends State<VBoxApp> with WidgetsBindingObserver {
       // ④ 数据层仓储 → 领域层用例
       // A2：网络可达性探针（平台层实现），注入全部 HTTP 客户端做离线短路。
       final ConnectivityNetworkInfo networkInfo = ConnectivityNetworkInfo();
+      // 网络切换（Wi-Fi ↔ 蜂窝 / 断网恢复）后 TMDB 图片直连判定可能失效 →
+      // 让线路解析器失效，下次进详情页重探（对齐 iOS 改代理即失效）。
+      _connectivitySub ??= networkInfo.onConnectivityChanged.listen(
+        (bool _) => TmdbImageRouteResolver.shared.invalidate(),
+        onError: (Object _) {},
+      );
       _favoriteUseCases = FavoriteUseCases(FavoriteRepositoryImpl());
       _historyUseCases = HistoryUseCases(HistoryRepositoryImpl());
       _searchHistoryUseCases = SearchHistoryUseCases(SearchHistoryRepositoryImpl());
@@ -598,6 +607,7 @@ class _VBoxAppState extends State<VBoxApp> with WidgetsBindingObserver {
     unawaited(_stopNodeRuntime());
     unawaited(_logSink?.stop());
     unawaited(_nodeStatusSub?.cancel());
+    unawaited(_connectivitySub?.cancel());
     super.dispose();
   }
 

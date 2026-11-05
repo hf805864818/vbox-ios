@@ -21,6 +21,8 @@
 ///   故凡是需要注入请求头（防盗链 Referer / @UA 后缀 / SSL 绕过 / AES 字节后处理）
 ///   的图片，统一走 [HttpClient] + `headers.set` 取字节再 `Image.memory` 渲染，
 ///   与 iOS 本地代理（`DoubanImageProxyServer` / `PlatformImageLoader`）行为一致。
+/// - **显式 `timeout` 同样走字节拉取**：`Image.network` 无法控制超时，级联图片
+///   需要秒级判失败才能及时切下一候选（见 `CascadingImage`）。
 /// - 缓存：无头图片透传 `Image.network` 自带 `PaintingBinding.imageCache`；
 ///   带字节后处理的走 [_ImageByteCache]（内存缓存 + 并发去重，对齐 iOS
 ///   `PlatformImageCache`），其余 `Image.memory` 走 `PaintingBinding.imageCache`。
@@ -86,6 +88,7 @@ class PlatformAsyncImage extends StatelessWidget {
     this.headers,
     this.imageDecoder,
     this.gaplessPlayback = true,
+    this.timeout,
   });
 
   /// 图片地址（空 → 直接占位态，不发请求）。
@@ -122,6 +125,11 @@ class PlatformAsyncImage extends StatelessWidget {
 
   /// 网络图过渡（缺省 true，避免加载闪烁）。
   final bool gaplessPlayback;
+
+  /// 显式连接 / 读取超时（非空则强制走字节拉取分支，确保失败能在秒级返回）。
+  ///
+  /// 用于级联图片：直连图床被阻断时必须尽快判失败，否则用户会长时间看占位。
+  final Duration? timeout;
 
   /// 平台封面分支：URL 归一。
   ///
@@ -281,7 +289,8 @@ class PlatformAsyncImage extends StatelessWidget {
     // `DoubanImageProxyServer.fetchImage` / `PlatformImageLoader` 的 `setValue`
     // 语义一致（覆盖而非追加）。
     final bool sslBypass = merged.remove(kPlatformImageSslBypassHeader) == '1';
-    if (sslBypass || imageDecoder != null || merged.isNotEmpty) {
+    final Duration? timeout = this.timeout;
+    if (sslBypass || imageDecoder != null || merged.isNotEmpty || timeout != null) {
       return _ByteFetchImage(
         url: parsed.url,
         headers: merged,
@@ -291,6 +300,8 @@ class PlatformAsyncImage extends StatelessWidget {
         width: width,
         height: height,
         gaplessPlayback: gaplessPlayback,
+        timeout: timeout ?? const Duration(seconds: 15),
+        errorBuilder: errorBuilder,
         fallback: fallback,
       );
     }
@@ -375,6 +386,8 @@ class _ByteFetchImage extends StatefulWidget {
     this.transform,
     this.width,
     this.height,
+    this.timeout = const Duration(seconds: 15),
+    this.errorBuilder,
   });
 
   final String url;
@@ -386,6 +399,13 @@ class _ByteFetchImage extends StatefulWidget {
   final double? height;
   final bool gaplessPlayback;
   final Widget fallback;
+
+  /// 失败态（非空时优先于 [fallback]；级联图片靠它切下一候选）。
+  final Widget Function(BuildContext context, Object error, StackTrace? stackTrace)?
+      errorBuilder;
+
+  /// 连接 / 单次读取超时（级联图片用它把「直连失败」压到秒级）。
+  final Duration timeout;
 
   @override
   State<_ByteFetchImage> createState() => _ByteFetchImageState();
@@ -455,7 +475,7 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
 
   Future<Uint8List?> _fetch(String key) async {
     final HttpClient client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = widget.timeout;
     if (widget.sslBypass) {
       client.badCertificateCallback = (cert, host, port) => true;
     }
@@ -467,10 +487,12 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
       for (final MapEntry<String, String> entry in widget.headers.entries) {
         request.headers.set(entry.key, entry.value);
       }
-      final HttpClientResponse response = await request.close();
+      final HttpClientResponse response =
+          await request.close().timeout(widget.timeout);
       if (response.statusCode != 200) return null;
       final BytesBuilder builder = BytesBuilder(copy: false);
-      await for (final List<int> chunk in response) {
+      // 读取同样受超时约束：直连图床被阻断时可能「连得上但无响应」。
+      await for (final List<int> chunk in response.timeout(widget.timeout)) {
         builder.add(chunk);
       }
       Uint8List bytes = builder.takeBytes();
@@ -488,7 +510,20 @@ class _ByteFetchImageState extends State<_ByteFetchImage> {
   @override
   Widget build(BuildContext context) {
     final Uint8List? bytes = _bytes;
-    if (bytes == null || _failed) return widget.fallback;
+    if (bytes == null || _failed) {
+      // 字节拉取失败也要把错误交给调用方（级联图片据此切下一候选），
+      // 仅在没有 errorBuilder 时退回占位。
+      final Widget Function(BuildContext, Object, StackTrace?)? handler =
+          widget.errorBuilder;
+      if (handler != null) {
+        return handler(
+          context,
+          StateError('图片加载失败：${widget.url}'),
+          null,
+        );
+      }
+      return widget.fallback;
+    }
     return Image.memory(
       bytes,
       fit: widget.fit,

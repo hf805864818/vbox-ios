@@ -17,13 +17,18 @@
 /// 差异登记：
 ///   · iOS `updateProxy` / `updateToken` 把配置缓存进单例；Flutter 侧改为每次请求
 ///     从注入的 [TmdbConfigStore] 实时读取（配置可在设置页热改，无需手动同步）；
-///   · iOS 用 `URLSession`（15s/30s 超时）；Flutter 复用核心层 [HttpClient]。
+///   · iOS 用 `URLSession`（15s/30s 超时）；Flutter 复用核心层 [HttpClient]；
+///   · 批次 B：新增直连图床常量（BunnyCDN `images.tmdb.org`）、`imageUrl()` 与
+///     `probeDirectImage()`；线路判定见 `tmdb_image_route.dart`（对齐 iOS
+///     `TMDBService.resolveImageRoute`）。上游统一用 Bunny 域名，代理端同样受益。
 library;
 
 import 'dart:convert' show utf8;
+import 'dart:io' as io;
 
 import '../../../core/network/http_client.dart';
 import '../../../core/utils/json_utils.dart';
+import '../../../core/utils/logger.dart';
 import '../../../domain/entities/tmdb/tmdb_models.dart';
 import '../local/tmdb_config_store.dart';
 
@@ -42,6 +47,15 @@ class TmdbDatasource {
 
   /// TMDB 图片基址（对齐 iOS `TMDBService.imageBaseURL`）。
   static const String imageBaseUrl = kTmdbImageBaseUrl;
+
+  /// TMDB 直连图床基址（BunnyCDN 拉流域，B 方案直连时使用）。
+  static const String directImageBase = kTmdbImageDirectBaseUrl;
+
+  /// TMDB 官方图床基址（CloudFront；直连不可用 / 历史行为）。
+  static const String legacyImageBase = kTmdbImageBaseUrl;
+
+  /// 直连探测超时（`w92` 小图正常 < 1s，留 3s 余量）。
+  static const Duration probeTimeout = Duration(seconds: 3);
 
   /// 代理 query 编码的**保留字符集**（对齐 iOS `allowed`）：
   /// 字母数字 + `:/?+$,;-.~_#[]!%`。其中 `%` 保留以兼容已编码的 `%XX`；
@@ -129,6 +143,45 @@ class TmdbDatasource {
   /// 生成 TMDB 图片原始 URL（对齐 iOS `originalImageURL`）。
   static String originalImageUrl(String path, {String size = 'w500'}) =>
       '$imageBaseUrl/$size$path';
+
+  /// 按线路拼图片 URL（[direct] 为真取 BunnyCDN，否则取官方 CloudFront）。
+  ///
+  /// 只拼「上游原始地址」；是否再套代理由调用方决定（见 [proxiedImageUrl]）。
+  static String imageUrl(String path, String size, {required bool direct}) =>
+      '${direct ? directImageBase : legacyImageBase}/$size$path';
+
+  /// 直连图床可用性探测（`w92` 小图，3 秒超时，不重试）。
+  ///
+  /// [posterPath] 来自搜索命中项（一定存在），避免用固定路径被删导致误判。
+  /// 返回 false 覆盖：非 200 / 超时 / TLS 失败 / 空路径。
+  Future<bool> probeDirectImage(String posterPath) async {
+    if (posterPath.trim().isEmpty) return false;
+    final String url = '$directImageBase/w92$posterPath';
+    try {
+      return await _probeByHttp(url)
+          .timeout(probeTimeout, onTimeout: () => false);
+    } catch (e) {
+      AppLog.warn('tmdb', '直连图床探测失败：$e', category: LogCategory.network);
+      return false;
+    }
+  }
+
+  /// 用 `dart:io` 直接探 HTTP 状态，不解析图片字节。
+  static Future<bool> _probeByHttp(String url) async {
+    final io.HttpClient client = io.HttpClient()
+      ..connectionTimeout = probeTimeout;
+    try {
+      final io.HttpClientRequest request = await client.getUrl(Uri.parse(url));
+      final io.HttpClientResponse response =
+          await request.close().timeout(probeTimeout);
+      await response.drain<void>();
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
 
   // ─────────────── 接口 ───────────────
 

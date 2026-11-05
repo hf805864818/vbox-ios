@@ -19,6 +19,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../remote/tmdb_image_route.dart';
 import 'prefs_manager.dart';
 
 /// TMDB 配置存储（可监听，UI 直接 `ListenableBuilder` 消费）。
@@ -91,6 +92,8 @@ class TmdbConfigStore extends ChangeNotifier {
   void setEnabled(bool value) {
     if (_enabled == value) return;
     _enabled = value;
+    // 开关变化会影响「是否需要探测直连」，下次进入详情页重判线路。
+    TmdbImageRouteResolver.shared.invalidate();
     notifyListeners();
     unawaited(_save());
   }
@@ -99,6 +102,8 @@ class TmdbConfigStore extends ChangeNotifier {
   void setProxyUrl(String value) {
     if (_proxyUrl == value) return;
     _proxyUrl = value;
+    // 改代理后旧判定（直连/代理）可能失效，强制下次重探。
+    TmdbImageRouteResolver.shared.invalidate();
     notifyListeners();
     unawaited(_save());
   }

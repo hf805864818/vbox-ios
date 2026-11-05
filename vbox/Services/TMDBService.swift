@@ -7,10 +7,25 @@ final class TMDBService {
     static let shared = TMDBService()
 
     private let apiKey = "eea47c6a97dbc2b7cfad319971719cec"
+    /// 官方图床（AWS CloudFront；部分大陆网络被阻断）。
     private let imageBaseURL = "https://image.tmdb.org/t/p"
+    /// 直连图床（TMDB 自己的 BunnyCDN 拉流域，多数网络可直连）。
+    private let directImageBaseURL = "https://images.tmdb.org/t/p"
     private var proxyBaseURL: String
     private var useProxyToken: Bool
     private var proxyToken: String
+
+    /// 图片线路（对齐 Flutter `TmdbImageRoute`）。
+    enum ImageRoute {
+        case direct
+        case proxy
+    }
+
+    private var imageRoute: ImageRoute = .proxy
+    private var imageRouteResolvedAt: Date?
+    private static let imageRouteTTL: TimeInterval = 30 * 60
+    /// 直连探测超时（`w92` 小图正常 < 1s）。
+    private static let probeTimeout: TimeInterval = 3
 
     private let session: URLSession
 
@@ -27,12 +42,83 @@ final class TMDBService {
     /// 更新 TMDB 代理地址
     func updateProxy(baseURL: String) {
         self.proxyBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        invalidateImageRoute()
     }
 
     /// 更新 TMDB 代理 Token 配置
     func updateToken(useToken: Bool, token: String) {
         self.useProxyToken = useToken
         self.proxyToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        invalidateImageRoute()
+    }
+
+    // MARK: - 图片线路（对齐 Flutter TmdbImageRouteResolver）
+
+    /// 代理是否已配置（与 `guard settings.enableTMDB` 一起构成请求前置）。
+    private var hasProxy: Bool {
+        !proxyBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 失效判定（改代理 / 网络切换后调用，下次重探）。
+    func invalidateImageRoute() {
+        imageRouteResolvedAt = nil
+    }
+
+    /// 解析图片线路：直连可用 → `.direct`，否则 `.proxy`（TTL 30 分钟）。
+    ///
+    /// 与 Flutter 同口径：会话级选线路 + 每张图的主/兜底两级 URL
+    /// （兜底由 `imageFallbackURL` 产出、`TMDBCascadingImage` 在失败时切换）。
+    @discardableResult
+    func resolveImageRoute(posterPath: String?) async -> ImageRoute {
+        if let at = imageRouteResolvedAt, Date().timeIntervalSince(at) < Self.imageRouteTTL {
+            return imageRoute
+        }
+        guard hasProxy else { return .proxy }
+        var ok = false
+        if let posterPath, !posterPath.isEmpty {
+            ok = await probeDirectImage(posterPath: posterPath)
+        }
+        imageRoute = ok ? .direct : .proxy
+        imageRouteResolvedAt = Date()
+        let routeName = ok ? "直连 Bunny" : "代理"
+        print("[TMDBService] 图片线路=\(routeName)")
+        return imageRoute
+    }
+
+    /// 拉一张 `w92` 小图判断直连是否可用（非 200 / 超时 / 异常 → 不可用）。
+    private func probeDirectImage(posterPath: String) async -> Bool {
+        guard let url = URL(string: "\(directImageBaseURL)/w92\(posterPath)") else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.probeTimeout
+        do {
+            let (_, response) = try await session.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            print("[TMDBService] 直连图床探测失败: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 按当前线路生成图片 URL（对齐 Flutter `TmdbDatasource.imageUrl` + 代理）。
+    ///
+    /// 直连 → BunnyCDN 原始地址；代理 → 用户配置的云端代理（[proxiedURL]）。
+    /// 注意**不能**用 `proxiedImageURL`：它优先返回本地回环代理，而回环代理只能
+    /// 注入请求头、翻不了墙；且非白名单主机会原样返回，代理形同虚设。
+    /// 未配置代理时退回直连，避免拼出 `?url=` 半截地址。
+    func imageURL(path: String, size: String) -> String {
+        let direct = "\(directImageBaseURL)/\(size)\(path)"
+        guard imageRoute == .proxy, hasProxy else { return direct }
+        return proxiedURL(direct)
+    }
+
+    /// 图片兜底 URL（对齐 Flutter `TmdbEnrichment.*FallbackUrl`）。
+    ///
+    /// 仅直连线路下返回代理版；代理线路主 URL 已是代理 → nil。
+    func imageFallbackURL(path: String, size: String) -> String? {
+        guard imageRoute == .direct, hasProxy else { return nil }
+        return proxiedURL("\(directImageBaseURL)/\(size)\(path)")
     }
 
     // MARK: - 代理 URL
@@ -204,6 +290,24 @@ struct TMDBImages: Codable {
             .sorted { $0.voteAverage > $1.voteAverage }
             .first
     }
+
+    /// 剧照（对齐 Flutter `TmdbImages.stills`）。
+    ///
+    /// TMDB `/images` 没有独立 `stills` 字段：电影/剧集的「剧照」就是横版
+    /// `backdrops`（16:9 场景图）。按票数降序、`aspect_ratio >= 1.3` 过滤、
+    /// 同一 `filePath` 去重后取前 `limit` 张。
+    func stills(limit: Int = 10) -> [TMDBImage] {
+        let sorted = (backdrops ?? [])
+            .filter { $0.aspectRatio >= 1.3 }
+            .sorted { $0.voteAverage > $1.voteAverage }
+        var seen = Set<String>()
+        var result: [TMDBImage] = []
+        for image in sorted where seen.insert(image.filePath).inserted {
+            result.append(image)
+            if result.count >= limit { break }
+        }
+        return result
+    }
 }
 
 struct TMDBImage: Codable {
@@ -237,7 +341,7 @@ struct TMDBCredits: Codable {
             DoubanCelebrity(
                 id: "\(member.id)",
                 name: member.name,
-                cover_url: member.profilePath.map { "https://image.tmdb.org/t/p/w185\($0)" },
+                cover_url: member.profilePath.map { TMDBService.shared.imageURL(path: $0, size: "w185") },
                 roles: nil,
                 character: member.character
             )
@@ -251,7 +355,7 @@ struct TMDBCredits: Codable {
                 DoubanCelebrity(
                     id: "\(member.id)",
                     name: member.name,
-                    cover_url: member.profilePath.map { "https://image.tmdb.org/t/p/w185\($0)" },
+                    cover_url: member.profilePath.map { TMDBService.shared.imageURL(path: $0, size: "w185") },
                     roles: nil,
                     character: member.job
                 )
@@ -268,7 +372,7 @@ struct TMDBCredits: Codable {
                 DoubanCelebrity(
                     id: "\(member.id)",
                     name: member.name,
-                    cover_url: member.profilePath.map { "https://image.tmdb.org/t/p/w185\($0)" },
+                    cover_url: member.profilePath.map { TMDBService.shared.imageURL(path: $0, size: "w185") },
                     roles: nil,
                     character: member.job
                 )
